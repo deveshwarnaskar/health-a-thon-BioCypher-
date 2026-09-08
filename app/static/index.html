@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aahaar · Doctor Dashboard</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="logo">A</span>
+    <div><h1>Aahaar</h1><p>Doctor dashboard · assistive, non-diagnostic</p></div>
+  </div>
+  <div id="channel" class="channel">channel: …</div>
+</header>
+
+<main>
+  <section class="card" id="patients">
+    <h2>Patients</h2>
+    <div id="patient-list" class="chips">loading…</div>
+  </section>
+
+  <section class="grid">
+    <div class="card" id="summary">
+      <h2>Latest window</h2>
+      <div id="metrics" class="metrics">pick a patient</div>
+    </div>
+
+    <div class="card" id="actions">
+      <h2>Report</h2>
+      <button id="build" disabled>Build doctor report (PDF)</button>
+      <a id="pdf-link" hidden target="_blank">Open PDF</a>
+      <div id="report-note" class="muted"></div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h2>Simulate an inbound message</h2>
+      <form id="msg-form">
+        <select id="sender">
+          <option value="+919876501234">Patient (+919876501234)</option>
+          <option value="+919876505678">Caregiver (+919876505678)</option>
+          <option value="+919999999999">Unknown number (test guard)</option>
+        </select>
+        <input id="msg" type="text" placeholder="e.g. fasting 128 | 2 roti, dal, sabzi | yes | correct s" />
+        <button type="submit">Send</button>
+      </form>
+      <div id="send-log" class="log"></div>
+    </div>
+
+    <div class="card">
+      <h2>Channel log (audit trail)</h2>
+      <div id="log" class="log">–</div>
+    </div>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -28,3 +28,10 @@ build/
 # Local uploads / photos
 /uploads/
 /media/
+
+# Generated doctor reports + charts
+/reports/
+*.pdf
+
+# Test artifacts
+.pytest_cache/
