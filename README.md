@@ -70,8 +70,10 @@ weekday/weekend split, and nudge idempotency.
 The channel layer already has a `CloudBackend` (Meta WhatsApp Cloud API). To switch the
 server from the simulator to real WhatsApp, set `AAHAAR_WHATSAPP=cloud`,
 `META_PHONE_ID`, `META_TOKEN`, expose a public HTTPS webhook (e.g. cloudflared) and add
-event routing. A step-by-step beginner walkthrough is in `app/server/whatsapp.py` and will
-be exercised together ahead of the build sprint.
+event routing — the full click-by-click beginner walkthrough lives in
+**[docs/WHATSAPP_DEMO.md](docs/WHATSAPP_DEMO.md)**. The only thing that needs *you* is a
+free Meta developer account + a few numbers whitelisted (5 max); we'll do the live session
+together ahead of the build sprint.
 
 ## Product guardrails (never cross these)
 
