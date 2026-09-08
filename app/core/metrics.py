@@ -28,6 +28,62 @@ def _is_weekend(ts: str) -> bool:
         return False
 
 
+_POST_TAGS = {"postprandial", "postbreakfast", "postlunch", "postdinner"}
+_SLOT_TAG = {"postbreakfast": "postbreakfast", "postlunch": "postlunch",
+             "postdinner": "postdinner"}
+
+
+def _hour_of(ts: str) -> Optional[int]:
+    try:
+        return int(ts[11:13])
+    except (ValueError, IndexError):
+        return None
+
+
+def _slot_hour(h: Optional[int]) -> str:
+    if h is None or h >= 16:
+        return "postdinner"
+    if h < 11:
+        return "postbreakfast"
+    return "postlunch"
+
+
+def _meal_slot(meal_ts: str) -> str:
+    return _slot_hour(_hour_of(meal_ts))
+
+
+def _preceding_meal_slot(reading_ts: str, confirmed_meals: list[dict]) -> Optional[str]:
+    """Slot of the nearest confirmed meal logged *before* the reading (within 4 h)."""
+    try:
+        rt = datetime.fromisoformat(reading_ts.replace("Z", ""))
+    except ValueError:
+        return None
+    best: Optional[str] = None
+    best_dt: Optional[datetime] = None
+    for mm in confirmed_meals:
+        try:
+            mt = datetime.fromisoformat((mm["ts"] or "").replace("Z", ""))
+        except ValueError:
+            continue
+        if mt > rt:
+            continue
+        if best_dt is None or mt > best_dt:
+            best, best_dt = _meal_slot(mm["ts"]), mt
+    if best is None or (rt - best_dt).total_seconds() > 4 * 3600:
+        return None
+    return best
+
+
+def _slot_for(r: dict, confirmed_meals: list[dict]) -> str:
+    tag = r.get("tag")
+    if tag in _SLOT_TAG:
+        return tag
+    inferred = _preceding_meal_slot(r.get("ts") or "", confirmed_meals)
+    if inferred:
+        return inferred
+    return _slot_hour(_hour_of(r.get("ts") or ""))
+
+
 def compute_window_metrics(store: Store, cfg: Settings, window_id: int) -> dict:
     window = store.get_window(window_id)
     meals = store.meals_for_window(window_id, confirmed_only=True)
@@ -46,21 +102,42 @@ def compute_window_metrics(store: Store, cfg: Settings, window_id: int) -> dict:
     # --- glucose -----------------------------------------------------
     tag_values: dict[str, list[float]] = defaultdict(list)
     by_day: dict[str, list[float]] = defaultdict(list)
+    slot_by_reading: dict[int, str] = {}
     for r in readings:
         tag_values[r["tag"]].append(r["value"])
         by_day[_day(r["ts"])].append(r["value"])
+        if r["tag"] in _POST_TAGS:
+            slot_by_reading[r["id"]] = _slot_for(r, meals)
 
     def mean(vals):
         return round(statistics.fmean(vals), 1) if vals else None
 
     mean_fpg = mean(tag_values.get("fasting", []))
     mean_pre = mean(tag_values.get("pre", []))
-    mean_ppbg = mean(tag_values.get("postprandial", []))
 
-    pp_weekday = [r["value"] for r in readings if r["tag"] == "postprandial" and not _is_weekend(r["ts"])]
-    pp_weekend = [r["value"] for r in readings if r["tag"] == "postprandial" and _is_weekend(r["ts"])]
+    post_vals: dict[str, list[float]] = {"postbreakfast": [], "postlunch": [], "postdinner": []}
+    post_wkday: dict[str, list[float]] = {"postbreakfast": [], "postlunch": [], "postdinner": []}
+    post_wkend: dict[str, list[float]] = {"postbreakfast": [], "postlunch": [], "postdinner": []}
+    for r in readings:
+        if r["tag"] not in _POST_TAGS:
+            continue
+        slot = slot_by_reading[r["id"]]
+        post_vals[slot].append(r["value"])
+        (post_wkend if _is_weekend(r["ts"]) else post_wkday)[slot].append(r["value"])
+
+    all_pp = post_vals["postbreakfast"] + post_vals["postlunch"] + post_vals["postdinner"]
+    mean_ppbg = mean(all_pp)
+
+    pp_weekday = post_wkday["postbreakfast"] + post_wkday["postlunch"] + post_wkday["postdinner"]
+    pp_weekend = post_wkend["postbreakfast"] + post_wkend["postlunch"] + post_wkend["postdinner"]
     wkday_ppbg = mean(pp_weekday)
     wkend_ppbg = mean(pp_weekend)
+
+    slot_stats = {
+        slot: {"count": len(post_vals[slot]), "mean": mean(post_vals[slot]),
+               "weekday": mean(post_wkday[slot]), "weekend": mean(post_wkend[slot])}
+        for slot in ("postbreakfast", "postlunch", "postdinner")
+    }
 
     total = len(readings)
     n_in = sum(1 for r in readings if cfg.glucose_low <= r["value"] <= cfg.glucose_high)
@@ -101,11 +178,18 @@ def compute_window_metrics(store: Store, cfg: Settings, window_id: int) -> dict:
         ds = d.isoformat()
         day_meals = [m for m in meals if _day(m["ts"]) == ds]
         day_high = sum(1 for m in day_meals if m["gi"] == "high")
+        def _slot_day(slot):
+            return [r["value"] for r in readings
+                    if r["tag"] in _POST_TAGS and _day(r["ts"]) == ds
+                    and slot_by_reading.get(r["id"]) == slot]
         series.append({
             "date": ds,
             "weekend": d.weekday() >= 5,
             "fpg": next((r["value"] for r in readings if r["tag"] == "fasting" and _day(r["ts"]) == ds), None),
-            "ppbg": [r["value"] for r in readings if r["tag"] == "postprandial" and _day(r["ts"]) == ds],
+            "ppbg": [r["value"] for r in readings if r["tag"] in _POST_TAGS and _day(r["ts"]) == ds],
+            "pb": _slot_day("postbreakfast"),
+            "pl": _slot_day("postlunch"),
+            "pd": _slot_day("postdinner"),
             "meals_today": len(day_meals),
             "high_gi_count": day_high,
             "high_gi_share": round(day_high / len(day_meals) * 100, 0) if day_meals else 0,
@@ -132,6 +216,9 @@ def compute_window_metrics(store: Store, cfg: Settings, window_id: int) -> dict:
         "adherence_index": adherence,
         "mean_fpg": mean_fpg, "mean_pre": mean_pre, "mean_ppbg": mean_ppbg,
         "weekday_ppbg": wkday_ppbg, "weekend_ppbg": wkend_ppbg,
+        "post_breakfast": slot_stats["postbreakfast"],
+        "post_lunch": slot_stats["postlunch"],
+        "post_dinner": slot_stats["postdinner"],
         "tir": tir,
         "high_gi_count": high_gi_count, "high_gi_share": high_gi_share,
         "carb_volatility": carb_volatility,

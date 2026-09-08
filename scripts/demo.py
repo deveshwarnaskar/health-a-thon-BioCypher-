@@ -73,17 +73,40 @@ def main() -> None:
         sender = CAREGIVER_PHONE if (i % 3 == 0) else PATIENT_PHONE
 
         if not missed_day:
-            meal_txt = FESTIVE_MEAL if festive else (WEEKEND_MEAL if weekend else WEEKDAY_MEAL)
-            _send(ingest, backend, pid, sender, {"kind": "text", "text": meal_txt,
-                                                 "ts": _ts(day, 9, 0)})
+            bk_txt = WEEKDAY_MEAL
+            ls_txt = WEEKEND_MEAL if weekend else WEEKDAY_MEAL
+            dn_txt = FESTIVE_MEAL if festive else (WEEKEND_MEAL if weekend else WEEKDAY_MEAL)
+            # breakfast + confirm + fasting
+            _send(ingest, backend, pid, sender, {"kind": "text", "text": bk_txt,
+                                                 "ts": _ts(day, 8, 30)})
             _send(ingest, backend, pid, sender, {"kind": "text", "text": "yes",
-                                                 "ts": _ts(day, 9, 1)})
+                                                 "ts": _ts(day, 8, 31)})
             _send(ingest, backend, pid, sender, {"kind": "text",
                                                  "text": f"fasting {_fpg(rng, weekend, festive)}",
                                                  "ts": _ts(day, 7, 15)})
+            # lunch + confirm + post-lunch
+            _send(ingest, backend, pid, sender, {"kind": "text", "text": ls_txt,
+                                                 "ts": _ts(day, 13, 0)})
+            _send(ingest, backend, pid, sender, {"kind": "text", "text": "yes",
+                                                 "ts": _ts(day, 13, 1)})
             _send(ingest, backend, pid, sender,
-                  {"kind": "text", "text": f"post {_ppbg(rng, weekend, festive)}",
-                   "ts": _ts(day, 14, 0)})
+                  {"kind": "text", "text": f"post lunch {_pl(rng, weekend, festive)}",
+                   "ts": _ts(day, 15, 0)})
+            # post-breakfast reading (explicit tag on even days, generic on odd days
+            # so the auto-inference path is exercised too)
+            _send(ingest, backend, pid, sender,
+                  {"kind": "text",
+                   "text": (f"post breakfast {_pb(rng, weekend, festive)}"
+                            if i % 2 == 0 else f"post {_pb(rng, weekend, festive)}"),
+                   "ts": _ts(day, 10, 30)})
+            # dinner + confirm + post-dinner
+            _send(ingest, backend, pid, sender, {"kind": "text", "text": dn_txt,
+                                                 "ts": _ts(day, 19, 30)})
+            _send(ingest, backend, pid, sender, {"kind": "text", "text": "yes",
+                                                 "ts": _ts(day, 19, 31)})
+            _send(ingest, backend, pid, sender,
+                  {"kind": "text", "text": f"post dinner {_pd(rng, weekend, festive)}",
+                   "ts": _ts(day, 21, 0)})
         day += timedelta(days=1)
         i += 1
 
@@ -100,6 +123,9 @@ def main() -> None:
         "meals": metrics["meals_count"], "readings": metrics["readings_count"],
         "adherence": metrics["adherence_index"],
         "mean_fpg": metrics["mean_fpg"], "mean_ppbg": metrics["mean_ppbg"],
+        "post_breakfast": metrics["post_breakfast"]["mean"],
+        "post_lunch": metrics["post_lunch"]["mean"],
+        "post_dinner": metrics["post_dinner"]["mean"],
         "tir": metrics["tir"],
         "weekday_ppbg": metrics["weekday_ppbg"], "weekend_ppbg": metrics["weekend_ppbg"],
         "high_gi_share": metrics["high_gi_share"],
@@ -126,8 +152,18 @@ def _fpg(rng, weekend, festive):
     return max(95, round(base + rng.gauss(0, 7)))
 
 
-def _ppbg(rng, weekend, festive):
-    base = 238 if festive else (198 if weekend else 158)
+def _pb(rng, weekend, festive):
+    base = 185 if festive else (164 if weekend else 148)
+    return max(120, round(base + rng.gauss(0, 9)))
+
+
+def _pl(rng, weekend, festive):
+    base = 210 if festive else (182 if weekend else 160)
+    return max(120, round(base + rng.gauss(0, 10)))
+
+
+def _pd(rng, weekend, festive):
+    base = 245 if festive else (205 if weekend else 174)
     return max(120, round(base + rng.gauss(0, 10)))
 
 

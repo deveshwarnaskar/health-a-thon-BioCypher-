@@ -11,7 +11,7 @@ Cloud webhook or the built-in simulator produces:
       "text": str|None,           # raw text / STT result / photo caption
       "photo_path": str|None,     # local path when kind == photo
       "reading": float|None,      # glucose value when ready-provided
-      "reading_tag": "fasting|pre|postprandial"
+      "reading_tag": "fasting|pre|postprandial|postbreakfast|postlunch|postdinner"
     }
 
 Parsing never raises: anything unparseable becomes a Refusal object so the
@@ -28,12 +28,26 @@ from typing import Optional
 from ..config import Settings
 
 _READING_FULL = re.compile(
-    r"^\s*([a-z]+)\??\s*[:=]?\s*(\d{2,3}(?:\.\d)?)\s*(mg/dl)?\s*$", re.I)
+    r"^\s*([a-z][a-z ]*?)\??\s*[:=]?\s*(\d{2,3}(?:\.\d)?)\s*(mg/dl)?\s*$", re.I)
 _READING_SHORT = re.compile(r"^\s*(\d{2,3}(?:\.\d)?)\s*$")
 _TAG_MAP = {"fasting": "fasting", "fast": "fasting", "fbs": "fasting",
             "pre": "pre", "before": "pre", "pre meal": "pre",
             "post": "postprandial", "after": "postprandial", "postprandial": "postprandial",
-            "pp": "postprandial", "ppbg": "postprandial", "pp2": "postprandial"}
+            "pp": "postprandial", "ppbg": "postprandial", "pp2": "postprandial",
+            "post breakfast": "postbreakfast", "postbreakfast": "postbreakfast",
+            "after breakfast": "postbreakfast", "pb": "postbreakfast",
+            "post lunch": "postlunch", "postlunch": "postlunch",
+            "after lunch": "postlunch", "pl": "postlunch",
+            "post dinner": "postdinner", "postdinner": "postdinner",
+            "after dinner": "postdinner", "pd": "postdinner"}
+
+READING_TAG_LABELS = {
+    "fasting": "fasting", "pre": "pre-meal",
+    "postprandial": "postprandial",
+    "postbreakfast": "post-breakfast",
+    "postlunch": "post-lunch",
+    "postdinner": "post-dinner",
+}
 
 _CONFIRM = {"yes", "y", "ok", "okay", "confirm", "hmm", "ha", "correct",
             "right", "theek", "acha", "haan", "hey"}
@@ -120,7 +134,7 @@ def _as_reading(raw: dict, value) -> ParsedInput:
         v = float(value)
     except (TypeError, ValueError):
         v = math.nan
-    tag = str(raw.get("reading_tag") or "").lower()
+    tag = str(raw.get("reading_tag") or "").lower().strip()
     tag = _TAG_MAP.get(tag, tag or "postprandial")
     if not (20 <= v <= 600):
         return ParsedInput(kind="refusal", raw=f"reading out of range: {value}")
@@ -135,7 +149,8 @@ def _reading_from_text(text: str, raw: Optional[dict] = None) -> Optional[Parsed
         val = float(m.group(2))
         if 20 <= val <= 600:
             return ParsedInput(kind="reading", reading=val,
-                               reading_tag=_TAG_MAP.get(m.group(1).lower(), "postprandial"),
+                               reading_tag=_TAG_MAP.get(m.group(1).lower().strip(),
+                                                        "postprandial"),
                                ts=ts, raw=text.strip())
         return ParsedInput(kind="refusal", raw=text.strip())
     m = _READING_SHORT.match(text.strip())

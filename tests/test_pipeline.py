@@ -143,6 +143,75 @@ def test_weekday_weekend_ppbg_split(seeded, store, cfg):
     assert m["weekend_ppbg_delta"] == 50
 
 
+# ---- postprandial meal slots (post-breakfast / lunch / dinner) --------------
+def test_parse_meal_slot_readings_from_text():
+    cfg = Settings()
+    for text, tag in (("post breakfast 168", "postbreakfast"),
+                      ("post lunch 180", "postlunch"),
+                      ("post dinner 200", "postdinner"),
+                      ("after lunch 170", "postlunch"),
+                      ("after dinner 190", "postdinner"),
+                      ("pb 152", "postbreakfast")):
+        p = parse_inbound({"patient_id": 1, "kind": "text", "text": text}, cfg)
+        assert p.is_reading and p.reading_tag == tag, text
+
+
+def test_post_slot_inferred_from_preceding_meal(seeded, store, cfg):
+    pid, wid = seeded
+    from datetime import date
+    day = date.fromisoformat(store.get_window(wid)["start_date"])
+    d = day.isoformat()
+    _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                              "text": "roti dal", "ts": d + "T09:00:00"})
+    _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                              "text": "yes", "ts": d + "T09:01:00"})
+    _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                              "text": "post 158", "ts": d + "T10:30:00"})
+    m = compute_window_metrics(store, cfg, wid)
+    assert m["post_breakfast"]["count"] == 1 and m["post_breakfast"]["mean"] == 158
+    assert m["post_lunch"]["count"] == 0 and m["post_dinner"]["count"] == 0
+
+
+def test_post_slot_stats_split_weekday_weekend(seeded, store, cfg):
+    pid, wid = seeded
+    from datetime import date, timedelta
+    w = store.get_window(wid)
+    day = date.fromisoformat(w["start_date"])
+    end = date.fromisoformat(w["end_date"])
+    sat = tue = None
+    while day <= end:
+        if day.weekday() == 5 and sat is None:
+            sat = day
+        if day.weekday() == 1 and tue is None:
+            tue = day
+        day += timedelta(days=1)
+    assert sat and tue
+    for d, v in ((sat, 200), (tue, 150)):
+        _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                                  "text": f"post dinner {v}", "ts": d.isoformat() + "T20:00:00"})
+    m = compute_window_metrics(store, cfg, wid)
+    assert m["post_dinner"]["count"] == 2
+    assert m["post_dinner"]["weekday"] == 150 and m["post_dinner"]["weekend"] == 200
+
+
+def test_chart_context_has_three_slot_series(seeded, store, cfg):
+    pid, wid = seeded
+    from datetime import date
+    day = date.fromisoformat(store.get_window(wid)["start_date"])
+    d = day.isoformat()
+    for txt, ts in (("post breakfast 150", "T10:00:00"),
+                    ("post lunch 170", "T15:00:00"),
+                    ("post dinner 200", "T21:00:00")):
+        _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                                  "text": txt, "ts": d + ts})
+    from app.core.report import build_report_context
+    ctx = build_report_context(store, cfg, wid)
+    ch = ctx["charts"]
+    assert len(ch["pb_values"]) == 1 and ch["pb_values"][0] == 150
+    assert len(ch["pl_values"]) == 1 and ch["pl_values"][0] == 170
+    assert len(ch["pd_values"]) == 1 and ch["pd_values"][0] == 200
+
+
 # ---- report language safety ------------------------------------------------
 def test_report_context_has_no_forbidden_language(seeded, store, cfg):
     pid, wid = seeded

@@ -43,13 +43,14 @@ async function selectPatient(id) {
   const box = document.getElementById("metrics");
   if (!m) { box.innerHTML = "no closed/ℹ window data yet — run the demo first."; return; }
   const t = m.tir || {};
+  const pb = m.post_breakfast || {}, pl = m.post_lunch || {}, pd = m.post_dinner || {};
   box.innerHTML = `
     <div class="metric"><b>${m.adherence_index ?? "–"}%</b><span>Adherence</span></div>
     <div class="metric"><b>${m.mean_fpg ?? "–"}</b><span>Mean fasting</span></div>
-    <div class="metric"><b>${m.mean_ppbg ?? "–"}</b><span>Mean PPBG</span></div>
+    <div class="metric"><b>${pb.mean ?? "–"}</b><span>Post-breakfast</span></div>
+    <div class="metric"><b>${pl.mean ?? "–"}</b><span>Post-lunch</span></div>
+    <div class="metric"><b>${pd.mean ?? "–"}</b><span>Post-dinner</span></div>
     <div class="metric"><b>${t.in ?? "–"}%</b><span>In range 70–180</span></div>
-    <div class="metric"><b>${m.weekday_ppbg ?? "–"}</b><span>PPBG weekdays</span></div>
-    <div class="metric"><b>${m.weekend_ppbg ?? "–"}</b><span>PPBG weekends</span></div>
   `;
   loadLog();
 }

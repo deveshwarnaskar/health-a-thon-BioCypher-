@@ -19,7 +19,7 @@ from typing import Optional
 from ..config import Settings
 from .datamodel import Store
 from .nutrition import KATORI_LABELS, gi_bucket_index
-from .parse import ParsedInput, describe_items, parse_inbound
+from .parse import READING_TAG_LABELS, ParsedInput, describe_items, parse_inbound
 
 
 @dataclass
@@ -96,11 +96,12 @@ class IngestService:
     # ---- readings -------------------------------------------------------
     def _handle_reading(self, patient, window, role, parsed: ParsedInput, raw) -> list[Outbound]:
         ts = parsed.ts.strftime("%Y-%m-%dT%H:%M:%S")
+        label = READING_TAG_LABELS.get(parsed.reading_tag, parsed.reading_tag)
         self.store.add_reading(window["id"], raw.get("sender_phone"), role,
                                parsed.reading_tag, parsed.reading, ts=ts)
         self.store.audit(role, "reading", f"{parsed.reading_tag} {parsed.reading}")
         return [self._out(route=role, kind="text", to=raw.get("sender_phone"),
-                          body=f"Logged {parsed.reading_tag}: {parsed.reading:g} mg/dL. "
+                          body=f"Logged {label}: {parsed.reading:g} mg/dL. "
                                "This goes into the doctor's report.")]
 
     # ---- meals -----------------------------------------------------------

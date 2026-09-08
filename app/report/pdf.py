@@ -23,6 +23,8 @@ from reportlab.platypus import (
 )
 from reportlab.lib.colors import HexColor, white
 
+from ..core.parse import READING_TAG_LABELS
+
 FONTDIR = os.path.join(os.path.dirname(matplotlib.__file__), "mpl-data", "fonts", "ttf")
 pdfmetrics.registerFont(TTFont("DVS", os.path.join(FONTDIR, "DejaVuSans.ttf")))
 pdfmetrics.registerFont(TTFont("DVSB", os.path.join(FONTDIR, "DejaVuSans-Bold.ttf")))
@@ -40,6 +42,13 @@ GREEN = HexColor("#2E8B57")
 RED = HexColor("#C0392B")
 AMBER = HexColor("#C99700")
 GRAYL = HexColor("#F2F6F7")
+
+PPB_COLOR = "#D9A027"
+PPL_COLOR = "#3E8E6B"
+PPD_COLOR = "#C0462E"
+SLOT_LABELS = (("Post-Breakfast", "post_breakfast", PPB_COLOR),
+               ("Post-Lunch", "post_lunch", PPL_COLOR),
+               ("Post-Dinner", "post_dinner", PPD_COLOR))
 
 
 def ps(name, **kw):
@@ -250,6 +259,17 @@ def page1(ctx):
                                ("LEFTPADDING", (1, 0), (1, 0), 2)]))
     c1.append(cards)
     c1.append(Spacer(1, 2))
+    c1.append(Paragraph("MEAN POSTPRANDIAL BY MEAL SLOT (mg/dL)", st["cardt"]))
+    c1.append(Spacer(1, 1))
+    for label, slot_key, color in SLOT_LABELS:
+        s = glu.get(slot_key, {})
+        if s.get("mean") is None:
+            continue
+        c1.append(Paragraph(f'<font color="{color}">●</font> {label} — <b>{_n(s["mean"])}</b>'
+                            f' &nbsp;<font size=6.4 color="#5A6F79">({s["count"]} logged)</font>',
+                            st["cardb"]))
+        c1.append(Spacer(1, 1))
+    c1.append(Spacer(1, 1))
     c1.append(Paragraph(f"GLYCEMIC TARGET RANGE DISTRIBUTION "
                         f"<font size=7 color='#5A6F79'>(target {tir['low']:g}\u2013{tir['high']:g} mg/dL)</font>",
                         st["cardt"]))
@@ -303,20 +323,23 @@ def page1(ctx):
                              st["tcell"]),
                    Paragraph(_deltastr(glu.get("weekend_highgi"), glu.get("weekday_highgi")) + " pts.",
                              st["tcell"])])
-    w_rows.append([Paragraph("Mean 2-hr PPBG (mg/dL)", st["tcell"]),
-                   Paragraph(_n(glu["weekday_ppbg"]) if glu["weekday_ppbg"] else "—", st["tcell"]),
-                   Paragraph(_n(glu["weekend_ppbg"]) if glu["weekend_ppbg"] else "—", st["tcell"]),
-                   Paragraph(_deltastr(glu["weekend_ppbg"], glu["weekday_ppbg"]) + " mg/dL", st["tcell"])])
+    for label, slot_key, _color in SLOT_LABELS:
+        s = glu.get(slot_key, {})
+        w_rows.append([Paragraph(f"PPBG \u2013 {label} (mg/dL)", st["tcell"]),
+                       Paragraph(_n(s.get("weekday")) if s.get("weekday") else "—", st["tcell"]),
+                       Paragraph(_n(s.get("weekend")) if s.get("weekend") else "—", st["tcell"]),
+                       Paragraph(_deltastr(s.get("weekend"), s.get("weekday")) + " mg/dL", st["tcell"])])
     c2.append(table(w_rows, [52, 34, 40, 42]))
     c2.append(Spacer(1, 4))
     c2.append(Paragraph("OBSERVED TIMING DISTRIBUTION (READINGS BY TAG)", st["cardt"]))
     c2.append(Spacer(1, 2))
     tag_rows = [[Paragraph("Tag", st["thead"]), Paragraph("Count", st["thead"]),
                  Paragraph("Mean (mg/dL)", st["thead"])]]
-    for tag in ("fasting", "pre", "postprandial"):
+    for tag in ("fasting", "pre", "postbreakfast", "postlunch", "postdinner", "postprandial"):
         vals = ctx["glucose_by_tag"].get(tag, [])
         if vals:
-            tag_rows.append([Paragraph(tag.capitalize(), st["tcell"]),
+            label = READING_TAG_LABELS.get(tag, tag)
+            tag_rows.append([Paragraph(label.capitalize(), st["tcell"]),
                              Paragraph(str(len(vals)), st["tcell"]),
                              Paragraph(_n(sum(vals) / len(vals)), st["tcell"])])
     c2.append(table(tag_rows, [52, 34, 42]))
@@ -412,9 +435,13 @@ def page2(ctx, top, bottom):
                        height=width * im.height / im.width))
         f.append(Spacer(1, 3))
     tir = ctx["tir"]
+    slot_means = " &nbsp;|&nbsp; ".join(
+        f"{label}: <b>{_n(glu.get(slot_key, {}).get('mean'))}</b>"
+        for label, slot_key, _c in SLOT_LABELS)
     ms = Table([[Paragraph("METRIC SUMMARY", st["strip_t"])],
                 [Paragraph(f"Mean Fasting: <b>{_n(glu['mean_fpg'])}</b> mg/dL &nbsp;|&nbsp; "
-                           f"Mean PPBG: <b>{_n(glu['mean_ppbg'])}</b> mg/dL &nbsp;|&nbsp; "
+                           f"Mean PPBG (all meal slots): <b>{_n(glu['mean_ppbg'])}</b> mg/dL "
+                           f"&nbsp;|&nbsp; {slot_means} mg/dL &nbsp;|&nbsp; "
                            f"Target TIR ({tir['low']:g}\u2013{tir['high']:g}): <b>{tir['in']:g}%</b> "
                            f"of readings &nbsp;|&nbsp; Adherence: <b>{ctx['adherence_index']:g}%</b> "
                            f"of days", st["strip_v"])]], colWidths=[522])
@@ -465,11 +492,13 @@ def page2(ctx, top, bottom):
     n_days = len(ctx["charts"]["dates"])
     f.append(Paragraph(
         "<b>How to read this page:</b> The upper panel plots the patient's self-monitored "
-        f"fasting (FPG) and postprandial (PPBG) glucose over the {n_days}-day window against "
-        f"the target corridor ({tir['low']:g}\u2013{tir['high']:g} mg/dL). The lower panel "
-        "plots the daily share of high-GI foods (bars, left axis) alongside postprandial "
-        "glucose (line, right axis); weekend bands are shaded. All values are patient-logged "
-        "data presented for the clinician's review.", st["mtd"]))
+        f"fasting (FPG) glucose and postprandial glucose for each meal slot \u2014 "
+        "post-breakfast (amber), post-lunch (green) and post-dinner (crimson) \u2014 over "
+        f"the {n_days}-day window against the target corridor "
+        f"({tir['low']:g}\u2013{tir['high']:g} mg/dL). The lower panel plots the daily "
+        "share of high-GI foods (bars, left axis) alongside the overall postprandial trend "
+        "(line, right axis); weekend bands are shaded. All values are patient-logged data "
+        "presented for the clinician's review.", st["mtd"]))
     return f
 
 

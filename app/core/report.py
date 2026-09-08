@@ -63,6 +63,15 @@ def build_report_context(store: Store, cfg: Settings, window_id: int) -> dict:
                 for s in series]
     pp_means_dates = [s["date"] for s, v in zip(series, pp_means) if v is not None]
 
+    def slot_series(key: str):
+        days = [s["date"] for s in series if s[key]]
+        vals = [round(sum(s[key]) / len(s[key]), 1) for s in series if s[key]]
+        return days, vals
+
+    pb_d, pb_v = slot_series("pb")
+    pl_d, pl_v = slot_series("pl")
+    pd_d, pd_v = slot_series("pd")
+
     ctx = {
         "product": {
             "name": "Aahaar",
@@ -90,6 +99,9 @@ def build_report_context(store: Store, cfg: Settings, window_id: int) -> dict:
             "weekday_ppbg": m["weekday_ppbg"],
             "weekend_ppbg": m["weekend_ppbg"],
             "weekend_ppbg_delta": m["weekend_ppbg_delta"],
+            "post_breakfast": m["post_breakfast"],
+            "post_lunch": m["post_lunch"],
+            "post_dinner": m["post_dinner"],
             "weekday_highgi": weekday_highgi,
             "weekend_highgi": weekend_highgi,
             "target_low": cfg.glucose_low,
@@ -112,6 +124,9 @@ def build_report_context(store: Store, cfg: Settings, window_id: int) -> dict:
             "fpg_values": fpg,
             "ppbg": pp_means_dates,
             "ppbg_values": pp_means,
+            "pb": pb_d, "pb_values": pb_v,
+            "pl": pl_d, "pl_values": pl_v,
+            "pd": pd_d, "pd_values": pd_v,
             "corridor_low": cfg.glucose_low,
             "corridor_high": cfg.glucose_high,
             "high_gi_share_daily": [s["high_gi_share"] for s in series],
@@ -130,10 +145,22 @@ def _patterns(ctx: dict) -> list[tuple[str, str]]:
     if glu["weekend_ppbg"] and glu["weekday_ppbg"]:
         d = glu["weekend_ppbg"] - glu["weekday_ppbg"]
         word = "higher" if d > 0 else "lower"
-        out.append(("Weekend PPBG excursion",
-                    f"Mean postprandial glucose was {abs(d):.1f} mg/dL {word} on weekends "
-                    f"({glu['weekend_ppbg']:.1f}) than on weekdays "
-                    f"({glu['weekday_ppbg']:.1f}) in this window (observed)."))
+        body = (f"Mean postprandial glucose was {abs(d):.1f} mg/dL {word} on weekends "
+                f"({glu['weekend_ppbg']:.1f}) than on weekdays "
+                f"({glu['weekday_ppbg']:.1f}) in this window (observed).")
+        slot_gaps = []
+        for label, slot in (("post-breakfast", "post_breakfast"), ("post-lunch", "post_lunch"),
+                            ("post-dinner", "post_dinner")):
+            s = glu[slot]
+            if s.get("weekday") and s.get("weekend"):
+                slot_gaps.append((abs(s["weekend"] - s["weekday"]), label, slot))
+        if slot_gaps:
+            slot_gaps.sort(reverse=True)
+            _, top_label, top_slot = slot_gaps[0]
+            gap = glu[top_slot]["weekend"] - glu[top_slot]["weekday"]
+            body += (f" The largest weekday\u2013weekend gap was in {top_label} "
+                     f"({gap:+.1f} mg/dL).")
+        out.append(("Weekend PPBG excursion", body))
     if mm["high_gi_share"] is not None:
         out.append(("High-GI meal presence",
                     f"High-GI items were logged in {mm['high_gi_share']:.1f}% of confirmed "
