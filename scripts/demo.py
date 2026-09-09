@@ -1,8 +1,9 @@
 """Usage:
 
-    python -m scripts.demo            # 14-day simulated window + report
+    python -m scripts.demo                  # 14-day window, left OPEN so the dashboard chat works
     python -m scripts.demo --days 7
-    python -m scripts.demo --desktop  # also copy the PDF to the Windows Desktop
+    python -m scripts.demo --desktop        # also copy the PDF to the Windows Desktop
+    python -m scripts.demo --close          # close the window after logging (finished-cycle story)
 
 Drives the REAL pipeline end-to-end: seed -> simulate patient & caregiver
 logging through the confirm loop -> metrics -> 2-page PDF report.
@@ -42,6 +43,8 @@ def main() -> None:
     ap.add_argument("--days", type=int, default=14)
     ap.add_argument("--db", default=None)
     ap.add_argument("--desktop", action="store_true")
+    ap.add_argument("--close", action="store_true",
+                    help="close the window when the log finishes (default: leave it open)")
     args = ap.parse_args()
 
     days = min(max(args.days, 2), 21)
@@ -110,8 +113,12 @@ def main() -> None:
         day += timedelta(days=1)
         i += 1
 
-    store.audit("system", "demo_windows_closed", "demo log finished")
-    store.close_window(wid)
+    store.audit("system", "demo_windows_" + ("closed" if args.close else "open"),
+                "demo log finished")
+    if args.close:
+        store.close_window(wid)
+    status = store.get_window(wid)["status"]
+    print(f"Window status: {status} (chat accepts messages while 'open')")
 
     metrics = compute_window_metrics(store, cfg, wid)
     ctx = build_report_context(store, cfg, wid)

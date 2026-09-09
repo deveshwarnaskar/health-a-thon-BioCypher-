@@ -38,8 +38,10 @@ app/
 pip install --break-system-packages -r requirements.txt   # if starting fresh
 python3 -m scripts.demo --days 14          # logs ~13 meals + 26 readings, builds the PDF
 python3 -m scripts.demo --days 14 --desktop   # also copies the PDF to the Windows Desktop
+python3 -m scripts.demo --days 14 --close      # optional: close the window when logging ends
 ```
-
+The demo leaves the logging window **open**, so the dashboard chat panel keeps accepting
+messages (try `fasting 128` or a plate text like `2 roti, dal, sabzi`).
 Output lands in `reports/Aahaar-Doctor-Report-1-<window-start>.pdf`.
 
 ## Run the web dashboard
@@ -51,8 +53,8 @@ AAHAAR_DB=aahaar-demo.db python3 -m uvicorn app.server.main:app --port 8000
 ```
 
 On first launch with an empty DB the server auto-seeds a demo patient, so it never starts blank.
-You can also send messages from the dashboard ("Simulate an inbound message") to watch the
-guard + confirm loop live.
+The dashboard's **Messages** tab lets you play the WhatsApp chat (pick patient/caregiver/unknown
+sender, send a reading or a plate) to watch the guard + confirm loop live.
 
 ## Tests
 

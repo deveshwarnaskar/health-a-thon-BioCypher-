@@ -136,6 +136,38 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
                 "top_png": top_png, "bottom_png": bottom_png,
                 "metrics": ctx}
 
+    @app.get("/api/v1/patients/{pid}/report/charts")
+    def report_charts(pid: int, which: str = "top"):
+        if which not in ("top", "bottom"):
+            return JSONResponse({"error": "unknown chart"}, status_code=400)
+        ctx = latest_report_context(store, settings, pid)
+        if not ctx:
+            return JSONResponse({"error": "no window"}, status_code=404)
+        fn = f"chart-{which}-{pid}.png"
+        p = os.path.join(settings.report_dir, fn)
+        if not os.path.exists(p):
+            return JSONResponse({"error": "report not built yet"}, status_code=404)
+        return FileResponse(p, media_type="image/png")
+
+    @app.get("/api/v1/patients/{pid}/report/preview")
+    def report_preview(pid: int):
+        from ..report.html_preview import render_html
+        ctx = latest_report_context(store, settings, pid)
+        if not ctx:
+            return JSONResponse({"error": "no window"}, status_code=404)
+        # make sure the chart PNGs exist so the embedded images never 404
+        c_top = os.path.join(settings.report_dir, f"chart-top-{pid}.png")
+        c_bot = os.path.join(settings.report_dir, f"chart-bottom-{pid}.png")
+        if not (os.path.exists(c_top) and os.path.exists(c_bot)):
+            from ..report import charts as report_charts
+            os.makedirs(settings.report_dir, exist_ok=True)
+            report_charts.render(ctx, settings.report_dir)
+        img_base = f"/api/v1/patients/{pid}/report/charts"
+        html = render_html(ctx, img_base)
+        return {"html": html, "built": os.path.exists(
+            os.path.join(settings.report_dir,
+                         f"Aahaar-Doctor-Report-{pid}-{ctx['window']['start']}.pdf"))}
+
     @app.get("/api/v1/patients/{pid}/report/file")
     def report_file(pid: int):
         ctx = latest_report_context(store, settings, pid)

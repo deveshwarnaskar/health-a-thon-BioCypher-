@@ -5,57 +5,112 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Aahaar · Doctor Dashboard</title>
 <link rel="stylesheet" href="/style.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230F4C5C'/><text x='50' y='70' font-size='60' text-anchor='middle' fill='white'>A</text></svg>" />
 </head>
 <body>
 <header>
   <div class="brand">
     <span class="logo">A</span>
-    <div><h1>Aahaar</h1><p>Doctor dashboard · assistive, non-diagnostic</p></div>
+    <div>
+      <h1>Aahaar</h1>
+      <p>Doctor dashboard &middot; assistive, non-diagnostic</p>
+    </div>
   </div>
-  <div id="channel" class="channel">channel: …</div>
+  <div class="hdr-right">
+    <span id="window-info" class="win">no window</span>
+    <span id="channel" class="badge">channel: &hellip;</span>
+  </div>
 </header>
 
-<main>
-  <section class="card" id="patients">
-    <h2>Patients</h2>
-    <div id="patient-list" class="chips">loading…</div>
-  </section>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="side-title">Patients</div>
+    <div id="patient-list" class="plist">loading&hellip;</div>
+  </aside>
 
-  <section class="grid">
-    <div class="card" id="summary">
-      <h2>Latest window</h2>
-      <div id="metrics" class="metrics">pick a patient</div>
-    </div>
+  <main class="content">
+    <nav class="tabs" id="tabs">
+      <button data-tab="overview" class="active">Overview</button>
+      <button data-tab="trends">Trends</button>
+      <button data-tab="report">Report</button>
+      <button data-tab="messages">Messages</button>
+      <button data-tab="audit">Audit</button>
+    </nav>
 
-    <div class="card" id="actions">
-      <h2>Report</h2>
-      <button id="build" disabled>Build doctor report (PDF)</button>
-      <a id="pdf-link" hidden target="_blank">Open PDF</a>
-      <div id="report-note" class="muted"></div>
-    </div>
-  </section>
+    <section id="tab-overview" class="tab active">
+      <div class="empty" id="ov-empty">select a patient to load the window</div>
+      <div id="ov-body" hidden>
+        <div class="statrow" id="stat-cards"></div>
+        <div class="ov-grid">
+          <div class="card">
+            <h3>Glycemic target range (TIR &middot; 70&ndash;180 mg/dL)</h3>
+            <div id="tir-bar" class="tir-bar"></div>
+            <div id="tir-legend" class="tir-legend"></div>
+          </div>
+          <div class="card">
+            <h3>Postprandial by meal slot</h3>
+            <div id="slot-bars"></div>
+          </div>
+        </div>
+        <div class="ov-grid-3">
+          <div class="card"><h3>Readings by context</h3><div id="tag-table"></div></div>
+          <div class="card"><h3>Dietary load</h3><div id="diet-info"></div></div>
+          <div class="card"><h3>Observed patterns</h3><div id="patterns"></div></div>
+        </div>
+      </div>
+    </section>
 
-  <section class="grid">
-    <div class="card">
-      <h2>Simulate an inbound message</h2>
-      <form id="msg-form">
-        <select id="sender">
-          <option value="+919876501234">Patient (+919876501234)</option>
-          <option value="+919876505678">Caregiver (+919876505678)</option>
-          <option value="+919999999999">Unknown number (test guard)</option>
-        </select>
-        <input id="msg" type="text" placeholder="e.g. fasting 128 | 2 roti, dal, sabzi | yes | correct s" />
-        <button type="submit">Send</button>
-      </form>
-      <div id="send-log" class="log"></div>
-    </div>
+    <section id="tab-trends" class="tab">
+      <div class="card">
+        <div class="card-head">
+          <h3>Glycemic corridor &amp; meal-slot postprandial</h3>
+          <span id="trend-note" class="muted">loading&hellip;</span>
+        </div>
+        <img id="chart-top" class="chart" alt="corridor chart" />
+      </div>
+      <div class="card">
+        <h3>High-GI dietary share + overall PPBG trend</h3>
+        <img id="chart-bottom" class="chart" alt="dietary share chart" />
+      </div>
+    </section>
 
-    <div class="card">
-      <h2>Channel log (audit trail)</h2>
-      <div id="log" class="log">–</div>
-    </div>
-  </section>
-</main>
+    <section id="tab-report" class="tab">
+<div class="card">
+          <h3>Doctor report &mdash; on-screen view + 2-page PDF</h3>
+          <div id="report-actions"><button id="build">Build doctor report</button></div>
+          <div id="report-note" class="muted"></div>
+          <div id="report-preview" hidden></div>
+          <p class="notice">Assistive decision-support: self-reported telemetry, household portion
+          estimates and logged glucose values. No clinical diagnoses, no predictive ratings &mdash;
+          clinical decisions rest with the treating physician.</p>
+        </div>
+    </section>
+
+    <section id="tab-messages" class="tab">
+      <div class="card chat-card">
+        <div class="card-head">
+          <h3>WhatsApp thread &middot; simulator</h3>
+          <span id="chat-state" class="badge alt">ready</span>
+        </div>
+        <div id="thread" class="thread"><div class="thread-empty">send a message below to start the conversation</div></div>
+        <div id="quick-chips" class="quick"></div>
+        <form id="msg-form" class="sendrow">
+          <select id="sender">
+            <option value="+919876501234">Patient (+919876501234)</option>
+            <option value="+919876505678">Caregiver (+919876505678)</option>
+            <option value="+919999999999">Unknown number (guard)</option>
+          </select>
+          <input id="msg" type="text" placeholder='e.g. fasting 128 | 2 roti, dal, sabzi | post lunch 170' />
+          <button type="submit">Send</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="tab-audit" class="tab">
+      <div class="card"><h3>Audit trail</h3><div id="audit" class="log">loading&hellip;</div></div>
+    </section>
+  </main>
+</div>
 
 <script src="/app.js"></script>
 </body>
