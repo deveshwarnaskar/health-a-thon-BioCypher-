@@ -115,6 +115,14 @@ class Store:
                               (phone,)).fetchone()
         return dict(r) if r else None
 
+    def get_patient_by_uh(self, uh_id: str) -> Optional[dict]:
+        r = self.conn.execute("SELECT * FROM patients WHERE uh_id=?", (uh_id,)).fetchone()
+        return dict(r) if r else None
+
+    def set_patient_phone(self, patient_id: int, phone: str) -> None:
+        with self.tx() as c:
+            c.execute("UPDATE patients SET phone=? WHERE id=?", (phone, patient_id))
+
     # ---- caregivers --------------------------------------------------
     def set_caregiver(self, patient_id: int, phone: str, name: str) -> int:
         with self.tx() as c:
@@ -129,6 +137,23 @@ class Store:
             "SELECT * FROM caregivers WHERE patient_id=? AND active=1",
             (patient_id,)).fetchone()
         return dict(r) if r else None
+
+    def set_caregiver_phone(self, patient_id: int, phone: str,
+                            name: Optional[str] = None) -> None:
+        """(Re)link a caregiver number, keeping the current caregiver label.
+        Open windows are kept in sync so the role guard binds the new number."""
+        existing = self.get_caregiver(patient_id)
+        self.set_caregiver(patient_id, phone, name or (existing or {}).get("name")
+                           or "Designated caregiver")
+        with self.tx() as c:
+            c.execute("UPDATE windows SET caregiver_phone=? "
+                      "WHERE patient_id=? AND status='open'", (phone, patient_id))
+
+    def clear_caregiver(self, patient_id: int) -> None:
+        with self.tx() as c:
+            c.execute("UPDATE caregivers SET active=0 WHERE patient_id=?", (patient_id,))
+            c.execute("UPDATE windows SET caregiver_phone=NULL "
+                      "WHERE patient_id=? AND status='open'", (patient_id,))
 
     # ---- avoid list ---------------------------------------------------
     def set_avoid_items(self, patient_id: int, set_by: str, items: list[str]):

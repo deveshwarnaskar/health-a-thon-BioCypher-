@@ -38,10 +38,18 @@ class IngestService:
     def handle(self, raw: dict) -> list[Outbound]:
         parsed = parse_inbound(raw, self.cfg)
 
-        patient = self.store.get_patient(raw.get("patient_id"))
+        patient = None
+        pid = raw.get("patient_id")
+        if pid is not None:
+            patient = self.store.get_patient(pid)
+        if not patient and raw.get("sender_phone"):
+            # real-WhatsApp inbound carries only the sender number — resolve it
+            patient = self.store.get_patient_by_phone(str(raw["sender_phone"]).strip())
         if not patient:
             return [self._out(route="patient", kind="text", to=raw.get("sender_phone"),
-                              body="We could not find that profile. Please contact the clinic.")]
+                              body="We could not find that profile. Please contact "
+                                   "the clinic to link your number.")]
+        pid = patient["id"]
 
         window = self.store.active_window_for(patient["id"])
         if not window:

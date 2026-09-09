@@ -34,6 +34,7 @@
       <button data-tab="trends">Trends</button>
       <button data-tab="report">Report</button>
       <button data-tab="messages">Messages</button>
+      <button data-tab="live">Live</button>
       <button data-tab="audit">Audit</button>
     </nav>
 
@@ -103,6 +104,28 @@
           <input id="msg" type="text" placeholder='e.g. fasting 128 | 2 roti, dal, sabzi | post lunch 170' />
           <button type="submit">Send</button>
         </form>
+      </div>
+    </section>
+
+    <section id="tab-live" class="tab">
+      <div class="card">
+        <h3>Live WhatsApp numbers</h3>
+        <p class="muted">Linked numbers for the selected patient. Incoming WhatsApp
+        senders must match exactly (country code, no spaces). The doctor/operator
+        sets these at the clinic — they are stored as data, never in code.</p>
+        <div id="live-form" class="live-row">
+          <label>Patient WhatsApp
+            <input id="live-patient" type="tel" placeholder="+91..." autocomplete="off" /></label>
+          <label>Caregiver WhatsApp <span class="muted">(optional)</span>
+            <input id="live-caregiver" type="tel" placeholder="+91..." autocomplete="off" /></label>
+          <label>Operator key
+            <input id="live-key" type="password" placeholder="AAHAAR_OP_KEY" autocomplete="off" /></label>
+          <button id="live-save" type="button">Save &amp; link</button>
+        </div>
+        <div id="live-note" class="muted"></div>
+        <p class="notice">Also add these exact numbers as recipients in Meta &rarr;
+        WhatsApp test number settings (max 5). Operator key = env <b>AAHAAR_OP_KEY</b>
+        (demo default <b>aahaar-2026</b>).</p>
       </div>
     </section>
 

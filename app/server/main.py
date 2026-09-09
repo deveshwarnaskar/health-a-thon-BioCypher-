@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import FastAPI, Query, Request, Response
+from fastapi import FastAPI, Header, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -29,6 +29,15 @@ from ..core.process import IngestService
 from .whatsapp import CloudBackend, SimulatorBackend
 
 settings: Settings = get_settings()
+
+import re
+
+_PHONE_RE = re.compile(r"^\+?[0-9][0-9 \-\+]{5,20}$")
+
+
+def _valid_phone(s: str) -> bool:
+    s = (s or "").strip()
+    return bool(s and _PHONE_RE.match(s))
 
 
 def _make_backend(store: Store):
@@ -108,8 +117,38 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
                 "id": p["id"], "name": p["name"], "uh_id": p["uh_id"],
                 "window": (w or {}).get("status"),
                 "caregiver": (cg or {}).get("name"),
+                "patient_phone": p.get("phone"),
+                "caregiver_phone": (cg or {}).get("phone"),
             })
         return out
+
+    @app.post("/api/v1/patients/{pid}/linked")
+    def link_patient(pid: int, payload: dict,
+                     x_aahaar_key: str | None = Header(default=None)):
+        if (x_aahaar_key or "") != settings.operator_key:
+            return JSONResponse({"error": "invalid operator key"}, status_code=403)
+        patient = store.get_patient(pid)
+        if not patient:
+            return JSONResponse({"error": "no patient"}, status_code=404)
+        p_phone = str(payload.get("patient_phone") or "").strip()
+        if not _valid_phone(p_phone):
+            return JSONResponse({"error": "patient_phone must be a phone number"},
+                                status_code=400)
+        store.set_patient_phone(pid, p_phone)
+        cg_phone = None
+        if "caregiver_phone" in payload:
+            cg_phone = str(payload["caregiver_phone"] or "").strip()
+            if cg_phone:
+                if not _valid_phone(cg_phone):
+                    return JSONResponse({"error": "caregiver_phone must be a phone number"},
+                                        status_code=400)
+                store.set_caregiver_phone(pid, cg_phone)
+            else:
+                store.clear_caregiver(pid)
+        store.audit("operator", "link",
+                    f"patient {pid} phones updated (patient={p_phone})")
+        return {"ok": True, "patient_phone": p_phone,
+                "caregiver_phone": cg_phone}
 
     @app.get("/api/v1/patients/{pid}/log")
     def patient_log(pid: int):

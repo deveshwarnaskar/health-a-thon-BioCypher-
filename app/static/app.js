@@ -7,8 +7,8 @@ const fmt = (v, d = "–") => (v === null || v === undefined ? d : v);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-async function j(method, url, body) {
-  const opts = { method, headers: {} };
+async function j(method, url, body, headers) {
+  const opts = { method, headers: headers || {} };
   if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
   const r = await fetch(url, opts);
   return { ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) };
@@ -82,7 +82,58 @@ async function selectPatient(id) {
   if (!m) $("ov-empty").textContent = "no window data yet — run the demo first.";
 
   seedThread();
+  seedSender();
   loadAudit();
+}
+
+// ---------- live WhatsApp numbers (operator-linked) ----------
+function seedSender() {
+  const p = state.patients.find((x) => x.id === state.active);
+  const sel = $("sender");
+  if (!sel || !p) return;
+  const prev = sel.value;
+  sel.innerHTML = "";
+  const opts = [{ value: p.patient_phone || "", label: "Patient (" + (p.patient_phone || "—") + ")" }];
+  if (p.caregiver_phone) opts.push({ value: p.caregiver_phone, label: "Caregiver (" + p.caregiver_phone + ")" });
+  opts.push({ value: "+919999999999", label: "Unknown number (guard)" });
+  for (const o of opts) {
+    const el = document.createElement("option");
+    el.value = o.value;
+    el.textContent = o.label;
+    sel.appendChild(el);
+  }
+  if (prev && Array.from(sel.options).some((o) => o.value === prev)) sel.value = prev;
+}
+
+function populateLive() {
+  const p = state.patients.find((x) => x.id === state.active);
+  if (!p) return;
+  $("live-patient").value = p.patient_phone || "";
+  $("live-caregiver").value = p.caregiver_phone || "";
+  $("live-note").textContent = "";
+}
+
+async function saveLive() {
+  const btn = $("live-save");
+  btn.disabled = true;
+  const key = $("live-key").value.trim();
+  const r = await j("POST", "/api/v1/patients/" + state.active + "/linked",
+    { patient_phone: $("live-patient").value.trim(),
+      caregiver_phone: $("live-caregiver").value.trim() },
+    { "X-Aahaar-Key": key });
+  btn.disabled = false;
+  const note = $("live-note");
+  if (r.ok) {
+    const cg = r.data.caregiver_phone
+      ? " + caregiver <b>" + esc(r.data.caregiver_phone) + "</b>" : "";
+    note.innerHTML = "linked: patient <b>" + esc(r.data.patient_phone) + "</b>" + cg +
+      ". Add these same numbers as Meta recipients, then message the test number from that phone.";
+    const q = await j("GET", "/api/v1/patients");
+    if (q.ok) { state.patients = q.data; renderPatients(); }
+    seedSender();
+  } else {
+    note.textContent = "error: " + (r.data.error || ("HTTP " + r.status));
+  }
 }
 
 // ---------- context ----------
@@ -251,11 +302,13 @@ function setupTabs() {
       if (b.dataset.tab === "report" && state.reportBuilt) loadPreview();
       if (b.dataset.tab === "audit") loadAudit();
       if (b.dataset.tab === "messages") scrollThread();
+      if (b.dataset.tab === "live") populateLive();
     };
   });
 
   renderQuick();
   $("msg-form").onsubmit = sendMsg;
+  $("live-save").onclick = saveLive;
 }
 
 function renderQuick() {

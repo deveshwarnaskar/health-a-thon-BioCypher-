@@ -26,7 +26,9 @@ class Settings:
     # --- plug-in switches ----------------------------------------------
     mock_vision: bool = True     # when a real model isn't plugged in
     # channel backend: "simulator" | "cloud"
-    whatsapp: str = "simulator"
+    whatsapp: str = _env("AAHAAR_WHATSAPP", "simulator")
+    # operator key guarding clinic-side number linking (env AAHAAR_OP_KEY)
+    operator_key: str = _env("AAHAAR_OP_KEY", "aahaar-2026")
 
     # --- physical paths ------------------------------------------------
     db_path: str = _env("AAHAAR_DB", "aahaar.db")
