@@ -428,13 +428,14 @@ async function refreshThreadAndContext(forceScroll = false) {
 
   const all = inbounds.concat(outbounds);
   all.sort((a, b) => (a.ts || "").localeCompare(b.ts || ""));
+  const recent = all.slice(-30);
 
-  const hash = JSON.stringify(all.map((x) => [x.kind, x.text, x.when]));
+  const hash = JSON.stringify(recent.map((x) => [x.kind, x.text, x.when]));
   if (hash !== lastLogHash) {
     lastLogHash = hash;
-    state.thread = all;
+    state.thread = recent;
     renderThread();
-    if (forceScroll || state.thread.length <= 5) scrollThread();
+    if (forceScroll || recent.length <= 5) scrollThread();
     await loadContext();
     renderOverview();
     const m = state.ctx && state.metrics;
