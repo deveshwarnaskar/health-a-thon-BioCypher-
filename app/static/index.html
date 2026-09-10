@@ -156,6 +156,19 @@
         </div>
         <div id="direct-msg-note" class="muted" style="margin-top: 0.5rem;"></div>
       </div>
+
+      <div class="card" style="margin-top: 1rem;">
+        <h3>API &amp; Meta WhatsApp Diagnostics</h3>
+        <p class="muted">Live status of WhatsApp Cloud channel, token validity, and direct ping testing.</p>
+        <div id="diag-summary" style="margin: 0.5rem 0; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 6px; font-family: monospace; font-size: 0.85rem;">
+          Loading diagnostics...
+        </div>
+        <div class="live-row" style="margin-top: 0.5rem;">
+          <input id="diag-test-phone" type="tel" placeholder="+91... (e.g. +917439030190)" style="flex: 2; padding: 0.5rem;" />
+          <button id="btn-test-ping" type="button">Test WhatsApp Ping</button>
+        </div>
+        <div id="diag-test-result" style="margin-top: 0.5rem; white-space: pre-wrap; font-family: monospace; font-size: 0.85rem;"></div>
+      </div>
     </section>
 
     <section id="tab-audit" class="tab">
