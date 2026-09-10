@@ -86,12 +86,28 @@ class _Base:
 
 class SimulatorBackend(_Base):
     name = "simulator"
+    last_dispatch_status: dict = {"status": "simulator_ready", "ts": None}
 
     def send(self, out: Outbound) -> bool:
         wid = self._window_id_for(out.to_phone)
         self.store.record_outbound(wid, out.route, out.kind, out.body)
         print(f"[Aahaar -> {out.to_phone}] ({out.kind}) {out.body}")
+        self.last_dispatch_status = {
+            "status": "success",
+            "ts": datetime.now().isoformat(),
+            "http_code": 200,
+            "error": None,
+            "to": out.to_phone,
+        }
         return True
+
+    def test_send(self, to_phone: str, message: str = "Test ping from Aahaar") -> dict:
+        return {
+            "success": True,
+            "http_code": 200,
+            "to": to_phone,
+            "response": f"Simulated delivery: {message}",
+        }
 
     def send_bulk(self, outs: list[Outbound]) -> int:
         n = 0
@@ -116,10 +132,96 @@ class CloudBackend(_Base):
         self.phone_id = os.environ.get("META_PHONE_ID", "")
         self.token = os.environ.get("META_TOKEN", "")
         self.verify_token = os.environ.get("META_VERIFY", "aahaar-verify")
+        self.last_dispatch_status: dict = {
+            "status": "idle",
+            "ts": None,
+            "http_code": None,
+            "error": None,
+            "to": None,
+        }
 
     @property
     def ready(self) -> bool:
         return bool(self.phone_id and self.token)
+
+    def test_send(self, to_phone: str, message: str = "Test ping from Aahaar") -> dict:
+        clean_to = re.sub(r"\D", "", str(to_phone))
+        if not self.ready:
+            return {
+                "success": False,
+                "error": "CloudBackend not ready: META_PHONE_ID or META_TOKEN is not configured.",
+                "phone_id_set": bool(self.phone_id),
+                "token_set": bool(self.token),
+            }
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": clean_to,
+            "type": "text",
+            "text": {"body": message},
+        }
+        url = GRAPH + f"/{self.phone_id}/messages"
+        req = urllib.request.Request(
+            url, data=json.dumps(payload).encode(),
+            headers={"Authorization": f"Bearer {self.token}",
+                     "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=8) as r:
+                body = r.read().decode()
+                try:
+                    data = json.loads(body)
+                except Exception:
+                    data = body
+                self.last_dispatch_status = {
+                    "status": "success",
+                    "ts": datetime.now().isoformat(),
+                    "http_code": r.status,
+                    "error": None,
+                    "to": clean_to,
+                }
+                return {
+                    "success": r.status == 200,
+                    "http_code": r.status,
+                    "to": clean_to,
+                    "response": data,
+                }
+        except urllib.error.HTTPError as e:
+            err_msg = ""
+            try:
+                err_msg = e.read().decode()
+            except Exception:
+                pass
+            try:
+                err_json = json.loads(err_msg)
+            except Exception:
+                err_json = err_msg or str(e)
+            self.last_dispatch_status = {
+                "status": "error",
+                "ts": datetime.now().isoformat(),
+                "http_code": e.code,
+                "error": err_json,
+                "to": clean_to,
+            }
+            return {
+                "success": False,
+                "http_code": e.code,
+                "to": clean_to,
+                "error": err_json,
+            }
+        except Exception as e:
+            self.last_dispatch_status = {
+                "status": "exception",
+                "ts": datetime.now().isoformat(),
+                "http_code": None,
+                "error": str(e),
+                "to": clean_to,
+            }
+            return {
+                "success": False,
+                "http_code": None,
+                "to": clean_to,
+                "error": str(e),
+            }
 
     def send(self, out: Outbound) -> bool:
         to = self._bind_route_phone(out, self.phone_ids)
@@ -128,6 +230,12 @@ class CloudBackend(_Base):
         self.store.record_outbound(self._window_id_for(to), out.route, out.kind, out.body)
         if not self.ready:
             print("[Aahaar] cloud backend not configured — message dropped from Meta dispatch:", out.body[:60])
+            self.last_dispatch_status = {
+                "status": "dropped_not_ready",
+                "ts": datetime.now().isoformat(),
+                "error": "CloudBackend not configured (missing phone_id or token)",
+                "to": clean_to,
+            }
             return False
         payload = {
             "messaging_product": "whatsapp",
@@ -148,8 +256,6 @@ class CloudBackend(_Base):
         return (query.get("hub.mode") == "subscribe"
                 and query.get("hub.verify_token") == self.verify_token)
 
-
-
     def download_media(self, media_id: str, path: Optional[str] = None) -> Optional[str]:
         url = self._get(f"/{media_id}")
         if not url:
@@ -167,9 +273,18 @@ class CloudBackend(_Base):
             url, data=json.dumps(payload).encode(),
             headers={"Authorization": f"Bearer {self.token}",
                      "Content-Type": "application/json"})
+        to = payload.get("to")
         try:
             with urllib.request.urlopen(req, timeout=5) as r:
-                return r.status == 200
+                success = (r.status == 200)
+                self.last_dispatch_status = {
+                    "status": "success" if success else "error",
+                    "ts": datetime.now().isoformat(),
+                    "http_code": r.status,
+                    "error": None,
+                    "to": to,
+                }
+                return success
         except urllib.error.HTTPError as e:
             err_msg = ""
             try:
@@ -177,9 +292,23 @@ class CloudBackend(_Base):
             except Exception:
                 pass
             print(f"[Aahaar] cloud send HTTP {e.code} failed: {err_msg or e}")
+            self.last_dispatch_status = {
+                "status": "error",
+                "ts": datetime.now().isoformat(),
+                "http_code": e.code,
+                "error": err_msg or str(e),
+                "to": to,
+            }
             return False
         except Exception as e:
             print("[Aahaar] cloud send failed:", e)
+            self.last_dispatch_status = {
+                "status": "exception",
+                "ts": datetime.now().isoformat(),
+                "http_code": None,
+                "error": str(e),
+                "to": to,
+            }
             return False
 
     def _get(self, path: str) -> Optional[str]:
