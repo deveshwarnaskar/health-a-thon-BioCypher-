@@ -168,7 +168,7 @@ class CloudBackend(_Base):
             headers={"Authorization": f"Bearer {self.token}",
                      "Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=10) as r:
+            with urllib.request.urlopen(req, timeout=5) as r:
                 return r.status == 200
         except urllib.error.HTTPError as e:
             err_msg = ""
@@ -178,7 +178,7 @@ class CloudBackend(_Base):
                 pass
             print(f"[Aahaar] cloud send HTTP {e.code} failed: {err_msg or e}")
             return False
-        except urllib.error.URLError as e:
+        except Exception as e:
             print("[Aahaar] cloud send failed:", e)
             return False
 

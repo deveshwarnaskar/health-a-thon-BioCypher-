@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import FastAPI, Header, Query, Request, Response
+from fastapi import BackgroundTasks, FastAPI, Header, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -67,9 +67,9 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         return {"ok": True, "version": "0.1.0", "channel": backend.name}
 
     @app.post("/api/v1/inbound")
-    def inbound(raw: dict):
+    def inbound(raw: dict, background_tasks: BackgroundTasks):
         replies = ingest.handle(raw)
-        backend.send_bulk(replies)
+        background_tasks.add_task(backend.send_bulk, replies)
         return {"replies": [r.body for r in replies], "logged": len(replies)}
 
     @app.get("/api/v1/webhooks/whatsapp")
@@ -84,7 +84,7 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         return JSONResponse({"ok": False}, status_code=403)
 
     @app.post("/api/v1/webhooks/whatsapp")
-    async def webhook_inbound(request: Request):
+    async def webhook_inbound(request: Request, background_tasks: BackgroundTasks):
         try:
             payload = await request.json()
         except Exception:
@@ -93,7 +93,7 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         for unit in units:
             try:
                 replies = ingest.handle(unit)
-                backend.send_bulk(replies)
+                background_tasks.add_task(backend.send_bulk, replies)
             except Exception as e:
                 print(f"[Aahaar] webhook ingest error: {e}")
         return {"ok": True, "processed": len(units)}

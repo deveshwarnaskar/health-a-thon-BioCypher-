@@ -19,7 +19,8 @@ from app.server.main import create_app
 
 def _cli(tmp_path):
     return TestClient(create_app(cfg=Settings(db_path=str(tmp_path / "link.db"),
-                                              operator_key="test-key")))
+                                              operator_key="test-key",
+                                              whatsapp="simulator")))
 
 
 # ---- HTTP guard + update -----------------------------------------------

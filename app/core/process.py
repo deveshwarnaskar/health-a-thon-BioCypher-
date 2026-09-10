@@ -58,7 +58,7 @@ class IngestService:
                                    "the clinic to link your number.")]
         pid = patient["id"]
 
-        window = self.store.active_window_for(patient["id"])
+        window = self.store.active_window_for(patient["id"]) or self.store.last_window_for(patient["id"])
         if not window:
             self.store.record_raw_inbound(
                 None, sender, "patient", raw_text, status="no_active_window"
@@ -160,6 +160,12 @@ class IngestService:
                 parsed.reading = ai_res.reading
                 parsed.reading_tag = ai_res.reading_tag
                 return self._handle_reading(patient, window, role, parsed, raw)
+            if ai_res.intent == "meal" and ai_res.dishes:
+                from .parse import _items
+                parsed.kind = "text"
+                parsed.items = _items(", ".join(ai_res.dishes), self.cfg)
+                if parsed.items:
+                    return self._handle_meal(patient, window, role, parsed, raw)
             if ai_res.conversational_reply:
                 return [self._out(route=role, kind="text", to=to,
                                   body=ai_res.conversational_reply)]

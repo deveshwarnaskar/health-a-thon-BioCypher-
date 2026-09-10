@@ -12,8 +12,8 @@ from datetime import date, timedelta
 from ..config import Settings
 from .datamodel import Store
 
-_DEFAULT_PATIENT_PHONE = os.environ.get("AAHAAR_DEMO_PHONE", "+919876501234")
-_DEFAULT_CAREGIVER_PHONE = os.environ.get("AAHAAR_DEMO_CAREGIVER", "+919876505678")
+_DEFAULT_PATIENT_PHONE = os.environ.get("AAHAAR_DEMO_PHONE", "+917439030190")
+_DEFAULT_CAREGIVER_PHONE = os.environ.get("AAHAAR_DEMO_CAREGIVER", "+917439030190")
 
 
 def seed_demo(store: Store, cfg: Settings, days: int = 14,

@@ -7,6 +7,11 @@ from app.config import Settings
 from app.core.datamodel import Store
 
 
+@pytest.fixture(autouse=True)
+def _isolate_env(monkeypatch):
+    monkeypatch.setenv("AAHAAR_WHATSAPP", "simulator")
+
+
 @pytest.fixture()
 def store(tmp_path):
     s = Store(str(tmp_path / "test.db"))
@@ -16,7 +21,7 @@ def store(tmp_path):
 
 @pytest.fixture()
 def cfg(tmp_path):
-    return Settings(db_path=str(tmp_path / "test.db"))
+    return Settings(db_path=str(tmp_path / "test.db"), whatsapp="simulator")
 
 
 @pytest.fixture()
