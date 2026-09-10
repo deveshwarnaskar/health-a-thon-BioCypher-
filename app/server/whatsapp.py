@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -41,6 +42,48 @@ class _Base:
 
     def _bind_route_phone(self, out: Outbound, phone_ids: dict) -> str:
         return str(phone_ids.get(out.to_phone, out.to_phone))
+
+    def parse_webhook(self, payload: dict) -> list[dict]:
+        """Flatten Meta's webhook payload into the pipeline's neutral wire-format."""
+        out = []
+        for entry in payload.get("entry", []):
+            for change in entry.get("changes", []):
+                if change.get("field") != "messages":
+                    continue
+                value = change.get("value", {})
+                contacts = value.get("contacts") or []
+                contact_wa = contacts[0].get("wa_id") if contacts else None
+                for msg in value.get("messages", []):
+                    from_ = msg.get("from") or contact_wa
+                    if not from_:
+                        continue
+                    kind = msg.get("type")
+                    unit = {"sender_phone": str(from_).strip(), "ts": datetime.now().isoformat()}
+                    if kind == "text":
+                        unit["kind"] = "text"
+                        unit["text"] = msg.get("text", {}).get("body", "")
+                    elif kind == "image":
+                        if msg.get("image", {}).get("id") and hasattr(self, "_media_exists") and self._media_exists(msg["image"]["id"]):
+                            unit["kind"] = "photo"
+                            unit["photo_path"] = self.download_media(msg["image"]["id"]) if hasattr(self, "download_media") else None
+                        else:
+                            unit["kind"] = "photo"
+                            unit["photo_path"] = None
+                    elif kind == "voice":
+                        unit["kind"] = "text"
+                        unit["text"] = "(voice — STT plug-in)"
+                    elif kind == "button":
+                        unit["kind"] = "text"
+                        unit["text"] = msg.get("button", {}).get("text", "")
+                    elif kind == "interactive":
+                        inter = msg.get("interactive", {})
+                        btn = inter.get("button_reply", {}).get("title") or inter.get("list_reply", {}).get("title", "")
+                        unit["kind"] = "text"
+                        unit["text"] = btn
+                    else:
+                        continue
+                    out.append(unit)
+        return out
 
 
 class SimulatorBackend(_Base):
@@ -85,10 +128,12 @@ class CloudBackend(_Base):
             print("[Aahaar] cloud backend not configured — message dropped:", out.body[:60])
             return False
         to = self._bind_route_phone(out, self.phone_ids)
+        # WhatsApp Cloud API requires recipient phone to be digits without leading '+'
+        clean_to = re.sub(r"\D", "", str(to))
         payload = {
             "messaging_product": "whatsapp",
             "recipient_type": "individual",
-            "to": to,
+            "to": clean_to,
             "type": "text",
             "text": {"body": out.body},
         }
@@ -107,40 +152,7 @@ class CloudBackend(_Base):
         return (query.get("hub.mode") == "subscribe"
                 and query.get("hub.verify_token") == self.verify_token)
 
-    def parse_webhook(self, payload: dict) -> list[dict]:
-        """Flatten Meta's webhook payload into the pipeline's neutral wire-format."""
-        out = []
-        for entry in payload.get("entry", []):
-            for change in entry.get("changes", []):
-                if change.get("field") != "messages":
-                    continue
-                value = change.get("value", {})
-                contacts = value.get("contacts", [{}])
-                from_ = contacts[0].get("wa_id") if contacts else None
-                if not from_:
-                    continue
-                for msg in value.get("messages", []):
-                    kind = msg.get("type")
-                    unit = {"sender_phone": from_, "ts": datetime.now().isoformat()}
-                    if kind == "text":
-                        unit["kind"] = "text"
-                        unit["text"] = msg.get("text", {}).get("body", "")
-                    elif kind == "image":
-                        if msg.get("image", {}).get("id") and self._media_exists(msg["image"]["id"]):
-                            unit["kind"] = "photo"
-                            unit["photo_path"] = self.download_media(msg["image"]["id"])
-                        else:
-                            unit["kind"] = "photo"
-                            unit["photo_path"] = None
-                    elif kind == "voice":
-                        unit["kind"] = "text"; unit["text"] = "(voice — STT plug-in)"
-                    elif kind == "button":
-                        unit["kind"] = "text"
-                        unit["text"] = msg.get("button", {}).get("text", "")
-                    else:
-                        continue
-                    out.append(unit)
-        return out
+
 
     def download_media(self, media_id: str, path: Optional[str] = None) -> Optional[str]:
         url = self._get(f"/{media_id}")
@@ -160,8 +172,16 @@ class CloudBackend(_Base):
             headers={"Authorization": f"Bearer {self.token}",
                      "Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=20) as r:
+            with urllib.request.urlopen(req, timeout=10) as r:
                 return r.status == 200
+        except urllib.error.HTTPError as e:
+            err_msg = ""
+            try:
+                err_msg = e.read().decode()
+            except Exception:
+                pass
+            print(f"[Aahaar] cloud send HTTP {e.code} failed: {err_msg or e}")
+            return False
         except urllib.error.URLError as e:
             print("[Aahaar] cloud send failed:", e)
             return False

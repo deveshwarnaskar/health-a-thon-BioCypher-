@@ -18,6 +18,7 @@ Only confirmed/corrected rows feed the doctor report.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -116,9 +117,21 @@ class Store:
         return [dict(r) for r in rows]
 
     def get_patient_by_phone(self, phone: str) -> Optional[dict]:
+        if not phone:
+            return None
+        clean = re.sub(r"\D", "", str(phone))
+        # 1. Exact match
         r = self.conn.execute("SELECT * FROM patients WHERE phone=? AND is_active=1",
                               (phone,)).fetchone()
-        return dict(r) if r else None
+        if r:
+            return dict(r)
+        # 2. Normalized digits match (e.g. +917439030190 vs 917439030190 vs 7439030190)
+        rows = self.conn.execute("SELECT * FROM patients WHERE is_active=1").fetchall()
+        for row in rows:
+            p_clean = re.sub(r"\D", "", str(row["phone"] or ""))
+            if p_clean == clean or (len(clean) >= 10 and len(p_clean) >= 10 and clean[-10:] == p_clean[-10:]):
+                return dict(row)
+        return None
 
     def get_patient_by_uh(self, uh_id: str) -> Optional[dict]:
         r = self.conn.execute("SELECT * FROM patients WHERE uh_id=?", (uh_id,)).fetchone()
@@ -318,11 +331,24 @@ class Store:
                  raw_text or "", refined_json or "", status))
             return cur.lastrowid
 
-    def raw_inbound_log(self, window_id: Optional[int] = None) -> list[dict]:
+    def raw_inbound_log(self, window_id: Optional[int] = None,
+                        sender_phone: Optional[str] = None) -> list[dict]:
         q = "SELECT * FROM raw_inbound"
-        args: tuple = ()
+        args: list = []
         if window_id is not None:
             q += " WHERE window_id=?"
-            args = (window_id,)
-        q += " ORDER BY ts DESC LIMIT 200"
-        return [dict(r) for r in self.conn.execute(q, args).fetchall()]
+            args.append(window_id)
+        q += " ORDER BY ts ASC LIMIT 200"
+        rows = [dict(r) for r in self.conn.execute(q, tuple(args)).fetchall()]
+        if sender_phone:
+            clean = re.sub(r"\D", "", str(sender_phone))
+            if clean:
+                unlinked = [dict(r) for r in self.conn.execute(
+                    "SELECT * FROM raw_inbound WHERE window_id IS NULL ORDER BY ts ASC LIMIT 50").fetchall()]
+                for u in unlinked:
+                    u_clean = re.sub(r"\D", "", str(u.get("sender_phone") or ""))
+                    if u_clean == clean or (len(clean) >= 10 and len(u_clean) >= 10 and clean[-10:] == u_clean[-10:]):
+                        if not any(r["id"] == u["id"] for r in rows):
+                            rows.append(u)
+                rows.sort(key=lambda x: x.get("ts", ""))
+        return rows

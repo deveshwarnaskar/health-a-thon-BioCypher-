@@ -85,13 +85,18 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
 
     @app.post("/api/v1/webhooks/whatsapp")
     async def webhook_inbound(request: Request):
-        payload = await request.json()
-        if not isinstance(backend, CloudBackend):
-            return {"ok": False, "note": "channel is simulator"}
-        for unit in backend.parse_webhook(payload):
-            replies = ingest.handle(unit)
-            backend.send_bulk(replies)
-        return {"ok": True}
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "invalid json"}, status_code=400)
+        units = backend.parse_webhook(payload) if hasattr(backend, "parse_webhook") else []
+        for unit in units:
+            try:
+                replies = ingest.handle(unit)
+                backend.send_bulk(replies)
+            except Exception as e:
+                print(f"[Aahaar] webhook ingest error: {e}")
+        return {"ok": True, "processed": len(units)}
 
     @app.get("/api/v1/patients/{pid}/metrics")
     def patient_metrics(pid: int):
@@ -216,8 +221,12 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
     @app.get("/api/v1/patients/{pid}/log")
     def patient_log(pid: int):
         w = store.last_window_for(pid)
+        wid = w["id"] if w else None
+        p = store.get_patient(pid)
+        phone = p.get("phone") if p else None
         return {
-            "outbound": store.outbound_log(w["id"] if w else None),
+            "inbound": store.raw_inbound_log(wid, sender_phone=phone),
+            "outbound": store.outbound_log(wid),
             "audit": store.audit_log(),
         }
 

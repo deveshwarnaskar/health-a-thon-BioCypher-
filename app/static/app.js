@@ -402,22 +402,60 @@ function renderThread() {
   }).join("");
 }
 
+let pollTimer = null;
+let lastLogHash = "";
+
+async function refreshThreadAndContext(forceScroll = false) {
+  if (!state.active) return;
+  const r = await j("GET", `/api/v1/patients/${state.active}/log`);
+  if (!r.ok || !r.data) return;
+
+  const inbounds = (r.data.inbound || []).map((m) => ({
+    ts: m.ts,
+    kind: "in",
+    sender: (m.role === "caregiver" ? "Caregiver" : "Patient") + (m.sender_phone ? ` (${m.sender_phone})` : ""),
+    text: m.raw_text,
+    when: hhmm(m.ts),
+  }));
+
+  const outbounds = (r.data.outbound || []).map((o) => ({
+    ts: o.ts,
+    kind: "out",
+    sender: "Aahaar",
+    text: o.body,
+    when: hhmm(o.ts),
+  }));
+
+  const all = inbounds.concat(outbounds);
+  all.sort((a, b) => (a.ts || "").localeCompare(b.ts || ""));
+
+  const hash = JSON.stringify(all.map((x) => [x.kind, x.text, x.when]));
+  if (hash !== lastLogHash) {
+    lastLogHash = hash;
+    state.thread = all;
+    renderThread();
+    if (forceScroll || state.thread.length <= 5) scrollThread();
+    await loadContext();
+    renderOverview();
+    const m = state.ctx && state.metrics;
+    $("ov-empty").hidden = !!m;
+    $("ov-body").hidden = !m;
+    loadAudit();
+  }
+}
+
 function seedThread() {
   state.thread = [];
+  lastLogHash = "";
   const el = $("thread");
-  el.innerHTML = '<div class="thread-empty">loading history…</div>';
-  j("GET", `/api/v1/patients/${state.active}/log`).then((r) => {
-    if (!r.ok) return;
-    const out = (r.data.outbound || []).slice(-40).map((o) => ({
-      kind: "out", sender: "Aahaar", text: o.body, when: hhmm(o.ts),
-    }));
-    if (out.length) {
-      state.thread = out;
-      out.unshift({ kind: "sys", text: `restored ${out.length} earlier messages` });
-      state.thread = out.slice(1);
-    }
-    renderThread();
+  el.innerHTML = '<div class="thread-empty">loading live WhatsApp conversation…</div>';
+  refreshThreadAndContext(true).then(() => {
+    scrollThread();
   });
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(() => {
+    refreshThreadAndContext(false);
+  }, 3000);
 }
 
 function hhmm(iso) {
@@ -436,30 +474,12 @@ async function sendMsg(ev) {
   const sender = $("sender").value;
   $("msg").value = "";
 
-  state.thread.push({ kind: "in", sender, text, when: nowHHMM() });
   $("chat-state").textContent = "sending…";
-  renderThread(); scrollThread();
-
   const r = await j("POST", "/api/v1/inbound", {
     patient_id: state.active, sender_phone: sender, kind: "text", text,
   });
   $("chat-state").textContent = "ready";
-  if (r.ok) {
-    for (const reply of r.data.replies || []) {
-      state.thread.push({ kind: "out", sender: "Aahaar", text: reply, when: nowHHMM() });
-    }
-    if (!(r.data.replies && r.data.replies.length)) {
-      state.thread.push({ kind: "sys", text: "no reply generated" });
-    }
-  } else {
-    state.thread.push({ kind: "sys", text: "error " + r.status });
-  }
-  renderThread(); scrollThread();
-  await loadContext();
-  renderOverview();
-  $("ov-empty").hidden = !state.metrics;
-  $("ov-body").hidden = !state.metrics;
-  loadAudit();
+  await refreshThreadAndContext(true);
 }
 
 function nowHHMM() {

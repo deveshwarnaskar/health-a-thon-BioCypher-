@@ -95,3 +95,33 @@ def test_reseed_keeps_operator_linked_numbers(store, cfg):
     assert pid2 == pid
     assert store.get_patient(pid)["phone"] == "+919800000001"
     assert store.get_caregiver(pid)["phone"] == "+911111111112"
+
+
+def test_meta_webhook_digits_only_matches_plus_phone(seeded, store, cfg):
+    """Meta Cloud API delivers `from` as digits only (e.g. '919000000001').
+    The DB stores '+919000000001'. The resolver must match seamlessly."""
+    ingest = IngestService(store, cfg)
+    replies = ingest.handle({"sender_phone": "919000000001", "kind": "text", "text": "fasting 128"})
+    assert replies and "Logged fasting: 128" in replies[0].body
+
+
+def test_patient_sends_fasting_keyword_only_gets_helpful_ai_prompt(seeded, store, cfg):
+    """When a patient types just 'fasting' without a number, the AI prompts for the value."""
+    ingest = IngestService(store, cfg)
+    replies = ingest.handle({"sender_phone": "919000000001", "kind": "text", "text": "fasting"})
+    assert replies
+    reply_body = replies[0].body.lower()
+    assert "fasting" in reply_body or "reading" in reply_body or "sugar" in reply_body
+
+
+def test_patient_log_returns_inbound_and_outbound(tmp_path):
+    """Verify GET /api/v1/patients/{pid}/log contains both inbound raw speech and outbound replies."""
+    c = _cli(tmp_path)
+    pid = c.get("/api/v1/patients").json()[0]["id"]
+    # Send inbound message
+    c.post("/api/v1/inbound", json={"patient_id": pid, "sender_phone": "+919000000001",
+                                    "kind": "text", "text": "fasting 115"})
+    log = c.get(f"/api/v1/patients/{pid}/log").json()
+    assert "inbound" in log
+    assert "outbound" in log
+    assert any("fasting 115" in m.get("raw_text", "") for m in log["inbound"])

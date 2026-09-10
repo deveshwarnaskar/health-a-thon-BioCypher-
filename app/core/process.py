@@ -12,6 +12,7 @@ detected and asks for a yes/correct. It never numbers the carb/GI for patients.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional
@@ -38,39 +39,49 @@ class IngestService:
     def handle(self, raw: dict) -> list[Outbound]:
         parsed = parse_inbound(raw, self.cfg)
 
+        sender = str(raw.get("sender_phone") or "").strip()
+        raw_text = str(raw.get("text") or raw.get("reading") or (raw.get("kind") or "message"))
+
         patient = None
         pid = raw.get("patient_id")
         if pid is not None:
             patient = self.store.get_patient(pid)
-        if not patient and raw.get("sender_phone"):
+        if not patient and sender:
             # real-WhatsApp inbound carries only the sender number — resolve it
-            patient = self.store.get_patient_by_phone(str(raw["sender_phone"]).strip())
+            patient = self.store.get_patient_by_phone(sender)
         if not patient:
-            return [self._out(route="patient", kind="text", to=raw.get("sender_phone"),
+            self.store.record_raw_inbound(
+                None, sender, "unknown", raw_text, status="unregistered"
+            )
+            return [self._out(route="patient", kind="text", to=sender,
                               body="We could not find that profile. Please contact "
                                    "the clinic to link your number.")]
         pid = patient["id"]
 
         window = self.store.active_window_for(patient["id"])
         if not window:
+            self.store.record_raw_inbound(
+                None, sender, "patient", raw_text, status="no_active_window"
+            )
             if parsed.kind == "refusal":
                 return []
-            return [self._out(route="patient", kind="text", to=raw.get("sender_phone"),
+            return [self._out(route="patient", kind="text", to=sender,
                               body="You do not have an active logging window right now. "
                                    "It opens around your next visit.")]
 
-        role, allowed = self._role(patient, window, raw.get("sender_phone"))
+        role, allowed = self._role(patient, window, sender)
         if not allowed:
-            return [self._out(route="patient", kind="text", to=raw.get("sender_phone"),
+            self.store.record_raw_inbound(
+                window["id"], sender, "unauthorized", raw_text, status="unauthorized"
+            )
+            return [self._out(route="patient", kind="text", to=sender,
                               body="Please ask the clinic to link your number to a patient. "
                                    "To protect patient data, only the patient and their "
                                    "designated caregiver can log entries.")]
 
         # 100% audit of all patient speech / text (raw, unaltered)
-        raw_text = str(raw.get("text") or raw.get("reading") or (raw.get("kind") or "message"))
         self.store.record_raw_inbound(
-            window["id"], str(raw.get("sender_phone") or ""),
-            role, raw_text, status="processed"
+            window["id"], sender, role, raw_text, status="processed"
         )
 
         if parsed.kind == "refusal":
@@ -105,18 +116,20 @@ class IngestService:
         return [self._out(route=role, kind="text", to=raw.get("sender_phone"),
                           body="I couldn't process that. Try again or ask the clinic.")]
 
-    # ---- routing helpers ----------------------------------------------
     def _role(self, patient: dict, window: dict, phone: Optional[str]) -> tuple[str, bool]:
         if not phone:
             return "patient", False
-        phone = phone.strip()
-        if phone == str(patient["phone"]).strip():
+        clean_in = re.sub(r"\D", "", str(phone))
+        clean_p = re.sub(r"\D", "", str(patient.get("phone") or ""))
+        if clean_in == clean_p or (len(clean_in) >= 10 and len(clean_p) >= 10 and clean_in[-10:] == clean_p[-10:]):
             return "patient", True
         cg = self.store.get_caregiver(patient["id"])
-        if cg and phone == str(cg["phone"]).strip():
-            return "caregiver", True
-        bound = (window.get("caregiver_phone") or "").strip()
-        if bound and phone == bound:
+        if cg:
+            clean_cg = re.sub(r"\D", "", str(cg.get("phone") or ""))
+            if clean_in == clean_cg or (len(clean_in) >= 10 and len(clean_cg) >= 10 and clean_in[-10:] == clean_cg[-10:]):
+                return "caregiver", True
+        bound = re.sub(r"\D", "", str(window.get("caregiver_phone") or ""))
+        if bound and (clean_in == bound or (len(clean_in) >= 10 and len(bound) >= 10 and clean_in[-10:] == bound[-10:])):
             return "caregiver", True
         return "patient", False
 
@@ -142,6 +155,11 @@ class IngestService:
             ai_res = analyze_patient_input(str(raw.get("text") or ""),
                                            patient_name=patient.get("name", "Patient"),
                                            cfg=self.cfg)
+            if ai_res.intent == "reading" and ai_res.reading is not None:
+                parsed.kind = "reading"
+                parsed.reading = ai_res.reading
+                parsed.reading_tag = ai_res.reading_tag
+                return self._handle_reading(patient, window, role, parsed, raw)
             if ai_res.conversational_reply:
                 return [self._out(route=role, kind="text", to=to,
                                   body=ai_res.conversational_reply)]

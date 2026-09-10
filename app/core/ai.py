@@ -182,6 +182,22 @@ def analyze_patient_input(text: str, patient_name: str = "Patient",
                     conversational_reply=reply
                 )
 
+    # 2b. Patient sent glucose tag/keyword without the reading number
+    tag_only_hints = ("fasting", "fast", "fbs", "sugar", "glucose", "ppbg", "rbs", "khali pet")
+    if any(th in low for th in tag_only_hints) and not num_match:
+        tag_name = "fasting (khali pet)" if any(k in low for k in ("fasting", "fast", "fbs", "khali")) else "sugar"
+        reply = (
+            f"Namaste {patient_name} ji! Aapne '{cleaned}' likha hai. "
+            f"Kripya apna {tag_name} reading number batayein (jaise 'fasting 120' ya 'sugar 140')."
+        )
+        return AIRefinement(
+            intent="clarify",
+            confidence=0.85,
+            raw_text=raw,
+            clarification_question=reply,
+            conversational_reply=reply
+        )
+
     # 3. Check for food / meal description
     food_hints = ("roti", "chapati", "phulka", "rice", "chawal", "dal", "daal",
                   "sabzi", "sabji", "curry", "paneer", "chicken", "salad", "dahi",
