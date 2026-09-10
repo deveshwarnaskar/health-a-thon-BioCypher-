@@ -82,11 +82,11 @@ def render_top(ch, out: str):
     if n:
         ax.text(1, hi + 8, ylab, fontsize=8.5, color="#5A8A63", va="bottom")
     all_v = [v for arr in (fpg, pp, pb, pl, pd) for v in arr if not np.isnan(v)]
-    ymax = max(255, np.nanmax(all_v) * 1.06)
+    ymax = max(255, (np.nanmax(all_v) * 1.06) if all_v else 255.0)
     ax.set_ylim(50, ymax)
     ax.set_yticks(list(range(50, 251, 25)))
     ax.set_ylabel("Blood Glucose (mg/dL)", fontsize=9.5)
-    if n:
+    if n and ch.get("dates"):
         step = max(1, round(n / 10))
         ticks = list(range(1, n + 1))[::step]
         ax.set_xticks(ticks)

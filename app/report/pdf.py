@@ -389,8 +389,6 @@ def _deltastr(a, b) -> str:
     if a is None or b is None:
         return "—"
     d = a - b
-    if d > 0:
-        return f"+{d:+.1f}".replace("+", "+")
     return f"{d:+.1f}"
 
 

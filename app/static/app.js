@@ -248,11 +248,11 @@ async function testWhatsAppPing() {
 // ---------- context ----------
 async function loadContext() {
   const mid = state.active;
+  if (!mid || Number.isNaN(Number(mid))) return;
   const [m, ctx] = await Promise.all([
     j("GET", `/api/v1/patients/${mid}/metrics`),
     j("GET", `/api/v1/patients/${mid}/report`),
   ]);
-  if (Number.isNaN(Number(mid))) return;
   state.metrics = m.ok ? m.data : null;
   state.ctx = ctx.ok ? ctx.data : null;
   renderHeader();

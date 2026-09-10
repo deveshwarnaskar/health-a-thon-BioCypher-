@@ -86,6 +86,8 @@ def _slot_for(r: dict, confirmed_meals: list[dict]) -> str:
 
 def compute_window_metrics(store: Store, cfg: Settings, window_id: int) -> dict:
     window = store.get_window(window_id)
+    if not window:
+        return {}
     meals = store.meals_for_window(window_id, confirmed_only=True)
     readings = store.readings_for_window(window_id)
     patient = store.get_patient(window["patient_id"])

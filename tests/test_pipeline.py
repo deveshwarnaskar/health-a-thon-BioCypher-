@@ -356,3 +356,47 @@ def test_live_inbound_api_and_unlinked_visibility(tmp_path):
     live = client.get("/api/v1/inbound/live").json()
     assert "messages" in live
     assert any("prick 155" in m["raw_text"] and m["sender_phone"] == "+919988776655" for m in live["messages"])
+
+
+def test_audit_defenses_zero_readings_and_pending_matching(tmp_path, store, cfg):
+    """Test that zero readings chart render does not crash and newest_pending matches digits."""
+    from app.report.charts import render_top
+    from app.report.pdf import _deltastr
+
+    # 1. Delta string formatting
+    assert _deltastr(150.0, 140.0) == "+10.0"
+    assert _deltastr(140.0, 150.0) == "-10.0"
+    assert _deltastr(None, 100) == "—"
+
+    # 2. Render top chart with empty series (zero readings)
+    empty_ch = {
+        "dates": ["2026-09-01", "2026-09-02"],
+        "fpg": [], "fpg_values": [],
+        "ppbg": [], "ppbg_values": [],
+        "pb": [], "pb_values": [],
+        "pl": [], "pl_values": [],
+        "pd": [], "pd_values": [],
+        "corridor_low": 70.0,
+        "corridor_high": 180.0,
+        "weekends": [False, False],
+    }
+    out_png = str(tmp_path / "top_empty.png")
+    # Must not raise ValueError
+    res = render_top(empty_ch, out_png)
+    assert res == out_png
+
+    # 3. Newest pending matching across +91 and 91
+    pid = store.add_patient("Test Pending", "AH-PEND-1", "+919876543210")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    meal_id = store.propose_meal(wid, "+919876543210", "patient", "text",
+                                 [{"name": "roti", "portion": "m", "carbs": 24, "gi": "med"}],
+                                 "m", 220, 24, "med", 0.9)
+    # Search with digits only (Meta format)
+    found = store.newest_pending("9876543210")
+    assert found is not None
+    assert found["id"] == meal_id
+
+    # Test mark_pending_stale sets status to stale
+    store.mark_pending_stale("9876543210")
+    assert store.newest_pending("9876543210") is None
+

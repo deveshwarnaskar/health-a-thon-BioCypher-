@@ -43,8 +43,10 @@ def due_escalations(store: Store, cfg: Settings, now: Optional[datetime] = None)
 
         patient = store.get_patient(w["patient_id"])
         cg = store.get_caregiver(w["patient_id"])
-        target = (cg or {}).get("phone") if (cg or {}).get("phone") else (patient or {}).get("phone")
-        route = "caregiver" if cg else "patient"
+        cg_phone = (cg or {}).get("phone")
+        p_phone = (patient or {}).get("phone")
+        target = cg_phone or p_phone
+        route = "caregiver" if (target and target == cg_phone) else "patient"
         if not target:
             continue
 

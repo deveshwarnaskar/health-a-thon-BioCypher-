@@ -242,15 +242,33 @@ class Store:
             return cur.lastrowid
 
     def mark_pending_stale(self, sender_phone: str) -> None:
+        clean = re.sub(r"\D", "", str(sender_phone or ""))
         with self.tx() as c:
-            c.execute("UPDATE meals SET status='pending' WHERE sender_phone=? AND status='pending'",
+            c.execute("UPDATE meals SET status='stale' WHERE sender_phone=? AND status='pending'",
                       (sender_phone,))
+            if clean:
+                rows = c.execute("SELECT id, sender_phone FROM meals WHERE status='pending'").fetchall()
+                for r in rows:
+                    r_clean = re.sub(r"\D", "", str(r["sender_phone"] or ""))
+                    if r_clean == clean or (len(clean) >= 10 and len(r_clean) >= 10 and clean[-10:] == r_clean[-10:]):
+                        c.execute("UPDATE meals SET status='stale' WHERE id=?", (r["id"],))
 
     def newest_pending(self, sender_phone: str) -> Optional[dict]:
         r = self.conn.execute(
             "SELECT * FROM meals WHERE sender_phone=? AND status='pending' "
             "ORDER BY ts DESC LIMIT 1", (sender_phone,)).fetchone()
-        return dict(r) if r else None
+        if r:
+            return dict(r)
+        clean = re.sub(r"\D", "", str(sender_phone or ""))
+        if clean:
+            rows = self.conn.execute(
+                "SELECT * FROM meals WHERE status='pending' ORDER BY ts DESC"
+            ).fetchall()
+            for row in rows:
+                r_clean = re.sub(r"\D", "", str(row["sender_phone"] or ""))
+                if r_clean == clean or (len(clean) >= 10 and len(r_clean) >= 10 and clean[-10:] == r_clean[-10:]):
+                    return dict(row)
+        return None
 
     def finalize_meal(self, meal_id: int, status: str, portion: Optional[str] = None,
                       correction_note: Optional[str] = None) -> None:
