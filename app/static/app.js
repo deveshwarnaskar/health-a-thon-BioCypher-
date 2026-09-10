@@ -202,6 +202,49 @@ async function sendDirectMessage() {
   }
 }
 
+async function loadDiagnostics() {
+  const diagBox = $("diag-summary");
+  if (!diagBox) return;
+  const r = await j("GET", "/api/v1/debug/status");
+  if (!r.ok || !r.data) {
+    diagBox.textContent = "Failed to load diagnostic status.";
+    return;
+  }
+  const d = r.data;
+  const lastDisp = d.last_dispatch || {};
+  let dispText = lastDisp.status || "none";
+  if (lastDisp.http_code) dispText += ` (HTTP ${lastDisp.http_code})`;
+  if (lastDisp.error) dispText += ` - ${typeof lastDisp.error === 'object' ? JSON.stringify(lastDisp.error) : lastDisp.error}`;
+
+  diagBox.innerHTML = `
+    <div><b>Channel:</b> ${esc(d.channel)}</div>
+    <div><b>Cloud Ready:</b> <span style="color:${d.cloud_ready ? '#10b981' : '#ef4444'}">${d.cloud_ready ? 'Yes (configured)' : 'No (missing token/id)'}</span></div>
+    <div><b>Meta Token:</b> <code>${esc(d.meta_token_masked)}</code></div>
+    <div><b>Gemini AI Key:</b> ${d.gemini_api_key_configured ? '<span style="color:#10b981">Active (' + esc(d.gemini_key_masked) + ')</span>' : '<span style="color:#f59e0b">Not configured on Render (using built-in fallback)</span>'}</div>
+    <div><b>Last Outbound Dispatch:</b> ${esc(dispText)}</div>
+  `;
+}
+
+async function testWhatsAppPing() {
+  const phoneInput = $("diag-test-phone");
+  const phone = (phoneInput.value || "").trim();
+  const resBox = $("diag-test-result");
+  if (!phone) {
+    resBox.innerHTML = `<span style="color:#ef4444">Please enter a recipient phone number (e.g. +917439030190).</span>`;
+    return;
+  }
+  resBox.innerHTML = `<span class="muted">Sending test ping to Meta...</span>`;
+  const r = await j("POST", "/api/v1/debug/test-whatsapp", { phone: phone, message: "Aahaar Diagnostic: Live WhatsApp Test Ping!" });
+  if (r.ok && r.data && r.data.success) {
+    resBox.innerHTML = `<span style="color:#10b981">✓ Success! Meta accepted message for delivery. HTTP 200 OK</span>`;
+  } else {
+    const err = (r.data && r.data.error) ? JSON.stringify(r.data.error, null, 2) : "Unknown error";
+    const code = (r.data && r.data.http_code) ? `HTTP ${r.data.http_code}: ` : "";
+    resBox.innerHTML = `<span style="color:#ef4444">✗ Meta Error: ${code}${esc(err)}</span>`;
+  }
+  loadDiagnostics();
+}
+
 // ---------- context ----------
 async function loadContext() {
   const mid = state.active;
@@ -368,7 +411,7 @@ function setupTabs() {
       if (b.dataset.tab === "report" && state.reportBuilt) loadPreview();
       if (b.dataset.tab === "audit") loadAudit();
       if (b.dataset.tab === "messages") scrollThread();
-      if (b.dataset.tab === "live") populateLive();
+      if (b.dataset.tab === "live") { populateLive(); loadDiagnostics(); }
     };
   });
 
@@ -377,6 +420,8 @@ function setupTabs() {
   $("live-save").onclick = saveLive;
   const dmBtn = $("direct-msg-send");
   if (dmBtn) dmBtn.onclick = sendDirectMessage;
+  const pingBtn = $("btn-test-ping");
+  if (pingBtn) pingBtn.onclick = testWhatsAppPing;
 }
 
 function renderQuick() {
