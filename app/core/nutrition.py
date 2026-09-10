@@ -60,17 +60,71 @@ FoodDict = dict[str, object]
 _ALIASES: dict[str, str] = {
     "rice": "white rice",
     "chawal": "white rice",
+    "bhat": "white rice",
+    "bhaat": "white rice",
+    "pulao": "white rice",
     "chapathi": "roti",
+    "chapati": "roti",
+    "phulka": "roti",
+    "fulka": "roti",
     "roti": "roti",
     "gharelu roti": "roti",
+    "paratha": "paratha",
+    "parantha": "paratha",
+    "naan": "roti",
+    "puri": "roti",
+    "poori": "roti",
+    "bhatura": "roti",
     "daliya": "poha",
+    "oats": "poha",
+    "khichdi": "poha",
     "bhindi": "mixed sabzi",
     "aloo gobi": "mixed sabzi",
+    "aloo matar": "mixed sabzi",
+    "aloo": "mixed sabzi",
+    "gobi": "mixed sabzi",
+    "palak": "mixed sabzi",
+    "tarkari": "mixed sabzi",
+    "sabji": "mixed sabzi",
+    "subji": "mixed sabzi",
+    "sabzi": "mixed sabzi",
+    "bhaji": "mixed sabzi",
+    "curry": "mixed sabzi",
     "saag": "mixed sabzi",
+    "daal": "dal",
+    "dhal": "dal",
+    "dal": "dal",
+    "sambar": "dal",
+    "tadka": "dal",
     "chicken": "chicken curry",
+    "chicken curry": "chicken curry",
+    "murgh": "chicken curry",
+    "fish": "fish curry",
+    "machhi": "fish curry",
+    "egg": "chicken curry",
+    "anda": "chicken curry",
     "paneer bhurji": "paneer curries",
+    "paneer": "paneer curries",
+    "curd": "dahi",
+    "dahi": "dahi",
+    "yogurt": "dahi",
+    "chaas": "dahi",
+    "lassi": "dahi",
+    "doodh": "dahi",
+    "milk": "dahi",
+    "chai": "sweet juice",
+    "tea": "sweet juice",
+    "coffee": "sweet juice",
+    "biscuit": "biscuit",
+    "fruit": "salad",
+    "fruits": "salad",
+    "apple": "salad",
+    "banana": "salad",
+    "salad": "salad",
     "gulabjamun": "gulab jamun",
     "gulab jamun": "gulab jamun",
+    "mithai": "laddu",
+    "sweet": "laddu",
     "fanta/cola": "soft drink",
     "cold drink": "soft drink",
     "kheer/rice kheer": "kheer",
@@ -88,12 +142,13 @@ def _row_for(key: str) -> FoodDict:
 def classify_text(text: Optional[str]) -> list[FoodDict]:
     """Return food rows matched from a free-text meal description.
 
-    Every FOODS item name matches on its own; aliases expand the everyday words.
-    Returns up to 4 matched plates (patients confirm/correct afterwards).
+    Every FOODS item name matches on its own; aliases expand everyday Hindi/English words.
+    Falls back gracefully to a composite meal row so natural descriptions are never rejected.
     """
     if not text:
         return []
-    words = text.lower().replace(",", " ").replace(" and ", " ")
+    cleaned = text.lower().replace(",", " ").replace(" and ", " ").replace(" aur ", " ")
+    words = cleaned.split()
 
     resolved: list[FoodDict] = []
     seen: set[str] = set()
@@ -105,15 +160,38 @@ def classify_text(text: Optional[str]) -> list[FoodDict]:
 
     for token in candidates:
         canonical = _ALIASES.get(token, token)
-        if canonical in seen or token not in words:
+        if canonical in seen:
             continue
-        row = _row_for(canonical)
-        if not row:
-            continue
-        seen.add(canonical)
-        resolved.append(row)
-        if len(resolved) >= 4:
-            break
+        # match token as substring or whole word in text
+        if token in cleaned:
+            row = _row_for(canonical)
+            if not row:
+                continue
+            seen.add(canonical)
+            resolved.append(row)
+            if len(resolved) >= 4:
+                break
+
+    # Graceful fallback: If no candidate catalog dish matched, but the user typed
+    # a message with eating/meal clues, treat it as a valid meal so novel foods are not lost.
+    if not resolved and len(text.strip()) >= 2:
+        desc = text.strip().lower()
+        food_clues = ("had", "ate", "eating", "khaya", "khaye", "khana", "khaana",
+                      "meal", "lunch", "dinner", "breakfast", "nashta", "bowl", "plate")
+        if any(c in desc for c in food_clues):
+            clean_desc = text.strip()
+            for filler in ("maine", "humne", "aaj", "i had", "ate", "eating", "khaya", "meal", "lunch", "dinner", "breakfast"):
+                if clean_desc.lower().startswith(filler):
+                    clean_desc = clean_desc[len(filler):].strip()
+            plate_name = clean_desc[:30].strip() or "Mixed meal"
+            resolved.append({
+                "item": plate_name,
+                "genus": "mixed meal",
+                "carbs_per_100g": 16.0,
+                "gi": "med",
+                "portion": "m"
+            })
+
     return resolved
 
 

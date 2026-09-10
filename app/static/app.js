@@ -34,6 +34,7 @@ async function boot() {
   if (h.ok === true) ch.classList.add("ok");
 
   setupTabs();
+  setupAddPatient();
   const q = await j("GET", "/api/v1/patients");
   if (q.ok && q.data.length) {
     state.patients = q.data;
@@ -42,6 +43,50 @@ async function boot() {
   } else {
     $("patient-list").textContent = "no patients — start the server with a seeded DB";
   }
+}
+
+function setupAddPatient() {
+  const btnAdd = $("btn-add-patient");
+  const box = $("add-patient-box");
+  const btnSave = $("btn-save-patient");
+  const btnCancel = $("btn-cancel-patient");
+  const err = $("new-p-err");
+  if (!btnAdd || !box) return;
+
+  btnAdd.onclick = () => {
+    box.style.display = box.style.display === "none" ? "block" : "none";
+    err.textContent = "";
+  };
+  btnCancel.onclick = () => {
+    box.style.display = "none";
+    err.textContent = "";
+  };
+  btnSave.onclick = async () => {
+    const name = $("new-p-name").value.trim();
+    const phone = $("new-p-phone").value.trim();
+    const key = $("new-p-key").value.trim() || "aahaar-2026";
+    if (!name || !phone) {
+      err.textContent = "Please enter name and phone.";
+      return;
+    }
+    btnSave.disabled = true;
+    const r = await j("POST", "/api/v1/patients", { name, phone }, { "X-Aahaar-Key": key });
+    btnSave.disabled = false;
+    if (r.ok) {
+      box.style.display = "none";
+      $("new-p-name").value = "";
+      $("new-p-phone").value = "";
+      err.textContent = "";
+      const q = await j("GET", "/api/v1/patients");
+      if (q.ok) {
+        state.patients = q.data;
+        renderPatients();
+        selectPatient(r.data.id);
+      }
+    } else {
+      err.textContent = "error: " + (r.data.error || ("HTTP " + r.status));
+    }
+  };
 }
 
 function renderPatients() {
@@ -131,6 +176,27 @@ async function saveLive() {
     const q = await j("GET", "/api/v1/patients");
     if (q.ok) { state.patients = q.data; renderPatients(); }
     seedSender();
+  } else {
+    note.textContent = "error: " + (r.data.error || ("HTTP " + r.status));
+  }
+}
+
+async function sendDirectMessage() {
+  const btn = $("direct-msg-send");
+  const input = $("direct-msg-text");
+  const note = $("direct-msg-note");
+  const text = (input.value || "").trim();
+  if (!text) return;
+  btn.disabled = true;
+  const key = $("live-key").value.trim() || "aahaar-2026";
+  const r = await j("POST", "/api/v1/patients/" + state.active + "/message",
+    { message: text },
+    { "X-Aahaar-Key": key });
+  btn.disabled = false;
+  if (r.ok) {
+    note.innerHTML = `<span style="color: green;">Sent WhatsApp to <b>${esc(r.data.sent_to)}</b>: "${esc(text)}"</span>`;
+    input.value = "";
+    loadAudit();
   } else {
     note.textContent = "error: " + (r.data.error || ("HTTP " + r.status));
   }
@@ -309,6 +375,8 @@ function setupTabs() {
   renderQuick();
   $("msg-form").onsubmit = sendMsg;
   $("live-save").onclick = saveLive;
+  const dmBtn = $("direct-msg-send");
+  if (dmBtn) dmBtn.onclick = sendDirectMessage;
 }
 
 function renderQuick() {

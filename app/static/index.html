@@ -24,7 +24,20 @@
 
 <div class="layout">
   <aside class="sidebar">
-    <div class="side-title">Patients</div>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+      <div class="side-title" style="margin: 0;">Patients</div>
+      <button id="btn-add-patient" style="font-size: 0.75rem; padding: 0.2rem 0.5rem; cursor: pointer;">+ Add Patient</button>
+    </div>
+    <div id="add-patient-box" style="display: none; padding: 0.5rem; background: rgba(0,0,0,0.15); border-radius: 6px; margin-bottom: 0.5rem;">
+      <input id="new-p-name" type="text" placeholder="Full name (e.g. Ramesh)" style="width: 100%; margin-bottom: 0.3rem; padding: 0.3rem; box-sizing: border-box;" />
+      <input id="new-p-phone" type="tel" placeholder="WhatsApp (+91...)" style="width: 100%; margin-bottom: 0.3rem; padding: 0.3rem; box-sizing: border-box;" />
+      <input id="new-p-key" type="password" placeholder="Operator key (aahaar-2026)" style="width: 100%; margin-bottom: 0.3rem; padding: 0.3rem; box-sizing: border-box;" />
+      <div style="display: flex; gap: 0.3rem;">
+        <button id="btn-save-patient" type="button" style="flex: 1; padding: 0.3rem; cursor: pointer;">Save</button>
+        <button id="btn-cancel-patient" type="button" style="padding: 0.3rem; cursor: pointer;">Cancel</button>
+      </div>
+      <div id="new-p-err" style="color: #ef4444; font-size: 0.75rem; margin-top: 0.3rem;"></div>
+    </div>
     <div id="patient-list" class="plist">loading&hellip;</div>
   </aside>
 
@@ -126,6 +139,16 @@
         <p class="notice">Also add these exact numbers as recipients in Meta &rarr;
         WhatsApp test number settings (max 5). Operator key = env <b>AAHAAR_OP_KEY</b>
         (demo default <b>aahaar-2026</b>).</p>
+      </div>
+
+      <div class="card" style="margin-top: 1rem;">
+        <h3>Direct Doctor &rarr; Patient WhatsApp</h3>
+        <p class="muted">Send an instant WhatsApp message directly from the clinic to the patient's phone.</p>
+        <div class="live-row" style="margin-top: 0.5rem;">
+          <input id="direct-msg-text" type="text" placeholder="e.g. Please check fasting blood sugar tomorrow at 8 AM" style="flex: 2; padding: 0.5rem;" />
+          <button id="direct-msg-send" type="button">Send WhatsApp</button>
+        </div>
+        <div id="direct-msg-note" class="muted" style="margin-top: 0.5rem;"></div>
       </div>
     </section>
 

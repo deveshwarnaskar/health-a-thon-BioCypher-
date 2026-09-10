@@ -59,8 +59,13 @@ CREATE TABLE IF NOT EXISTS outbound(
 CREATE TABLE IF NOT EXISTS audit(
     id INTEGER PRIMARY KEY, ts TEXT, actor TEXT, action TEXT, detail TEXT);
 
+CREATE TABLE IF NOT EXISTS raw_inbound(
+    id INTEGER PRIMARY KEY, window_id INTEGER REFERENCES windows(id),
+    ts TEXT, sender_phone TEXT, role TEXT, raw_text TEXT, refined_json TEXT, status TEXT);
+
 CREATE INDEX IF NOT EXISTS ix_meals_window ON meals(window_id);
 CREATE INDEX IF NOT EXISTS ix_readings_window ON readings(window_id);
+CREATE INDEX IF NOT EXISTS ix_raw_inbound_window ON raw_inbound(window_id);
 """
 
 
@@ -300,3 +305,24 @@ class Store:
     def audit_log(self) -> list[dict]:
         rows = self.conn.execute("SELECT * FROM audit ORDER BY ts DESC LIMIT 200").fetchall()
         return [dict(r) for r in rows]
+
+    # ---- raw inbound (unaltered audit of all patient speech/text) -------
+    def record_raw_inbound(self, window_id: Optional[int], sender_phone: str,
+                           role: str, raw_text: str, refined_json: str = "",
+                           status: str = "received") -> int:
+        with self.tx() as c:
+            cur = c.execute(
+                "INSERT INTO raw_inbound(window_id, ts, sender_phone, role, raw_text, refined_json, status)"
+                " VALUES(?,?,?,?,?,?,?)",
+                (window_id, iso(datetime.now()), sender_phone or "", role or "patient",
+                 raw_text or "", refined_json or "", status))
+            return cur.lastrowid
+
+    def raw_inbound_log(self, window_id: Optional[int] = None) -> list[dict]:
+        q = "SELECT * FROM raw_inbound"
+        args: tuple = ()
+        if window_id is not None:
+            q += " WHERE window_id=?"
+            args = (window_id,)
+        q += " ORDER BY ts DESC LIMIT 200"
+        return [dict(r) for r in self.conn.execute(q, args).fetchall()]

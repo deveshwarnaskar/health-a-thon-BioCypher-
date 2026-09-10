@@ -66,7 +66,29 @@ class IngestService:
                                    "To protect patient data, only the patient and their "
                                    "designated caregiver can log entries.")]
 
+        # 100% audit of all patient speech / text (raw, unaltered)
+        raw_text = str(raw.get("text") or raw.get("reading") or (raw.get("kind") or "message"))
+        self.store.record_raw_inbound(
+            window["id"], str(raw.get("sender_phone") or ""),
+            role, raw_text, status="processed"
+        )
+
         if parsed.kind == "refusal":
+            from .ai import analyze_patient_input
+            ai_res = analyze_patient_input(raw_text, patient_name=patient.get("name", "Patient"), cfg=self.cfg)
+            if ai_res.intent == "reading" and ai_res.reading is not None:
+                parsed.kind = "reading"
+                parsed.reading = ai_res.reading
+                parsed.reading_tag = ai_res.reading_tag
+                return self._handle_reading(patient, window, role, parsed, raw)
+            elif ai_res.intent == "meal" and ai_res.dishes:
+                from .parse import _items
+                parsed.kind = "text"
+                parsed.items = _items(", ".join(ai_res.dishes), self.cfg)
+                return self._handle_meal(patient, window, role, parsed, raw)
+            elif ai_res.conversational_reply:
+                return [self._out(route=role, kind="text", to=raw.get("sender_phone"),
+                                  body=ai_res.conversational_reply)]
             return [self._out(route=role, kind="text", to=raw.get("sender_phone"),
                               body="I didn't understand that. Send a photo of the meal, "
                                    "a reading like 'fasting 126', or text the dish name.")]
@@ -116,6 +138,13 @@ class IngestService:
     def _handle_meal(self, patient, window, role, parsed: ParsedInput, raw) -> list[Outbound]:
         if not parsed.items:
             to = raw.get("sender_phone")
+            from .ai import analyze_patient_input
+            ai_res = analyze_patient_input(str(raw.get("text") or ""),
+                                           patient_name=patient.get("name", "Patient"),
+                                           cfg=self.cfg)
+            if ai_res.conversational_reply:
+                return [self._out(route=role, kind="text", to=to,
+                                  body=ai_res.conversational_reply)]
             return [self._out(route=role, kind="text", to=to,
                               body="I couldn't recognise dishes in that yet. "
                                    "Please describe it in text, e.g. '2 roti, dal, sabzi'.")]

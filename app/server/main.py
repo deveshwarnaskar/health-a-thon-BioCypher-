@@ -122,6 +122,40 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             })
         return out
 
+    @app.post("/api/v1/patients")
+    def create_patient(payload: dict, x_aahaar_key: str | None = Header(default=None)):
+        """Register a new patient profile with their own phone, logging window, and WhatsApp thread."""
+        if (x_aahaar_key or "") != settings.operator_key:
+            return JSONResponse({"error": "invalid operator key"}, status_code=403)
+        name = str(payload.get("name") or "").strip()
+        phone = str(payload.get("phone") or "").strip()
+        if not name:
+            return JSONResponse({"error": "patient name required"}, status_code=400)
+        if not _valid_phone(phone):
+            return JSONResponse({"error": "valid phone required"}, status_code=400)
+        import random
+        from datetime import date, timedelta
+        uh_id = payload.get("uh_id") or f"AH-2026-{random.randint(1000, 9999)}"
+        pid = store.add_patient(name, uh_id, phone)
+        today = date.today()
+        wid = store.open_window(pid, today.isoformat(), (today + timedelta(days=14)).isoformat())
+        cg_phone = str(payload.get("caregiver_phone") or "").strip()
+        if cg_phone and _valid_phone(cg_phone):
+            store.set_caregiver_phone(pid, cg_phone)
+        try:
+            from ..core.process import Outbound
+            welcome_msg = (
+                f"Namaste {name} ji! Your clinic has connected your Aahaar Glycemic tracker. "
+                f"You can send your blood sugar readings (e.g. 'sugar 120') or photos/text of your meals "
+                f"(e.g. '2 roti and dal') anytime here. We will prepare your summary for the doctor."
+            )
+            backend.send(Outbound(route="patient", kind="text", body=welcome_msg, to_phone=phone))
+        except Exception as e:
+            print("[Aahaar] new patient welcome failed:", e)
+
+        store.audit("operator", "create_patient", f"created patient {pid} ({name}, {phone})")
+        return {"ok": True, "id": pid, "name": name, "uh_id": uh_id, "phone": phone, "window_id": wid}
+
     @app.post("/api/v1/patients/{pid}/linked")
     def link_patient(pid: int, payload: dict,
                      x_aahaar_key: str | None = Header(default=None)):
@@ -147,8 +181,37 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
                 store.clear_caregiver(pid)
         store.audit("operator", "link",
                     f"patient {pid} phones updated (patient={p_phone})")
+        # Send automated welcome WhatsApp message to patient
+        try:
+            from ..core.process import Outbound
+            welcome_msg = (
+                f"Namaste {patient['name']} ji! Your clinic has connected your Aahaar Glycemic tracker. "
+                f"You can send your blood sugar readings (e.g. 'sugar 120') or photos/text of your meals "
+                f"(e.g. '2 roti and dal') anytime here. We will prepare your summary for the doctor."
+            )
+            backend.send(Outbound(route="patient", kind="text", body=welcome_msg, to_phone=p_phone))
+        except Exception as e:
+            print("[Aahaar] link welcome dispatch failed:", e)
+
         return {"ok": True, "patient_phone": p_phone,
                 "caregiver_phone": cg_phone}
+
+    @app.post("/api/v1/patients/{pid}/message")
+    def send_direct_message(pid: int, payload: dict,
+                            x_aahaar_key: str | None = Header(default=None)):
+        """Doctor sends an instant WhatsApp message directly to the patient."""
+        if (x_aahaar_key or "") != settings.operator_key:
+            return JSONResponse({"error": "invalid operator key"}, status_code=403)
+        patient = store.get_patient(pid)
+        if not patient or not patient.get("phone"):
+            return JSONResponse({"error": "patient has no linked phone number"}, status_code=400)
+        body = str(payload.get("message") or "").strip()
+        if not body:
+            return JSONResponse({"error": "message is empty"}, status_code=400)
+        from ..core.process import Outbound
+        ok = backend.send(Outbound(route="patient", kind="text", body=body, to_phone=patient["phone"]))
+        store.audit("doctor", "direct_message", f"sent to {patient['phone']}: {body[:40]}")
+        return {"ok": ok, "sent_to": patient["phone"]}
 
     @app.get("/api/v1/patients/{pid}/log")
     def patient_log(pid: int):

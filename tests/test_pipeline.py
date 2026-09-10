@@ -259,3 +259,66 @@ def _collect(ctx: dict) -> list:
             elif isinstance(v, dict):
                 strings += _collect(v)
     return strings
+
+
+# ---- Natural Language (Hindi & English) Tests ------------------------------
+def test_natural_language_glucose_reading():
+    cfg = Settings()
+    # Conversational Hinglish
+    p1 = parse_inbound({"patient_id": 1, "kind": "text", "text": "aaj subah fasting sugar 138 aaya"}, cfg)
+    assert p1.is_reading and p1.reading == 138 and p1.reading_tag == "fasting"
+
+    # Conversational English
+    p2 = parse_inbound({"patient_id": 1, "kind": "text", "text": "My blood sugar after lunch was 175 mg/dl"}, cfg)
+    assert p2.is_reading and p2.reading == 175 and p2.reading_tag == "postlunch"
+
+    # Khali pet (Hindi for fasting)
+    p3 = parse_inbound({"patient_id": 1, "kind": "text", "text": "khali pet 118"}, cfg)
+    assert p3.is_reading and p3.reading == 118 and p3.reading_tag == "fasting"
+
+    # Dinner ke baad
+    p4 = parse_inbound({"patient_id": 1, "kind": "text", "text": "dinner ke baad sugar 195"}, cfg)
+    assert p4.is_reading and p4.reading == 195 and p4.reading_tag == "postdinner"
+
+
+def test_natural_language_meal_and_confirm():
+    cfg = Settings()
+    # Everyday Hindi meal words
+    p1 = parse_inbound({"patient_id": 1, "kind": "text", "text": "maine 2 chapati aur sabji khayi"}, cfg)
+    assert p1.is_meal and len(p1.items) >= 1
+
+    # Hindi confirmation
+    p2 = parse_inbound({"patient_id": 1, "kind": "text", "text": "haan theek hai"}, cfg)
+    assert p2.is_confirm
+
+    # Hindi portion correction
+    p3 = parse_inbound({"patient_id": 1, "kind": "text", "text": "chota"}, cfg)
+    assert p3.is_confirm and p3.portion_letter == "s"
+
+    # Novel uncatalogued dish (never rejected)
+    p4 = parse_inbound({"patient_id": 1, "kind": "text", "text": "had a bowl of oats and fruits"}, cfg)
+    assert p4.is_meal and len(p4.items) >= 1
+
+
+def test_typo_correction_and_talking_back_ai(seeded, store, cfg):
+    pid, wid = seeded
+    # Typo: 'sugr 14o' (letter 'o' instead of zero) -> recovered as 140 mg/dL
+    r1 = _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text", "text": "sugr 14o"})
+    assert r1 and "140" in r1[0].body
+
+    # Typo: 'fastng 125'
+    r2 = _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text", "text": "fastng 125"})
+    assert r2 and "125" in r2[0].body
+
+    # Ambiguous input -> Talking back AI asks polite clarification
+    r3 = _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text", "text": "kuch samajh nahi aa raha"})
+    assert r3 and ("samajh nahi aaya" in r3[0].body or "didn't understand" in r3[0].body)
+
+
+def test_all_raw_patient_text_is_logged_in_database(seeded, store, cfg):
+    pid, wid = seeded
+    # Even weird / broken / confusing text is 100% saved in the database
+    _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text", "text": "random broken text 9999"})
+    raw_logs = store.raw_inbound_log(wid)
+    assert len(raw_logs) >= 1
+    assert any("random broken text 9999" in log["raw_text"] for log in raw_logs)

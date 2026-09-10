@@ -49,8 +49,15 @@ READING_TAG_LABELS = {
     "postdinner": "post-dinner",
 }
 
-_CONFIRM = {"yes", "y", "ok", "okay", "confirm", "hmm", "ha", "correct",
-            "right", "theek", "acha", "haan", "hey"}
+_CONFIRM = {"yes", "y", "ok", "okay", "confirm", "hmm", "ha", "haan", "correct",
+            "right", "theek", "theek hai", "thik", "thik h", "acha", "achha",
+            "sahi", "sahi hai", "ji", "ji haan", "done", "yep", "sure"}
+
+_PORTION_MAP = {
+    "s": "s", "small": "s", "chota": "s", "chhota": "s", "kam": "s",
+    "m": "m", "medium": "m", "theek": "m", "normal": "m",
+    "l": "l", "large": "l", "bada": "l", "zyada": "l", "jyada": "l",
+}
 
 
 @dataclass
@@ -77,6 +84,36 @@ class ParsedInput:
         return self.kind == "confirm"
 
 
+def _is_confirm(text: str) -> bool:
+    low = text.strip().lower()
+    if low in _CONFIRM:
+        return True
+    words = low.split()
+    if len(words) <= 4 and all(w in _CONFIRM or w in ("hai", "h", "ji", "to", "bhi", "tha", "sir") for w in words):
+        return True
+    return False
+
+
+def _tag_from_text(prefix: str) -> str:
+    cleaned = prefix.lower().strip()
+    if cleaned in _TAG_MAP:
+        return _TAG_MAP[cleaned]
+    # Meal-slot specific words take precedence over generic fasting
+    if re.search(r"\b(breakfast|nashta|pb)\b", cleaned):
+        return "postbreakfast"
+    if re.search(r"\b(lunch|dopahar|pl)\b", cleaned):
+        return "postlunch"
+    if re.search(r"\b(dinner|raat|pd)\b", cleaned):
+        return "postdinner"
+    if re.search(r"\b(fasting|fast|fbs|khali\s*pet|morning|subah)\b", cleaned):
+        return "fasting"
+    if re.search(r"\b(pre|before|pehle)\b", cleaned):
+        return "pre"
+    if re.search(r"\b(post|after|baad|pp|ppbg)\b", cleaned):
+        return "postprandial"
+    return "postprandial"
+
+
 def parse_inbound(raw: dict, cfg: Settings, mock_vision=None) -> ParsedInput:
     """Normalize a raw wire message. Never raises."""
     if not isinstance(raw, dict):
@@ -84,6 +121,10 @@ def parse_inbound(raw: dict, cfg: Settings, mock_vision=None) -> ParsedInput:
 
     kind = raw.get("kind")
     text = raw.get("text")
+    if text:
+        from .ai import refine_text_local
+        text = refine_text_local(text)
+
     photo = raw.get("photo_path")
     reading = raw.get("reading")
 
@@ -99,12 +140,13 @@ def parse_inbound(raw: dict, cfg: Settings, mock_vision=None) -> ParsedInput:
     # Confirm / correct replies to a pending meal estimate.
     if text:
         low = text.strip().lower()
-        if low in _CONFIRM:
+        if _is_confirm(text):
             return ParsedInput(kind="confirm", text=low, ts=_ts(raw), raw=low)
-        pm = re.match(r"^(correct|nhi|nahi|no)\s*.?\s*([slm])$", low)
-        if pm or low in {"s", "m", "l"}:
-            letter = (pm.group(2) if pm else low)
-            return ParsedInput(kind="confirm", text=low, portion_letter=letter,
+        pm = re.match(r"^(correct|nhi|nahi|no)\s*.?\s*([a-z]+)$", low)
+        portion_word = (pm.group(2) if pm else low).strip()
+        if portion_word in _PORTION_MAP:
+            return ParsedInput(kind="confirm", text=low,
+                               portion_letter=_PORTION_MAP[portion_word],
                                ts=_ts(raw), raw=low)
         cm = re.match(r"^correct\s+(.+)$", low)
         if cm:
@@ -144,15 +186,6 @@ def _as_reading(raw: dict, value) -> ParsedInput:
 
 def _reading_from_text(text: str, raw: Optional[dict] = None) -> Optional[ParsedInput]:
     ts = _ts(raw) if raw else datetime.now()
-    m = _READING_FULL.match(text)
-    if m:
-        val = float(m.group(2))
-        if 20 <= val <= 600:
-            return ParsedInput(kind="reading", reading=val,
-                               reading_tag=_TAG_MAP.get(m.group(1).lower().strip(),
-                                                        "postprandial"),
-                               ts=ts, raw=text.strip())
-        return ParsedInput(kind="refusal", raw=text.strip())
     m = _READING_SHORT.match(text.strip())
     if m:
         val = float(m.group(1))
@@ -160,6 +193,40 @@ def _reading_from_text(text: str, raw: Optional[dict] = None) -> Optional[Parsed
             return ParsedInput(kind="reading", reading=val, reading_tag="postprandial",
                                ts=ts, raw=text.strip())
         return ParsedInput(kind="refusal", raw=text.strip())
+
+    m_full = _READING_FULL.match(text)
+    if m_full:
+        val = float(m_full.group(2))
+        prefix = m_full.group(1).lower().strip()
+        tag = _tag_from_text(prefix)
+        if 20 <= val <= 600:
+            return ParsedInput(kind="reading", reading=val, reading_tag=tag,
+                               ts=ts, raw=text.strip())
+        return ParsedInput(kind="refusal", raw=text.strip())
+
+    # Natural conversational pattern: e.g. "aaj subah fasting 135 tha", "my sugar is 142"
+    low = text.lower().strip()
+    # Find any standalone 2 to 3 digit number (with optional decimal)
+    num_match = re.search(r"\b(\d{2,3}(?:\.\d)?)\s*(?:mg/?dl)?\b", low)
+    if num_match:
+        context_words = (
+            "sugar", "glucose", "bg", "fbs", "rbs", "ppbg", "mg/dl", "mgdl",
+            "reading", "level", "fasting", "fast", "khali", "pet", "subah",
+            "morning", "pre", "pehle", "post", "after", "baad", "breakfast",
+            "nashta", "lunch", "dopahar", "dinner", "raat"
+        )
+        if any(cw in low for cw in context_words):
+            try:
+                val = float(num_match.group(1))
+            except ValueError:
+                return None
+            if not (20 <= val <= 600):
+                return ParsedInput(kind="refusal", raw=text.strip())
+
+            tag = _tag_from_text(low)
+            return ParsedInput(kind="reading", reading=val, reading_tag=tag,
+                               ts=ts, raw=text.strip())
+
     return None
 
 
