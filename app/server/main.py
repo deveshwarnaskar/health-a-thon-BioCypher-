@@ -290,6 +290,28 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             "audit": store.audit_log(),
         }
 
+    @app.post("/api/v1/patients/{pid}/clear-chat")
+    def clear_patient_chat(pid: int):
+        patient = store.get_patient(pid)
+        if not patient:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        w = store.last_window_for(pid)
+        wid = w["id"] if w else None
+        with store.tx() as c:
+            if wid:
+                c.execute("DELETE FROM raw_inbound WHERE window_id=?", (wid,))
+                c.execute("DELETE FROM outbound WHERE window_id=?", (wid,))
+            phone = patient.get("phone")
+            if phone:
+                clean = re.sub(r"\D", "", str(phone))
+                if clean:
+                    c.execute(
+                        "DELETE FROM raw_inbound WHERE window_id IS NULL AND (sender_phone LIKE ? OR sender_phone LIKE ?)",
+                        (f"%{clean[-10:]}%", f"%{phone}%")
+                    )
+        store.audit("doctor", "clear_chat", f"cleared chat thread for patient {pid}")
+        return {"ok": True, "patient_id": pid}
+
     @app.post("/api/v1/patients/{pid}/report/build")
     def build_report(pid: int):
         try:

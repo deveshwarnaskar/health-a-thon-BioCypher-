@@ -474,9 +474,14 @@ async function refreshThreadAndContext(forceScroll = false) {
   }));
 
   const all = inbounds.concat(outbounds);
-  // Sort by database sequential id so new live messages are always at the bottom
-  all.sort((a, b) => (a.id && b.id) ? (a.id - b.id) : (a.ts || "").localeCompare(b.ts || ""));
-  const recent = all.slice(-40);
+  // Sort chronologically by timestamp, placing inbound before outbound on identical second
+  all.sort((a, b) => {
+    const cmp = (a.ts || "").localeCompare(b.ts || "");
+    if (cmp !== 0) return cmp;
+    if (a.kind !== b.kind) return a.kind === "in" ? -1 : 1;
+    return (a.id || 0) - (b.id || 0);
+  });
+  const recent = all.length > 60 ? all.slice(-60) : all;
 
   const hash = JSON.stringify(recent.map((x) => [x.kind, x.text, x.when]));
   if (hash !== lastLogHash) {
@@ -507,6 +512,19 @@ function seedThread() {
     refreshThreadAndContext(false);
     refreshLiveInbound();
   }, 3000);
+}
+
+async function clearActiveThread() {
+  if (!state.active) return;
+  if (!confirm("Clear simulated chat messages for this patient? This leaves the clinical report & corridor charts intact and gives you a clean live WhatsApp conversation.")) return;
+  const r = await j("POST", `/api/v1/patients/${state.active}/clear-chat`);
+  if (r.ok) {
+    state.thread = [];
+    lastLogHash = "";
+    renderThread();
+    await refreshThreadAndContext(true);
+    await refreshLiveInbound();
+  }
 }
 
 async function refreshLiveInbound() {

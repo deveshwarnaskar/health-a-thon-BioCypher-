@@ -179,3 +179,30 @@ def test_debug_status_and_test_whatsapp(tmp_path):
     assert r2.status_code == 200
     assert r2.json()["success"] is True
 
+
+def test_clear_patient_chat(tmp_path):
+    """Verify POST /api/v1/patients/{pid}/clear-chat wipes chat thread."""
+    c = _cli(tmp_path)
+    pid = c.get("/api/v1/patients").json()[0]["id"]
+    
+    # Send a message to populate inbound and outbound
+    c.post("/api/v1/inbound", json={
+        "patient_id": pid,
+        "sender_phone": "+917439030190",
+        "kind": "text",
+        "text": "fasting 115"
+    })
+    log = c.get(f"/api/v1/patients/{pid}/log").json()
+    assert len(log["inbound"]) > 0
+    assert len(log["outbound"]) > 0
+
+    # Clear chat
+    clr = c.post(f"/api/v1/patients/{pid}/clear-chat")
+    assert clr.status_code == 200
+    assert clr.json()["ok"] is True
+
+    # Check that chat thread is now empty
+    empty_log = c.get(f"/api/v1/patients/{pid}/log").json()
+    assert len(empty_log["inbound"]) == 0
+    assert len(empty_log["outbound"]) == 0
+

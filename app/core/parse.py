@@ -39,7 +39,8 @@ _TAG_MAP = {"fasting": "fasting", "fast": "fasting", "fbs": "fasting",
             "post lunch": "postlunch", "postlunch": "postlunch",
             "after lunch": "postlunch", "pl": "postlunch",
             "post dinner": "postdinner", "postdinner": "postdinner",
-            "after dinner": "postdinner", "pd": "postdinner"}
+            "after dinner": "postdinner", "pd": "postdinner",
+            "prick": "postprandial", "fingerprick": "postprandial", "glucometer": "postprandial"}
 
 READING_TAG_LABELS = {
     "fasting": "fasting", "pre": "pre-meal",
@@ -213,7 +214,8 @@ def _reading_from_text(text: str, raw: Optional[dict] = None) -> Optional[Parsed
             "sugar", "glucose", "bg", "fbs", "rbs", "ppbg", "mg/dl", "mgdl",
             "reading", "level", "fasting", "fast", "khali", "pet", "subah",
             "morning", "pre", "pehle", "post", "after", "baad", "breakfast",
-            "nashta", "lunch", "dopahar", "dinner", "raat"
+            "nashta", "lunch", "dopahar", "dinner", "raat",
+            "prick", "pricking", "fingerprick", "finger prick", "glucometer", "strip", "test"
         )
         if any(cw in low for cw in context_words):
             try:
