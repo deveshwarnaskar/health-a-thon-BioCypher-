@@ -222,6 +222,26 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         store.audit("doctor", "direct_message", f"sent to {patient['phone']}: {body[:40]}")
         return {"ok": ok, "sent_to": patient["phone"]}
 
+    @app.get("/api/v1/inbound/live")
+    def live_inbound(limit: int = 40):
+        """Live feed of all incoming WhatsApp and simulator messages for clinic visibility."""
+        msgs = store.raw_inbound_all(limit=limit)
+        enriched = []
+        for m in msgs:
+            sender = m.get("sender_phone") or ""
+            p_match = store.get_patient_by_phone(sender) if sender else None
+            enriched.append({
+                "id": m["id"],
+                "ts": m["ts"],
+                "sender_phone": sender,
+                "role": m.get("role", "patient"),
+                "raw_text": m.get("raw_text", ""),
+                "status": m.get("status", "received"),
+                "patient_id": p_match["id"] if p_match else None,
+                "patient_name": p_match["name"] if p_match else "Unlinked / Unknown",
+            })
+        return {"messages": enriched}
+
     @app.get("/api/v1/patients/{pid}/log")
     def patient_log(pid: int):
         w = store.last_window_for(pid)

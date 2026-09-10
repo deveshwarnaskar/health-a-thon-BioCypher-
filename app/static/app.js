@@ -411,6 +411,7 @@ async function refreshThreadAndContext(forceScroll = false) {
   if (!r.ok || !r.data) return;
 
   const inbounds = (r.data.inbound || []).map((m) => ({
+    id: m.id,
     ts: m.ts,
     kind: "in",
     sender: (m.role === "caregiver" ? "Caregiver" : "Patient") + (m.sender_phone ? ` (${m.sender_phone})` : ""),
@@ -419,6 +420,7 @@ async function refreshThreadAndContext(forceScroll = false) {
   }));
 
   const outbounds = (r.data.outbound || []).map((o) => ({
+    id: o.id,
     ts: o.ts,
     kind: "out",
     sender: "Aahaar",
@@ -427,8 +429,9 @@ async function refreshThreadAndContext(forceScroll = false) {
   }));
 
   const all = inbounds.concat(outbounds);
-  all.sort((a, b) => (a.ts || "").localeCompare(b.ts || ""));
-  const recent = all.slice(-30);
+  // Sort by database sequential id so new live messages are always at the bottom
+  all.sort((a, b) => (a.id && b.id) ? (a.id - b.id) : (a.ts || "").localeCompare(b.ts || ""));
+  const recent = all.slice(-40);
 
   const hash = JSON.stringify(recent.map((x) => [x.kind, x.text, x.when]));
   if (hash !== lastLogHash) {
@@ -449,15 +452,65 @@ function seedThread() {
   state.thread = [];
   lastLogHash = "";
   const el = $("thread");
-  el.innerHTML = '<div class="thread-empty">loading live WhatsApp conversation…</div>';
+  el.innerHTML = '<div class="thread-empty">loading live WhatsApp conversation...</div>';
   refreshThreadAndContext(true).then(() => {
     scrollThread();
   });
+  refreshLiveInbound();
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(() => {
     refreshThreadAndContext(false);
+    refreshLiveInbound();
   }, 3000);
 }
+
+async function refreshLiveInbound() {
+  const r = await j("GET", "/api/v1/inbound/live?limit=15");
+  if (!r.ok || !r.data || !r.data.messages) return;
+  const feed = $("live-inbound-feed");
+  if (!feed) return;
+  if (!r.data.messages.length) {
+    feed.innerHTML = '<div class="muted">No incoming WhatsApp messages received yet.</div>';
+    return;
+  }
+  feed.innerHTML = r.data.messages.map((m) => {
+    const isUnlinked = (m.patient_name || "").includes("Unlinked");
+    const linkBtn = isUnlinked && m.sender_phone
+      ? `<button type="button" class="btn-sm" style="margin-left:8px;padding:2px 6px;font-size:11px;cursor:pointer;" onclick="linkActivePhone('${esc(m.sender_phone)}')">Link to active patient</button>`
+      : "";
+    return `<div style="padding: 4px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <span class="badge" style="font-size:10px;background:${isUnlinked ? '#e65100' : '#2e7d32'};color:white;">${esc(m.patient_name)}</span>
+        <b>${esc(m.sender_phone || "unknown")}:</b> "${esc(m.raw_text)}"
+        <span class="muted" style="font-size:11px;">(${hhmm(m.ts)})</span>
+      </div>
+      <div>${linkBtn}</div>
+    </div>`;
+  }).join("");
+  const countEl = $("live-inbound-count");
+  if (countEl) countEl.textContent = `${r.data.messages.length} live`;
+}
+
+window.linkActivePhone = async function(phone) {
+  if (!state.active) {
+    alert("Please select an active patient first.");
+    return;
+  }
+  const key = prompt("Enter Operator Key to link " + phone + " to this patient:", "aahaar-2026");
+  if (!key) return;
+  const r = await j("POST", `/api/v1/patients/${state.active}/linked`, {
+    patient_phone: phone
+  }, { "X-Aahaar-Key": key });
+  if (r.ok) {
+    alert("Phone linked successfully!");
+    await loadPatients();
+    await refreshThreadAndContext(true);
+    await refreshLiveInbound();
+  } else {
+    alert("Failed to link phone: " + (r.data ? r.data.error : "Unknown error"));
+  }
+};
+
 
 function hhmm(iso) {
   try { return String(iso).slice(11, 16); } catch (e) { return ""; }

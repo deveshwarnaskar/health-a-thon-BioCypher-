@@ -64,13 +64,15 @@ def call_llm_reasoning(text: str, patient_name: str, cfg: Optional[Settings] = N
     try:
         import httpx
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}"
+        # Ultra-compact ~100 token prompt to preserve context window and reduce latency
         prompt = (
-            f"You are Aahaar, an assistive clinical diabetes assistant. A patient named {patient_name} "
-            f"sent this message: '{text}'.\n"
-            "Analyze the text (understand typos, dialects like 'ruti' -> roti, visual descriptions like 'small green circular stuff' -> peas/sabzi, blood sugar readings like 'sugr 14o' -> 140).\n"
-            "Return strictly valid JSON with keys: 'intent' ('reading'|'meal'|'confirm'|'clarify'), "
-            "'reading' (number or null), 'reading_tag' ('fasting'|'postbreakfast'|'postlunch'|'postdinner'|'pre'|'postprandial' or null), "
-            "'dishes' (list of identified food names), 'conversational_reply' (a warm, helpful reply in the patient's language)."
+            f"Clinical diabetes assistant. Patient: {patient_name}. Message: '{text[:200]}'.\n"
+            "Analyze intent and return strictly valid JSON: "
+            "{\"intent\": \"reading\"|\"meal\"|\"confirm\"|\"clarify\", "
+            "\"reading\": number or null, "
+            "\"reading_tag\": \"fasting\"|\"postbreakfast\"|\"postlunch\"|\"postdinner\"|\"pre\"|\"postprandial\" or null, "
+            "\"dishes\": [\"dish1\", ...], "
+            "\"conversational_reply\": \"short helpful reply in patient language\"}"
         )
         resp = httpx.post(
             url,
@@ -136,7 +138,8 @@ def analyze_patient_input(text: str, patient_name: str = "Patient",
     num_match = re.search(r"\b(\d{2,3}(?:\.\d)?)\s*(?:mg/?dl)?\b", low)
     sugar_hints = ("sugar", "glucose", "bg", "fbs", "rbs", "ppbg", "fasting", "fast",
                    "khali", "pet", "subah", "morning", "lunch", "dinner", "nashta",
-                   "reading", "level", "aaya", "tha", "hai", "mgdl", "mg/dl")
+                   "reading", "level", "aaya", "tha", "hai", "mgdl", "mg/dl",
+                   "prick", "fingerprick", "finger prick", "glucometer", "strip", "blood sugar", "pricking")
 
     if num_match:
         try:
@@ -183,7 +186,7 @@ def analyze_patient_input(text: str, patient_name: str = "Patient",
                 )
 
     # 2b. Patient sent glucose tag/keyword without the reading number
-    tag_only_hints = ("fasting", "fast", "fbs", "sugar", "glucose", "ppbg", "rbs", "khali pet")
+    tag_only_hints = ("fasting", "fast", "fbs", "sugar", "glucose", "ppbg", "rbs", "khali pet", "prick", "glucometer", "finger prick")
     if any(th in low for th in tag_only_hints) and not num_match:
         tag_name = "fasting (khali pet)" if any(k in low for k in ("fasting", "fast", "fbs", "khali")) else "sugar"
         reply = (

@@ -322,3 +322,37 @@ def test_all_raw_patient_text_is_logged_in_database(seeded, store, cfg):
     raw_logs = store.raw_inbound_log(wid)
     assert len(raw_logs) >= 1
     assert any("random broken text 9999" in log["raw_text"] for log in raw_logs)
+
+def test_prick_keyword_parsing(seeded, store, cfg):
+    pid, wid = seeded
+    # Patient sends 'prick 142' -> immediately recognized as blood sugar reading 142
+    r1 = _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text", "text": "prick 142"})
+    assert r1 and "142" in r1[0].body
+    readings = store.readings_for_window(wid)
+    assert any(rd["value"] == 142.0 for rd in readings)
+
+    # Patient sends 'finger prick 135'
+    r2 = _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text", "text": "finger prick 135"})
+    assert r2 and "135" in r2[0].body
+    readings2 = store.readings_for_window(wid)
+    assert any(rd["value"] == 135.0 for rd in readings2)
+
+
+def test_live_inbound_api_and_unlinked_visibility(tmp_path):
+    from fastapi.testclient import TestClient
+    from app.server.main import create_app
+    from app.config import Settings
+
+    client = TestClient(create_app(cfg=Settings(db_path=str(tmp_path / "test_live.db"), whatsapp="simulator")))
+    # 1. Post a message from an unlinked external number
+    r = client.post("/api/v1/inbound", json={
+        "sender_phone": "+919988776655",
+        "kind": "text",
+        "text": "prick 155"
+    })
+    assert r.status_code == 200
+
+    # 2. Check live inbound endpoint
+    live = client.get("/api/v1/inbound/live").json()
+    assert "messages" in live
+    assert any("prick 155" in m["raw_text"] and m["sender_phone"] == "+919988776655" for m in live["messages"])

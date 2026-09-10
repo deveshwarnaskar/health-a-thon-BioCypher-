@@ -338,17 +338,26 @@ class Store:
         if window_id is not None:
             q += " WHERE window_id=?"
             args.append(window_id)
-        q += " ORDER BY ts ASC LIMIT 200"
+        q += " ORDER BY id ASC LIMIT 250"
         rows = [dict(r) for r in self.conn.execute(q, tuple(args)).fetchall()]
         if sender_phone:
             clean = re.sub(r"\D", "", str(sender_phone))
             if clean:
+                # Fetch newest unlinked messages first
                 unlinked = [dict(r) for r in self.conn.execute(
-                    "SELECT * FROM raw_inbound WHERE window_id IS NULL ORDER BY ts ASC LIMIT 50").fetchall()]
+                    "SELECT * FROM raw_inbound WHERE window_id IS NULL ORDER BY id DESC LIMIT 100").fetchall()]
+                unlinked.reverse()
                 for u in unlinked:
                     u_clean = re.sub(r"\D", "", str(u.get("sender_phone") or ""))
                     if u_clean == clean or (len(clean) >= 10 and len(u_clean) >= 10 and clean[-10:] == u_clean[-10:]):
                         if not any(r["id"] == u["id"] for r in rows):
                             rows.append(u)
-                rows.sort(key=lambda x: x.get("ts", ""))
+                rows.sort(key=lambda x: x.get("id", 0))
+        return rows
+
+    def raw_inbound_all(self, limit: int = 50) -> list[dict]:
+        """Fetch the most recent inbound messages across all senders for live doctor visibility."""
+        rows = [dict(r) for r in self.conn.execute(
+            "SELECT * FROM raw_inbound ORDER BY id DESC LIMIT ?", (limit,)).fetchall()]
+        rows.reverse()
         return rows
