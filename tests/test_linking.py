@@ -161,3 +161,21 @@ def test_meta_webhook_endpoint_background_processing(tmp_path):
     # TestClient automatically flushes background tasks before returning
     log = c.get(f"/api/v1/patients/{pid}/log").json()
     assert any("fasting 124" in m.get("raw_text", "") for m in log["inbound"])
+
+
+def test_debug_status_and_test_whatsapp(tmp_path):
+    """Verify GET /api/v1/debug/status and POST /api/v1/debug/test-whatsapp."""
+    c = _cli(tmp_path)
+    r = c.get("/api/v1/debug/status")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["ok"] is True
+    assert "channel" in data
+    assert "cloud_ready" in data
+    assert "last_dispatch" in data
+
+    # Test ping endpoint
+    r2 = c.post("/api/v1/debug/test-whatsapp", json={"phone": "+917439030190", "message": "Test ping"})
+    assert r2.status_code == 200
+    assert r2.json()["success"] is True
+

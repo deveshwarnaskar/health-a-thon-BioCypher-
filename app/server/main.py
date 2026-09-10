@@ -66,6 +66,42 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
     def healthz():
         return {"ok": True, "version": "0.1.0", "channel": backend.name}
 
+    @app.get("/api/v1/debug/status")
+    def debug_status():
+        is_cloud = isinstance(backend, CloudBackend)
+        phone_id = getattr(backend, "phone_id", "") if is_cloud else "simulator"
+        token = getattr(backend, "token", "") if is_cloud else "simulator"
+        masked_token = f"{token[:6]}...{token[-4:]}" if len(token) > 12 else ("set" if token else "not_set")
+        gemini_key = os.environ.get("GEMINI_API_KEY", "")
+        masked_gemini = f"{gemini_key[:4]}...{gemini_key[-4:]}" if len(gemini_key) > 8 else ("set" if gemini_key else "not_set")
+
+        last_dispatch = getattr(backend, "last_dispatch_status", {})
+        recent_inbounds = store.raw_inbound_all(limit=5)
+
+        return {
+            "ok": True,
+            "channel": backend.name,
+            "cloud_ready": backend.ready if is_cloud else True,
+            "meta_phone_id": (f"...{phone_id[-4:]}" if len(phone_id) > 4 else phone_id) if is_cloud else "simulator",
+            "meta_token_configured": bool(token) if is_cloud else True,
+            "meta_token_masked": masked_token,
+            "gemini_api_key_configured": bool(gemini_key),
+            "gemini_key_masked": masked_gemini,
+            "last_dispatch": last_dispatch,
+            "recent_raw_inbound_count": len(recent_inbounds),
+            "recent_inbounds": recent_inbounds[:3],
+        }
+
+    @app.post("/api/v1/debug/test-whatsapp")
+    def debug_test_whatsapp(payload: dict):
+        phone = str(payload.get("phone") or "").strip()
+        message = str(payload.get("message") or "Hello from Aahaar diagnostics ping! Your WhatsApp integration is connected.").strip()
+        if not phone:
+            return JSONResponse({"error": "phone required"}, status_code=400)
+        res = backend.test_send(phone, message) if hasattr(backend, "test_send") else {"error": "test_send not supported"}
+        status_code = 200 if res.get("success") else 502
+        return JSONResponse(res, status_code=status_code)
+
     @app.post("/api/v1/inbound")
     def inbound(raw: dict, background_tasks: BackgroundTasks):
         replies = ingest.handle(raw)
