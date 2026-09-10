@@ -49,6 +49,16 @@ class IngestService:
         if not patient and sender:
             # real-WhatsApp inbound carries only the sender number — resolve it
             patient = self.store.get_patient_by_phone(sender)
+            if not patient:
+                # In demo setup: if clinic only has default demo patient, auto-adopt real WhatsApp sender
+                all_pts = self.store.list_patients()
+                if len(all_pts) == 1:
+                    p0 = all_pts[0]
+                    p0_clean = re.sub(r"\D", "", str(p0.get("phone") or ""))
+                    if p0_clean.endswith("9876501234") or not p0_clean:
+                        self.store.set_patient_phone(p0["id"], sender)
+                        patient = self.store.get_patient(p0["id"])
+                        print(f"[Aahaar] Auto-bound demo placeholder patient {p0['id']} to real WhatsApp sender {sender}")
         if not patient:
             self.store.record_raw_inbound(
                 None, sender, "unknown", raw_text, status="unregistered"
@@ -122,6 +132,9 @@ class IngestService:
         clean_in = re.sub(r"\D", "", str(phone))
         clean_p = re.sub(r"\D", "", str(patient.get("phone") or ""))
         if clean_in == clean_p or (len(clean_in) >= 10 and len(clean_p) >= 10 and clean_in[-10:] == clean_p[-10:]):
+            return "patient", True
+        if clean_p.endswith("9876501234"):
+            self.store.set_patient_phone(patient["id"], phone)
             return "patient", True
         cg = self.store.get_caregiver(patient["id"])
         if cg:

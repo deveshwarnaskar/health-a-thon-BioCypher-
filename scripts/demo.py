@@ -30,7 +30,7 @@ from app.report import charts as report_charts
 from app.report import pdf as report_pdf
 from app.server.whatsapp import SimulatorBackend
 
-PATIENT_PHONE = os.environ.get("AAHAAR_DEMO_PHONE", "+919876501234")
+PATIENT_PHONE = os.environ.get("AAHAAR_DEMO_PHONE", "+917439030190")
 CAREGIVER_PHONE = os.environ.get("AAHAAR_DEMO_CAREGIVER", PATIENT_PHONE)
 
 WEEKDAY_MEAL = "2 roti, dal, mixed sabzi"
