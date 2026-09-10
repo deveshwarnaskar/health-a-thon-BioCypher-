@@ -35,10 +35,8 @@ class _Base:
         p = self.store.get_patient_by_phone(phone)
         if not p:
             return None
-        for w in self.store.list_windows(p["id"]):
-            if w["status"] == "open":
-                return w["id"]
-        return None
+        w = self.store.last_window_for(p["id"])
+        return w["id"] if w else None
 
     def _bind_route_phone(self, out: Outbound, phone_ids: dict) -> str:
         return str(phone_ids.get(out.to_phone, out.to_phone))
@@ -124,12 +122,13 @@ class CloudBackend(_Base):
         return bool(self.phone_id and self.token)
 
     def send(self, out: Outbound) -> bool:
-        if not self.ready:
-            print("[Aahaar] cloud backend not configured — message dropped:", out.body[:60])
-            return False
         to = self._bind_route_phone(out, self.phone_ids)
-        # WhatsApp Cloud API requires recipient phone to be digits without leading '+'
         clean_to = re.sub(r"\D", "", str(to))
+        # Always record outbound in clinic database for real-time audit and doctor dashboard
+        self.store.record_outbound(self._window_id_for(to), out.route, out.kind, out.body)
+        if not self.ready:
+            print("[Aahaar] cloud backend not configured — message dropped from Meta dispatch:", out.body[:60])
+            return False
         payload = {
             "messaging_product": "whatsapp",
             "recipient_type": "individual",
@@ -137,10 +136,7 @@ class CloudBackend(_Base):
             "type": "text",
             "text": {"body": out.body},
         }
-        ok = self._post(f"/{self.phone_id}/messages", payload)
-        if ok:
-            self.store.record_outbound(self._window_id_for(to), out.route, out.kind, out.body)
-        return ok
+        return self._post(f"/{self.phone_id}/messages", payload)
 
     def send_bulk(self, outs: list[Outbound]) -> int:
         n = 0

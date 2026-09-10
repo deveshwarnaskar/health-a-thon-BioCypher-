@@ -474,12 +474,34 @@ async function sendMsg(ev) {
   const sender = $("sender").value;
   $("msg").value = "";
 
+  // 1. Immediately display inbound message bubble
+  state.thread.push({ kind: "in", sender, text, when: nowHHMM() });
   $("chat-state").textContent = "sending…";
+  renderThread();
+  scrollThread();
+
+  // 2. Dispatch to backend
   const r = await j("POST", "/api/v1/inbound", {
     patient_id: state.active, sender_phone: sender, kind: "text", text,
   });
   $("chat-state").textContent = "ready";
-  await refreshThreadAndContext(true);
+
+  // 3. Immediately display bot replies
+  if (r.ok && r.data && r.data.replies && r.data.replies.length) {
+    for (const reply of r.data.replies) {
+      state.thread.push({ kind: "out", sender: "Aahaar", text: reply, when: nowHHMM() });
+    }
+    renderThread();
+    scrollThread();
+  }
+
+  // 4. Refresh stats and audit
+  await loadContext();
+  renderOverview();
+  const m = state.ctx && state.metrics;
+  $("ov-empty").hidden = !!m;
+  $("ov-body").hidden = !m;
+  loadAudit();
 }
 
 function nowHHMM() {
