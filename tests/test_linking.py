@@ -126,3 +126,38 @@ def test_patient_log_returns_inbound_and_outbound(tmp_path):
     assert "inbound" in log
     assert "outbound" in log
     assert any("fasting 115" in m.get("raw_text", "") for m in log["inbound"])
+
+def test_meta_webhook_endpoint_background_processing(tmp_path):
+    """Verify POST /api/v1/webhooks/whatsapp returns fast 200 OK and executes ingest in background."""
+    c = _cli(tmp_path)
+    pid = c.get("/api/v1/patients").json()[0]["id"]
+    
+    payload = {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "field": "messages",
+                        "value": {
+                            "contacts": [{"wa_id": "917439030190"}],
+                            "messages": [
+                                {
+                                    "from": "917439030190",
+                                    "type": "text",
+                                    "text": {"body": "fasting 124"}
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    
+    r = c.post("/api/v1/webhooks/whatsapp", json=payload)
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "processed": 1}
+    
+    # TestClient automatically flushes background tasks before returning
+    log = c.get(f"/api/v1/patients/{pid}/log").json()
+    assert any("fasting 124" in m.get("raw_text", "") for m in log["inbound"])

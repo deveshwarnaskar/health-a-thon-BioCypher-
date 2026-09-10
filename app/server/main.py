@@ -90,12 +90,16 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         except Exception:
             return JSONResponse({"ok": False, "error": "invalid json"}, status_code=400)
         units = backend.parse_webhook(payload) if hasattr(backend, "parse_webhook") else []
-        for unit in units:
+
+        def _process_unit(u: dict):
             try:
-                replies = ingest.handle(unit)
-                background_tasks.add_task(backend.send_bulk, replies)
+                replies = ingest.handle(u)
+                backend.send_bulk(replies)
             except Exception as e:
-                print(f"[Aahaar] webhook ingest error: {e}")
+                print(f"[Aahaar] background webhook processing error: {e}")
+
+        for unit in units:
+            background_tasks.add_task(_process_unit, unit)
         return {"ok": True, "processed": len(units)}
 
     @app.get("/api/v1/patients/{pid}/metrics")
