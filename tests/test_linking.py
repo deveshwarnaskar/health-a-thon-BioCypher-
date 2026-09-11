@@ -206,3 +206,25 @@ def test_clear_patient_chat(tmp_path):
     assert len(empty_log["inbound"]) == 0
     assert len(empty_log["outbound"]) == 0
 
+
+def test_debug_webhooks_endpoint(tmp_path):
+    """Verify GET /api/v1/debug/webhooks captures incoming webhook events."""
+    c = _cli(tmp_path)
+    # Simulate a webhook post
+    c.post("/api/v1/webhooks/whatsapp", json={
+        "entry": [{
+            "changes": [{
+                "field": "messages",
+                "value": {
+                    "contacts": [{"wa_id": "917439030190"}],
+                    "messages": [{"from": "917439030190", "type": "text", "text": {"body": "ping"}}]
+                }
+            }]
+        }]
+    })
+    r = c.get("/api/v1/debug/webhooks")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total_events"] > 0
+    assert data["events"][0]["event_type"] == "POST_INBOUND"
+

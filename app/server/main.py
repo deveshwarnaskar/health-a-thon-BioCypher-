@@ -40,6 +40,23 @@ def _valid_phone(s: str) -> bool:
     return bool(s and _PHONE_RE.match(s))
 
 
+_webhook_history: list[dict] = []
+
+
+def _record_webhook_event(event_type: str, ip: str, detail: dict, status: str):
+    from datetime import datetime
+    entry = {
+        "ts": datetime.now().isoformat(),
+        "event_type": event_type,
+        "client_ip": ip,
+        "status": status,
+        "detail": detail,
+    }
+    _webhook_history.insert(0, entry)
+    if len(_webhook_history) > 30:
+        _webhook_history.pop()
+
+
 def _make_backend(store: Store):
     if settings.whatsapp == "cloud":
         return CloudBackend(store, settings)
@@ -90,6 +107,18 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             "last_dispatch": last_dispatch,
             "recent_raw_inbound_count": len(recent_inbounds),
             "recent_inbounds": recent_inbounds[:3],
+            "webhook_events_count": len(_webhook_history),
+            "last_webhook_event": _webhook_history[0] if _webhook_history else None,
+        }
+
+    @app.get("/api/v1/debug/webhooks")
+    def debug_webhooks():
+        """Inspection endpoint showing exact HTTP callbacks received from Meta WhatsApp."""
+        return {
+            "total_events": len(_webhook_history),
+            "events": _webhook_history,
+            "meta_verify_token": getattr(backend, "verify_token", "aahaar-verify"),
+            "expected_callback_url": "https://aahaar-573f.onrender.com/api/v1/webhooks/whatsapp",
         }
 
     @app.post("/api/v1/debug/test-whatsapp")
@@ -110,22 +139,48 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
 
     @app.get("/api/v1/webhooks/whatsapp")
     def webhook_verify(
+        request: Request,
         mode: str | None = Query(default=None, alias="hub.mode"),
         token: str | None = Query(default=None, alias="hub.verify_token"),
         challenge: str | None = Query(default=None, alias="hub.challenge"),
     ):
-        if isinstance(backend, CloudBackend) and backend.verify({"hub.mode": mode,
-                                                                 "hub.verify_token": token}):
+        client_ip = request.client.host if request.client else "unknown"
+        verified = isinstance(backend, CloudBackend) and backend.verify({"hub.mode": mode,
+                                                                 "hub.verify_token": token})
+        _record_webhook_event("GET_VERIFY", client_ip, {
+            "mode": mode,
+            "token_match": verified,
+            "challenge_len": len(challenge or ""),
+        }, "verified" if verified else "rejected")
+        store.audit("webhook", "verify_challenge", f"ip={client_ip} mode={mode} verified={verified}")
+        if verified:
             return Response(challenge or "")
         return JSONResponse({"ok": False}, status_code=403)
 
     @app.post("/api/v1/webhooks/whatsapp")
     async def webhook_inbound(request: Request, background_tasks: BackgroundTasks):
+        client_ip = request.client.host if request.client else "unknown"
         try:
             payload = await request.json()
-        except Exception:
+        except Exception as e:
+            _record_webhook_event("POST_INBOUND", client_ip, {"error": str(e)}, "invalid_json")
             return JSONResponse({"ok": False, "error": "invalid json"}, status_code=400)
+
         units = backend.parse_webhook(payload) if hasattr(backend, "parse_webhook") else []
+        changes = (payload.get("entry") or [{}])[0].get("changes") or [{}]
+        field = changes[0].get("field") if changes else None
+        value = changes[0].get("value") or {}
+        has_messages = "messages" in value
+        has_statuses = "statuses" in value
+
+        _record_webhook_event("POST_INBOUND", client_ip, {
+            "units_count": len(units),
+            "units": units,
+            "field": field,
+            "has_messages": has_messages,
+            "has_statuses": has_statuses,
+        }, "processed" if units else ("status_receipt" if has_statuses else "ignored_field"))
+        store.audit("webhook", "inbound_post", f"ip={client_ip} units={len(units)} msgs={has_messages} statuses={has_statuses}")
 
         def _process_unit(u: dict):
             try:

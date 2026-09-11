@@ -220,8 +220,14 @@ async function loadDiagnostics() {
     <div><b>Channel:</b> ${esc(d.channel)}</div>
     <div><b>Cloud Ready:</b> <span style="color:${d.cloud_ready ? '#10b981' : '#ef4444'}">${d.cloud_ready ? 'Yes (configured)' : 'No (missing token/id)'}</span></div>
     <div><b>Meta Token:</b> <code>${esc(d.meta_token_masked)}</code></div>
-    <div><b>Gemini AI Key:</b> ${d.gemini_api_key_configured ? '<span style="color:#10b981">Active (' + esc(d.gemini_key_masked) + ')</span>' : '<span style="color:#f59e0b">Not configured on Render (using built-in fallback)</span>'}</div>
+    <div><b>Gemini AI Key:</b> ${d.gemini_api_key_configured ? '<span style="color:#10b981">Active (' + esc(d.gemini_key_masked) + ')</span>' : '<span style="color:#f59e0b">Not configured on Render (using fast local parsing)</span>'}</div>
     <div><b>Last Outbound Dispatch:</b> ${esc(dispText)}</div>
+    <div style="margin-top:0.4rem;padding-top:0.4rem;border-top:1px dashed #ccc;">
+      <div><b>Webhook Callback URL:</b> <code>https://aahaar-573f.onrender.com/api/v1/webhooks/whatsapp</code></div>
+      <div><b>Webhook Verify Token:</b> <code>aahaar-verify</code></div>
+      <div><b>Webhook Incoming Hits:</b> <span style="font-weight:bold;color:${(d.webhook_events_count || 0) > 0 ? '#10b981' : '#f59e0b'}">${d.webhook_events_count || 0} callbacks received from Meta</span></div>
+      ${(d.webhook_events_count || 0) === 0 ? '<div style="margin-top:0.3rem;padding:0.4rem;background:#fffbeb;color:#92400e;border-radius:4px;font-size:0.8rem;"><b>Meta Webhook Setup:</b> In Meta Developer Portal &rarr; WhatsApp &rarr; Configuration &rarr; Webhook: set Callback URL to the URL above, Verify Token to <code>aahaar-verify</code>, and click <b>Manage</b> to <b>SUBSCRIBE</b> to the <code>messages</code> field.</div>' : ''}
+    </div>
   `;
 }
 

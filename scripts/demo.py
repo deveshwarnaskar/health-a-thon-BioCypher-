@@ -126,6 +126,19 @@ def main() -> None:
     top, bottom = report_charts.render(ctx, cfg.report_dir)
     pdf_path = report_pdf.render(ctx, cfg.report_dir, top, bottom)
 
+    # Retain only the clinic welcome message in the chat thread
+    # so the dashboard chat is clean for live testing, while preserving
+    # all 14-day readings, meals, and charts in the clinical database.
+    with store.tx() as c:
+        c.execute("DELETE FROM raw_inbound WHERE window_id=?", (wid,))
+        c.execute("DELETE FROM outbound WHERE window_id=?", (wid,))
+    store.record_outbound(
+        wid, "patient", "text",
+        "Namaste Sunita Devi ji! Your clinic has connected your Aahaar Glycemic tracker. "
+        "You can send your blood sugar readings (e.g. 'sugar 120') or photos/text of your "
+        "meals (e.g. '2 roti and dal') anytime here. We will prepare your summary for the doctor."
+    )
+
     print("\n— metrics —", json.dumps({
         "meals": metrics["meals_count"], "readings": metrics["readings_count"],
         "adherence": metrics["adherence_index"],
