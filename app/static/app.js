@@ -267,6 +267,23 @@ async function subscribeWabaWebhooks() {
   loadDiagnostics();
 }
 
+async function testGeminiAPI() {
+  const keyInput = $("diag-gemini-key");
+  const apiKey = (keyInput ? keyInput.value : "").trim();
+  const resBox = $("gemini-test-result");
+  if (!resBox) return;
+  resBox.innerHTML = `<span class="muted">Testing Gemini API connection...</span>`;
+  const r = await j("POST", "/api/v1/debug/test-gemini", { api_key: apiKey || null });
+  if (r.ok && r.data && r.data.success) {
+    resBox.innerHTML = `<span style="color:#10b981;font-weight:bold;">✓ Active! Model: ${esc(r.data.model)}</span>\n<span class="muted">Reply: "${esc(r.data.reply)}"</span>`;
+  } else {
+    const err = (r.data && r.data.error) ? (typeof r.data.error === 'object' ? JSON.stringify(r.data.error, null, 2) : r.data.error) : "Connection failed";
+    const details = (r.data && r.data.details) ? "\n" + r.data.details.join("\n") : "";
+    resBox.innerHTML = `<span style="color:#ef4444;">✗ Error: ${esc(err)}${esc(details)}</span>`;
+  }
+  loadDiagnostics();
+}
+
 // ---------- context ----------
 async function loadContext() {
   const mid = state.active;
@@ -446,6 +463,8 @@ function setupTabs() {
   if (pingBtn) pingBtn.onclick = testWhatsAppPing;
   const wabaBtn = $("btn-subscribe-waba");
   if (wabaBtn) wabaBtn.onclick = subscribeWabaWebhooks;
+  const geminiBtn = $("btn-test-gemini");
+  if (geminiBtn) geminiBtn.onclick = testGeminiAPI;
 }
 
 function renderQuick() {

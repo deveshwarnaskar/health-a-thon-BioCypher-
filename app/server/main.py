@@ -92,6 +92,8 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         gemini_key = os.environ.get("GEMINI_API_KEY", "")
         masked_gemini = f"{gemini_key[:4]}...{gemini_key[-4:]}" if len(gemini_key) > 8 else ("set" if gemini_key else "not_set")
 
+        from ..core.ai import get_last_ai_status
+        ai_stat = get_last_ai_status()
         last_dispatch = getattr(backend, "last_dispatch_status", {})
         recent_inbounds = store.raw_inbound_all(limit=5)
 
@@ -104,6 +106,7 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             "meta_token_masked": masked_token,
             "gemini_api_key_configured": bool(gemini_key),
             "gemini_key_masked": masked_gemini,
+            "ai_status": ai_stat,
             "last_dispatch": last_dispatch,
             "recent_raw_inbound_count": len(recent_inbounds),
             "recent_inbounds": recent_inbounds[:3],
@@ -120,6 +123,15 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             "meta_verify_token": getattr(backend, "verify_token", "aahaar-verify"),
             "expected_callback_url": "https://aahaar-573f.onrender.com/api/v1/webhooks/whatsapp",
         }
+
+    @app.post("/api/v1/debug/test-gemini")
+    def debug_test_gemini(payload: dict | None = None):
+        payload = payload or {}
+        api_key = payload.get("api_key")
+        from ..core.ai import test_gemini_api
+        res = test_gemini_api(api_key=api_key)
+        status_code = 200 if res.get("success") else 400
+        return JSONResponse(res, status_code=status_code)
 
     @app.post("/api/v1/debug/test-whatsapp")
     def debug_test_whatsapp(payload: dict):

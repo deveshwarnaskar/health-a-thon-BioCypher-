@@ -56,49 +56,119 @@ class AIRefinement:
     conversational_reply: Optional[str] = None
 
 
+_last_ai_status: dict = {
+    "configured": False,
+    "last_call_ts": None,
+    "last_model": None,
+    "last_status": "idle",
+    "last_error": None,
+}
+
+
+def get_last_ai_status() -> dict:
+    key = os.environ.get("GEMINI_API_KEY", "")
+    _last_ai_status["configured"] = bool(key)
+    _last_ai_status["masked_key"] = f"{key[:4]}...{key[-4:]}" if len(key) > 8 else ("set" if key else "not_set")
+    return dict(_last_ai_status)
+
+
+def test_gemini_api(api_key: Optional[str] = None) -> dict:
+    """Explicit test probe for Gemini API connectivity."""
+    key = (api_key or os.environ.get("GEMINI_API_KEY") or "").strip()
+    if not key:
+        return {"success": False, "error": "No GEMINI_API_KEY provided or set in environment"}
+
+    models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    errors = []
+    for model in models:
+        try:
+            import httpx
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+            resp = httpx.post(
+                url,
+                json={"contents": [{"parts": [{"text": "Hello! Reply strictly with 'Aahaar Gemini AI is active!'"}]}]},
+                timeout=5.0
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                reply = data["candidates"][0]["content"]["parts"][0]["text"]
+                return {
+                    "success": True,
+                    "model": model,
+                    "reply": reply.strip(),
+                    "message": f"Successfully connected to Google Gemini API using model {model}!"
+                }
+            else:
+                errors.append(f"{model}: HTTP {resp.status_code} - {resp.text[:120]}")
+        except Exception as e:
+            errors.append(f"{model}: {str(e)}")
+
+    return {"success": False, "error": "All models failed", "details": errors}
+
+
 def call_llm_reasoning(text: str, patient_name: str, cfg: Optional[Settings] = None) -> Optional[AIRefinement]:
-    """Call an LLM (Gemini or OpenAI) if API key is provided for deep dialect & reasoning."""
+    """Call Google Gemini if API key is provided for deep dialect & reasoning."""
     key = os.environ.get("GEMINI_API_KEY") or getattr(cfg, "gemini_api_key", "")
     if not key:
+        _last_ai_status["configured"] = False
+        _last_ai_status["last_status"] = "key_missing"
         return None
-    try:
-        import httpx
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}"
-        # Ultra-compact ~100 token prompt to preserve context window and reduce latency
-        prompt = (
-            f"Clinical diabetes assistant. Patient: {patient_name}. Message: '{text[:200]}'.\n"
-            "Analyze intent and return strictly valid JSON: "
-            "{\"intent\": \"reading\"|\"meal\"|\"confirm\"|\"clarify\", "
-            "\"reading\": number or null, "
-            "\"reading_tag\": \"fasting\"|\"postbreakfast\"|\"postlunch\"|\"postdinner\"|\"pre\"|\"postprandial\" or null, "
-            "\"dishes\": [\"dish1\", ...], "
-            "\"conversational_reply\": \"short helpful reply in patient language\"}"
-        )
-        resp = httpx.post(
-            url,
-            json={"contents": [{"parts": [{"text": prompt}]}]},
-            timeout=3.5
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            raw_content = data["candidates"][0]["content"]["parts"][0]["text"]
-            # Extract JSON block
-            m = re.search(r"\{.*\}", raw_content, re.DOTALL)
-            if m:
-                parsed = json.loads(m.group(0))
-                return AIRefinement(
-                    intent=parsed.get("intent", "clarify"),
-                    confidence=0.98,
-                    raw_text=text,
-                    reading=parsed.get("reading"),
-                    reading_tag=parsed.get("reading_tag"),
-                    dishes=parsed.get("dishes", []),
-                    conversational_reply=parsed.get("conversational_reply"),
-                    clarification_question=parsed.get("conversational_reply") if parsed.get("intent") == "clarify" else None
-                )
-    except Exception as e:
-        # LLM network timeout or parsing issue; seamlessly fall back to local engine
-        pass
+
+    _last_ai_status["configured"] = True
+    _last_ai_status["last_call_ts"] = datetime.now().isoformat()
+
+    # Ultra-compact ~100 token prompt to preserve context window and reduce latency
+    prompt = (
+        f"Clinical diabetes assistant. Patient: {patient_name}. Message: '{text[:200]}'.\n"
+        "Analyze intent and return strictly valid JSON: "
+        "{\"intent\": \"reading\"|\"meal\"|\"confirm\"|\"clarify\", "
+        "\"reading\": number or null, "
+        "\"reading_tag\": \"fasting\"|\"postbreakfast\"|\"postlunch\"|\"postdinner\"|\"pre\"|\"postprandial\" or null, "
+        "\"dishes\": [\"dish1\", ...], "
+        "\"conversational_reply\": \"short helpful reply in patient language\"}"
+    )
+
+    models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    last_err = None
+
+    for model in models:
+        try:
+            import httpx
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+            resp = httpx.post(
+                url,
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+                timeout=4.0
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                raw_content = data["candidates"][0]["content"]["parts"][0]["text"]
+                m = re.search(r"\{.*\}", raw_content, re.DOTALL)
+                if m:
+                    parsed = json.loads(m.group(0))
+                    _last_ai_status["last_status"] = "success"
+                    _last_ai_status["last_model"] = model
+                    _last_ai_status["last_error"] = None
+                    return AIRefinement(
+                        intent=parsed.get("intent", "clarify"),
+                        confidence=0.98,
+                        raw_text=text,
+                        reading=parsed.get("reading"),
+                        reading_tag=parsed.get("reading_tag"),
+                        dishes=parsed.get("dishes", []),
+                        conversational_reply=parsed.get("conversational_reply"),
+                        clarification_question=parsed.get("conversational_reply") if parsed.get("intent") == "clarify" else None
+                    )
+            elif resp.status_code == 404:
+                last_err = f"{model} returned 404 Not Found"
+                continue
+            else:
+                last_err = f"{model} returned HTTP {resp.status_code}: {resp.text[:120]}"
+        except Exception as e:
+            last_err = f"{model} exception: {str(e)}"
+
+    _last_ai_status["last_status"] = "error"
+    _last_ai_status["last_error"] = last_err
     return None
 
 

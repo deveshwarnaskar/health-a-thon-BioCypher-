@@ -238,3 +238,13 @@ def test_debug_meta_subscribe(tmp_path):
     assert data["success"] is True
     assert data["waba_id"] == "test-waba-123"
 
+
+def test_debug_test_gemini(tmp_path):
+    """Verify POST /api/v1/debug/test-gemini without key returns 400."""
+    c = _cli(tmp_path)
+    r = c.post("/api/v1/debug/test-gemini", json={})
+    assert r.status_code == 400
+    data = r.json()
+    assert data["success"] is False
+    assert "No GEMINI_API_KEY" in data["error"]
+
