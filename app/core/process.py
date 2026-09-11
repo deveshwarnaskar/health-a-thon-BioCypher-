@@ -158,7 +158,7 @@ class IngestService:
         self.store.audit(role, "reading", f"{parsed.reading_tag} {parsed.reading}")
         return [self._out(route=role, kind="text", to=raw.get("sender_phone"),
                           body=f"Logged {label}: {parsed.reading:g} mg/dL. "
-                               "This goes into the doctor's report.")]
+                               "Would you like to add what you ate around this reading? Send a photo 📷, voice note 🎙️, or text ✍️ (or reply 'skip').")]
 
     # ---- meals -----------------------------------------------------------
     def _handle_meal(self, patient, window, role, parsed: ParsedInput, raw) -> list[Outbound]:
