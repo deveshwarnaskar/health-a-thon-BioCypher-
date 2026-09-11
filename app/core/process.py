@@ -36,6 +36,18 @@ class IngestService:
         self.store = store
         self.cfg = cfg
 
+    def _log_raw(self, window_id, sender, role, raw_text, status, raw) -> None:
+        """Record the raw message once: update in place if the webhook pre-captured
+        it (store-first), otherwise insert a fresh row (simulator / direct API)."""
+        raw_id = raw.get("_raw_id")
+        if raw_id:
+            try:
+                self.store.mark_raw_processed(int(raw_id), window_id, role, status)
+                return
+            except Exception:
+                pass
+        self.store.record_raw_inbound(window_id, sender, role, raw_text, status=status)
+
     def handle(self, raw: dict) -> list[Outbound]:
         parsed = parse_inbound(raw, self.cfg)
 
@@ -60,9 +72,7 @@ class IngestService:
                         patient = self.store.get_patient(p0["id"])
                         print(f"[Aahaar] Auto-bound demo placeholder patient {p0['id']} to real WhatsApp sender {sender}")
         if not patient:
-            self.store.record_raw_inbound(
-                None, sender, "unknown", raw_text, status="unregistered"
-            )
+            self._log_raw(None, sender, "unknown", raw_text, "unregistered", raw)
             return [self._out(route="patient", kind="text", to=sender,
                               body="We could not find that profile. Please contact "
                                    "the clinic to link your number.")]
@@ -70,9 +80,7 @@ class IngestService:
 
         window = self.store.active_window_for(patient["id"]) or self.store.last_window_for(patient["id"])
         if not window:
-            self.store.record_raw_inbound(
-                None, sender, "patient", raw_text, status="no_active_window"
-            )
+            self._log_raw(None, sender, "patient", raw_text, "no_active_window", raw)
             if parsed.kind == "refusal":
                 return []
             return [self._out(route="patient", kind="text", to=sender,
@@ -81,18 +89,14 @@ class IngestService:
 
         role, allowed = self._role(patient, window, sender)
         if not allowed:
-            self.store.record_raw_inbound(
-                window["id"], sender, "unauthorized", raw_text, status="unauthorized"
-            )
+            self._log_raw(window["id"], sender, "unauthorized", raw_text, "unauthorized", raw)
             return [self._out(route="patient", kind="text", to=sender,
                               body="Please ask the clinic to link your number to a patient. "
                                    "To protect patient data, only the patient and their "
                                    "designated caregiver can log entries.")]
 
         # 100% audit of all patient speech / text (raw, unaltered)
-        self.store.record_raw_inbound(
-            window["id"], sender, role, raw_text, status="processed"
-        )
+        self._log_raw(window["id"], sender, role, raw_text, "processed", raw)
 
         if parsed.kind == "refusal":
             from .ai import analyze_patient_input

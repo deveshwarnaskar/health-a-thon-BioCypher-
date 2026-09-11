@@ -29,6 +29,10 @@ class Settings:
     whatsapp: str = _env("AAHAAR_WHATSAPP", "simulator")
     # operator key guarding clinic-side number linking (env AAHAAR_OP_KEY)
     operator_key: str = _env("AAHAAR_OP_KEY", "aahaar-2026")
+    # allow LLM/Gemini on the live inbound path (env AAHAAR_AI_ON_INBOUND).
+    # Default OFF: the webhook stores raw patient input and replies via the
+    # deterministic local refiner; Gemini analysis runs only offline afterwards.
+    ai_on_inbound: bool = _env("AAHAAR_AI_ON_INBOUND", "").strip().lower() in ("1", "true", "on", "yes")
 
     # --- physical paths ------------------------------------------------
     db_path: str = _env("AAHAAR_DB", "aahaar.db")

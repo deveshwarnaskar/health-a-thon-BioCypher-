@@ -400,3 +400,38 @@ def test_audit_defenses_zero_readings_and_pending_matching(tmp_path, store, cfg)
     store.mark_pending_stale("9876543210")
     assert store.newest_pending("9876543210") is None
 
+
+# ---- store-first webhook capture + AI gate ---------------------------------
+def test_webhook_store_first_duplicate_skip(tmp_path):
+    from fastapi.testclient import TestClient
+    from app.server.main import create_app
+    c = TestClient(create_app(cfg=Settings(db_path=str(tmp_path / "dup.db"), whatsapp="simulator")))
+    payload = {
+        "entry": [{
+            "changes": [{
+                "field": "messages",
+                "value": {
+                    "contacts": [{"wa_id": "917439030190"}],
+                    "messages": [{"from": "917439030190", "id": "WAMID-STR-1",
+                                  "type": "text", "text": {"body": "fasting 124"}}],
+                },
+            }]
+        }]
+    }
+    r1 = c.post("/api/v1/webhooks/whatsapp", json=payload)
+    assert r1.status_code == 200 and r1.json() == {"ok": True, "processed": 1}
+    # Same Meta message id redelivered must not double-process
+    r2 = c.post("/api/v1/webhooks/whatsapp", json=payload)
+    assert r2.json() == {"ok": True, "processed": 1}
+    log = c.get("/api/v1/patients/1/log").json()
+    inb = [m for m in log["inbound"] if m.get("raw_text") == "fasting 124"]
+    assert len(inb) == 1, "duplicate Meta message id must be skipped"
+
+
+def test_llm_gated_off_live_path_by_default(monkeypatch, cfg):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-gating-test")
+    from app.core.ai import call_llm_reasoning, get_last_ai_status
+    res = call_llm_reasoning("fasting 123", "Test", cfg=cfg)
+    assert res is None
+    assert get_last_ai_status()["last_status"] == "gated_offlive"
+

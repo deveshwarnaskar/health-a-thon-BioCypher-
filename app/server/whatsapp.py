@@ -59,7 +59,9 @@ class _Base:
                     if not from_:
                         continue
                     kind = msg.get("type")
-                    unit = {"sender_phone": str(from_).strip(), "ts": datetime.now().isoformat()}
+                    unit = {"sender_phone": str(from_).strip(),
+                            "message_id": str(msg.get("id") or ""),
+                            "ts": datetime.now().isoformat()}
                     if kind == "text":
                         unit["kind"] = "text"
                         unit["text"] = msg.get("text", {}).get("body", "")

@@ -86,6 +86,11 @@ class Store:
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        # additive migration: idempotency key for Meta webhook message IDs
+        try:
+            self.conn.execute("ALTER TABLE raw_inbound ADD COLUMN message_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already present
         self.conn.commit()
 
     def close(self) -> None:
@@ -348,6 +353,34 @@ class Store:
                 (window_id, iso(datetime.now()), sender_phone or "", role or "patient",
                  raw_text or "", refined_json or "", status))
             return cur.lastrowid
+
+    def record_raw_received(self, sender_phone: str, raw_text: str,
+                            message_id: str = "", role: str = "patient") -> tuple[int, bool]:
+        """Persist a webhook message BEFORE any processing (store-first, durable).
+
+        Returns (raw_inbound.id, is_duplicate). A non-empty Meta message id is used
+        for idempotency so redelivered webhooks can never double-process.
+        """
+        mid = str(message_id or "").strip()
+        if mid:
+            r = self.conn.execute("SELECT id FROM raw_inbound WHERE message_id=?",
+                                  (mid,)).fetchone()
+            if r:
+                return r["id"], True
+        with self.tx() as c:
+            cur = c.execute(
+                "INSERT INTO raw_inbound(window_id, ts, sender_phone, role, raw_text, refined_json, status, message_id)"
+                " VALUES(NULL,?,?,?,?,?,?,?)",
+                (iso(datetime.now()), sender_phone or "", role or "patient",
+                 raw_text or "", "", "received", mid))
+            return cur.lastrowid, False
+
+    def mark_raw_processed(self, raw_id: int, window_id: Optional[int],
+                           role: str, status: str = "processed") -> None:
+        """Attach resolution/outcome to an already-captured raw message (in place)."""
+        with self.tx() as c:
+            c.execute("UPDATE raw_inbound SET window_id=?, role=?, status=? WHERE id=?",
+                      (window_id, role or "patient", status or "processed", int(raw_id)))
 
     def raw_inbound_log(self, window_id: Optional[int] = None,
                         sender_phone: Optional[str] = None) -> list[dict]:

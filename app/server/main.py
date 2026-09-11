@@ -190,22 +190,34 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             return JSONResponse({"ok": False, "error": "invalid json"}, status_code=400)
 
         units = backend.parse_webhook(payload) if hasattr(backend, "parse_webhook") else []
+        # Store-first: durable capture BEFORE any processing, idempotent by Meta message id.
+        for unit in units:
+            src = unit.get("text") or unit.get("photo_path") or f"({unit.get('kind', 'message')})"
+            raw_id, duplicate = store.record_raw_received(
+                unit.get("sender_phone", ""), src, unit.get("message_id", ""))
+            unit["_raw_id"] = raw_id
+            unit["_duplicate"] = duplicate
         changes = (payload.get("entry") or [{}])[0].get("changes") or [{}]
         field = changes[0].get("field") if changes else None
         value = changes[0].get("value") or {}
         has_messages = "messages" in value
         has_statuses = "statuses" in value
+        duplicates = sum(1 for u in units if u.get("_duplicate"))
 
         _record_webhook_event("POST_INBOUND", client_ip, {
             "units_count": len(units),
+            "duplicates_skipped": duplicates,
             "units": units,
             "field": field,
             "has_messages": has_messages,
             "has_statuses": has_statuses,
         }, "processed" if units else ("status_receipt" if has_statuses else "ignored_field"))
-        store.audit("webhook", "inbound_post", f"ip={client_ip} units={len(units)} msgs={has_messages} statuses={has_statuses}")
+        store.audit("webhook", "inbound_post",
+                    f"ip={client_ip} units={len(units)} dup={duplicates} msgs={has_messages} statuses={has_statuses}")
 
         def _process_unit(u: dict):
+            if u.get("_duplicate"):
+                return
             try:
                 replies = ingest.handle(u)
                 backend.send_bulk(replies)

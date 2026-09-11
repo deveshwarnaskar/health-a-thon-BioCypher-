@@ -114,6 +114,14 @@ def call_llm_reasoning(text: str, patient_name: str, cfg: Optional[Settings] = N
         _last_ai_status["last_status"] = "key_missing"
         return None
 
+    # Safety gate (AAHAAR_AI_ON_INBOUND): the live WhatsApp/webhook path never
+    # calls an LLM by default. Patient input is stored verbatim; the deep model
+    # is only usable offline (scripts/analyze_stored.py) unless explicitly opted in.
+    if not getattr(cfg, "ai_on_inbound", False):
+        _last_ai_status["configured"] = bool(key)
+        _last_ai_status["last_status"] = "gated_offlive"
+        return None
+
     _last_ai_status["configured"] = True
     _last_ai_status["last_call_ts"] = datetime.now().isoformat()
 
