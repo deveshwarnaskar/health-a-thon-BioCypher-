@@ -131,6 +131,17 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         status_code = 200 if res.get("success") else 502
         return JSONResponse(res, status_code=status_code)
 
+    @app.post("/api/v1/debug/meta/subscribe")
+    def debug_meta_subscribe(payload: dict | None = None):
+        payload = payload or {}
+        waba_id = str(payload.get("waba_id") or "").strip() or None
+        if hasattr(backend, "subscribe_waba"):
+            res = backend.subscribe_waba(waba_id=waba_id)
+            status_code = 200 if res.get("success") else 400
+            store.audit("system", "meta_subscribe_attempt", f"waba={res.get('waba_id')} success={res.get('success')}")
+            return JSONResponse(res, status_code=status_code)
+        return JSONResponse({"success": False, "error": "Backend does not support subscribe_waba"}, status_code=400)
+
     @app.post("/api/v1/inbound")
     def inbound(raw: dict, background_tasks: BackgroundTasks):
         replies = ingest.handle(raw)

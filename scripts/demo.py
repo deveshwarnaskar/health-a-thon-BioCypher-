@@ -130,8 +130,8 @@ def main() -> None:
     # so the dashboard chat is clean for live testing, while preserving
     # all 14-day readings, meals, and charts in the clinical database.
     with store.tx() as c:
-        c.execute("DELETE FROM raw_inbound WHERE window_id=?", (wid,))
-        c.execute("DELETE FROM outbound WHERE window_id=?", (wid,))
+        c.execute("DELETE FROM raw_inbound")
+        c.execute("DELETE FROM outbound")
     store.record_outbound(
         wid, "patient", "text",
         "Namaste Sunita Devi ji! Your clinic has connected your Aahaar Glycemic tracker. "

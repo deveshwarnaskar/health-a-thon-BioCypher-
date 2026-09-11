@@ -171,6 +171,18 @@
           <button id="btn-test-ping" type="button">Test WhatsApp Ping</button>
         </div>
         <div id="diag-test-result" style="margin-top: 0.5rem; white-space: pre-wrap; font-family: monospace; font-size: 0.85rem;"></div>
+
+        <div style="margin-top: 1rem; padding: 0.6rem; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px;">
+          <h4 style="margin: 0 0 0.3rem 0; color: #166534; font-size: 0.9rem;">Auto-Subscribe Meta Inbound Webhooks (WABA Link)</h4>
+          <p class="muted" style="margin: 0 0 0.4rem 0; font-size: 0.8rem;">
+            If Meta delivers messages to your phone but patient replies do not reach this dashboard, your WhatsApp Business Account (WABA) needs to be registered with Meta webhooks. Click below to auto-subscribe:
+          </p>
+          <div class="live-row">
+            <input id="diag-waba-id" type="text" placeholder="WABA ID (leave blank to auto-detect from token)" style="flex: 2; padding: 0.4rem;" />
+            <button id="btn-subscribe-waba" type="button" style="background: #16a34a; color: white; border: none; padding: 0.4rem 0.8rem; border-radius: 4px; cursor: pointer; font-weight: 600;">Subscribe Meta Webhooks</button>
+          </div>
+          <div id="waba-sub-result" style="margin-top: 0.4rem; white-space: pre-wrap; font-family: monospace; font-size: 0.8rem;"></div>
+        </div>
       </div>
     </section>
 

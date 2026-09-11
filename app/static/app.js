@@ -251,6 +251,22 @@ async function testWhatsAppPing() {
   loadDiagnostics();
 }
 
+async function subscribeWabaWebhooks() {
+  const wabaInput = $("diag-waba-id");
+  const wabaId = (wabaInput ? wabaInput.value : "").trim();
+  const resBox = $("waba-sub-result");
+  if (!resBox) return;
+  resBox.innerHTML = `<span class="muted">Contacting Meta Graph API to subscribe WABA webhooks...</span>`;
+  const r = await j("POST", "/api/v1/debug/meta/subscribe", { waba_id: wabaId || null });
+  if (r.ok && r.data && r.data.success) {
+    resBox.innerHTML = `<span style="color:#10b981;font-weight:bold;">✓ Success! WABA ${esc(r.data.waba_id || "")} is now subscribed to your webhooks in Meta! Send a WhatsApp message to test now.</span>`;
+  } else {
+    const err = (r.data && r.data.error) ? (typeof r.data.error === 'object' ? JSON.stringify(r.data.error, null, 2) : r.data.error) : "Unknown error";
+    resBox.innerHTML = `<span style="color:#ef4444;">✗ Subscription Notice: ${esc(err)}</span>`;
+  }
+  loadDiagnostics();
+}
+
 // ---------- context ----------
 async function loadContext() {
   const mid = state.active;
@@ -428,6 +444,8 @@ function setupTabs() {
   if (dmBtn) dmBtn.onclick = sendDirectMessage;
   const pingBtn = $("btn-test-ping");
   if (pingBtn) pingBtn.onclick = testWhatsAppPing;
+  const wabaBtn = $("btn-subscribe-waba");
+  if (wabaBtn) wabaBtn.onclick = subscribeWabaWebhooks;
 }
 
 function renderQuick() {
@@ -582,7 +600,18 @@ window.linkActivePhone = async function(phone) {
 
 
 function hhmm(iso) {
-  try { return String(iso).slice(11, 16); } catch (e) { return ""; }
+  if (!iso) return "";
+  try {
+    let s = String(iso).trim();
+    if (!s.endsWith("Z") && !s.includes("+") && !s.includes("-", 10)) {
+      s += "Z";
+    }
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return String(iso).slice(11, 16);
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true });
+  } catch (e) {
+    return String(iso).slice(11, 16);
+  }
 }
 
 function scrollThread() {
@@ -629,7 +658,7 @@ async function sendMsg(ev) {
 
 function nowHHMM() {
   const d = new Date();
-  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true });
 }
 
 // ---------- audit ----------
@@ -639,7 +668,7 @@ async function loadAudit() {
   const el = $("audit");
   if (!r.ok || !r.data.audit) { el.textContent = "no audit entries"; return; }
   el.innerHTML = r.data.audit.slice(0, 80).map((a) =>
-    `<div><span class="muted">${String(a.ts).slice(11, 19)}</span> · ${esc(a.actor)} · ${esc(a.action)}${a.detail ? " — " + esc(a.detail) : ""}</div>`).join("");
+    `<div><span class="muted">${hhmm(a.ts)}</span> · ${esc(a.actor)} · ${esc(a.action)}${a.detail ? " — " + esc(a.detail) : ""}</div>`).join("");
 }
 
 boot();

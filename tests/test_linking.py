@@ -228,3 +228,13 @@ def test_debug_webhooks_endpoint(tmp_path):
     assert data["total_events"] > 0
     assert data["events"][0]["event_type"] == "POST_INBOUND"
 
+
+def test_debug_meta_subscribe(tmp_path):
+    """Verify POST /api/v1/debug/meta/subscribe endpoint."""
+    c = _cli(tmp_path)
+    r = c.post("/api/v1/debug/meta/subscribe", json={"waba_id": "test-waba-123"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["success"] is True
+    assert data["waba_id"] == "test-waba-123"
+

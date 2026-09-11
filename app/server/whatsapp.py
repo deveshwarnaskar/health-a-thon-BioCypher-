@@ -41,6 +41,9 @@ class _Base:
     def _bind_route_phone(self, out: Outbound, phone_ids: dict) -> str:
         return str(phone_ids.get(out.to_phone, out.to_phone))
 
+    def subscribe_waba(self, waba_id: Optional[str] = None) -> dict:
+        return {"success": True, "waba_id": waba_id or "simulator-waba", "message": "Simulator backend: WABA webhook subscribed."}
+
     def parse_webhook(self, payload: dict) -> list[dict]:
         """Flatten Meta's webhook payload into the pipeline's neutral wire-format."""
         out = []
@@ -221,6 +224,95 @@ class CloudBackend(_Base):
                 "http_code": None,
                 "to": clean_to,
                 "error": str(e),
+            }
+
+    def subscribe_waba(self, waba_id: Optional[str] = None) -> dict:
+        if not self.ready:
+            return {"success": False, "error": "CloudBackend not ready: missing META_PHONE_ID or META_TOKEN"}
+
+        detected_waba = waba_id
+        diag = {}
+
+        # 1. Try inspecting phone_id to retrieve the parent WABA ID
+        if not detected_waba:
+            try:
+                url = GRAPH + f"/{self.phone_id}?fields=id,display_phone_number,whatsapp_business_account"
+                req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"})
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    data = json.loads(r.read().decode())
+                    diag["phone_details"] = data
+                    if data.get("whatsapp_business_account", {}).get("id"):
+                        detected_waba = data["whatsapp_business_account"]["id"]
+            except Exception as e:
+                diag["phone_query_error"] = str(e)
+
+        # 2. Try inspecting token granular scopes via debug_token
+        if not detected_waba:
+            try:
+                url = GRAPH + f"/debug_token?input_token={self.token}"
+                req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"})
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    data = json.loads(r.read().decode())
+                    diag["token_details"] = data
+                    scopes = data.get("data", {}).get("granular_scopes", [])
+                    for sc in scopes:
+                        if sc.get("target_ids"):
+                            detected_waba = sc["target_ids"][0]
+                            break
+            except Exception as e:
+                diag["token_query_error"] = str(e)
+
+        if not detected_waba:
+            return {
+                "success": False,
+                "need_waba_id": True,
+                "error": "Could not auto-detect WABA ID. Please copy your WhatsApp Business Account ID from Meta Developer Portal -> WhatsApp -> API Setup, enter it into the WABA ID field, and click Subscribe.",
+                "diagnostics": diag,
+            }
+
+        # 3. Call POST /{waba_id}/subscribed_apps to register webhooks
+        try:
+            url = GRAPH + f"/{detected_waba}/subscribed_apps"
+            req = urllib.request.Request(url, data=b"", headers={
+                "Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json"
+            })
+            with urllib.request.urlopen(req, timeout=10) as r:
+                res_body = r.read().decode()
+                try:
+                    res_json = json.loads(res_body)
+                except Exception:
+                    res_json = res_body
+                return {
+                    "success": True,
+                    "waba_id": detected_waba,
+                    "response": res_json,
+                    "message": f"Successfully subscribed Meta App to WhatsApp Business Account {detected_waba} webhooks!",
+                    "diagnostics": diag,
+                }
+        except urllib.error.HTTPError as e:
+            err = ""
+            try:
+                err = e.read().decode()
+            except Exception:
+                pass
+            try:
+                err_json = json.loads(err)
+            except Exception:
+                err_json = err or str(e)
+            return {
+                "success": False,
+                "waba_id": detected_waba,
+                "http_code": e.code,
+                "error": err_json,
+                "diagnostics": diag,
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "waba_id": detected_waba,
+                "error": str(e),
+                "diagnostics": diag,
             }
 
     def send(self, out: Outbound) -> bool:
