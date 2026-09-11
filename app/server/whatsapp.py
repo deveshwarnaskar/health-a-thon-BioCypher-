@@ -135,6 +135,7 @@ class CloudBackend(_Base):
         self.phone_id = os.environ.get("META_PHONE_ID", "")
         self.token = os.environ.get("META_TOKEN", "")
         self.verify_token = os.environ.get("META_VERIFY", "aahaar-verify")
+        self.waba_id = os.environ.get("META_WABA_ID", "")
         self.last_dispatch_status: dict = {
             "status": "idle",
             "ts": None,
@@ -230,37 +231,107 @@ class CloudBackend(_Base):
         if not self.ready:
             return {"success": False, "error": "CloudBackend not ready: missing META_PHONE_ID or META_TOKEN"}
 
-        detected_waba = waba_id
-        diag = {}
+        detected_waba = (waba_id or self.waba_id or "").strip() or None
+        diag: dict = {}
 
-        # 1. Try inspecting phone_id to retrieve the parent WABA ID
-        if not detected_waba:
+        def _get_meta(path: str) -> tuple[Optional[dict], Optional[str]]:
             try:
-                url = GRAPH + f"/{self.phone_id}?fields=id,display_phone_number,whatsapp_business_account"
+                url = GRAPH + path
                 req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"})
                 with urllib.request.urlopen(req, timeout=8) as r:
-                    data = json.loads(r.read().decode())
-                    diag["phone_details"] = data
-                    if data.get("whatsapp_business_account", {}).get("id"):
-                        detected_waba = data["whatsapp_business_account"]["id"]
+                    return json.loads(r.read().decode()), None
+            except urllib.error.HTTPError as e:
+                err_text = ""
+                try:
+                    err_text = e.read().decode()
+                    return None, json.loads(err_text)
+                except Exception:
+                    return None, err_text or str(e)
             except Exception as e:
-                diag["phone_query_error"] = str(e)
+                return None, str(e)
 
-        # 2. Try inspecting token granular scopes via debug_token
+        # Step 0: Verify phone connectivity
+        if self.phone_id:
+            pinfo, perr = _get_meta(f"/{self.phone_id}?fields=id,display_phone_number,verified_name,status")
+            if pinfo:
+                diag["phone_info"] = pinfo
+            elif perr:
+                diag["phone_err"] = perr
+
+        # Step 1: Inspect token details (scopes, app_id, user_id, target_ids)
+        app_id = None
+        user_id = None
+        tinfo, terr = _get_meta(f"/debug_token?input_token={self.token}")
+        if tinfo:
+            diag["token_details"] = tinfo
+            tdata = tinfo.get("data", {})
+            app_id = tdata.get("app_id")
+            user_id = tdata.get("user_id")
+            if not detected_waba:
+                for sc in tdata.get("granular_scopes", []):
+                    if sc.get("target_ids"):
+                        detected_waba = str(sc["target_ids"][0])
+                        diag["detected_via"] = "granular_scopes"
+                        break
+        elif terr:
+            diag["token_err"] = terr
+
+        # Step 2: Query /me?fields=businesses
         if not detected_waba:
-            try:
-                url = GRAPH + f"/debug_token?input_token={self.token}"
-                req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"})
-                with urllib.request.urlopen(req, timeout=8) as r:
-                    data = json.loads(r.read().decode())
-                    diag["token_details"] = data
-                    scopes = data.get("data", {}).get("granular_scopes", [])
-                    for sc in scopes:
-                        if sc.get("target_ids"):
-                            detected_waba = sc["target_ids"][0]
-                            break
-            except Exception as e:
-                diag["token_query_error"] = str(e)
+            me_info, me_err = _get_meta("/me?fields=id,name,businesses{id,name,owned_whatsapp_business_accounts{id,name}}")
+            if me_info:
+                diag["me_info"] = me_info
+                for b in me_info.get("businesses", {}).get("data", []):
+                    wlist = b.get("owned_whatsapp_business_accounts", {}).get("data", [])
+                    if wlist and wlist[0].get("id"):
+                        detected_waba = str(wlist[0]["id"])
+                        diag["detected_via"] = "me.businesses.owned_waba"
+                        break
+            elif me_err:
+                diag["me_err"] = me_err
+
+        # Step 3: Query /me/businesses edge directly
+        if not detected_waba:
+            biz_info, biz_err = _get_meta("/me/businesses")
+            if biz_info:
+                diag["biz_list"] = biz_info.get("data", [])
+                for b in biz_info.get("data", []):
+                    bid = b.get("id")
+                    if not bid:
+                        continue
+                    w_info, _ = _get_meta(f"/{bid}/owned_whatsapp_business_accounts")
+                    if w_info and w_info.get("data"):
+                        detected_waba = str(w_info["data"][0]["id"])
+                        diag["detected_via"] = f"biz_{bid}_owned_waba"
+                        break
+            elif biz_err:
+                diag["biz_err"] = biz_err
+
+        # Step 4: Query /{app_id}/whatsapp_business_accounts if app_id known
+        if not detected_waba and app_id:
+            app_waba, app_err = _get_meta(f"/{app_id}/whatsapp_business_accounts")
+            if app_waba and app_waba.get("data"):
+                detected_waba = str(app_waba["data"][0]["id"])
+                diag["detected_via"] = "app_waba"
+            elif app_err:
+                diag["app_waba_err"] = app_err
+
+        # Step 5: Query /{user_id}/businesses if user_id known
+        if not detected_waba and user_id:
+            u_biz, u_err = _get_meta(f"/{user_id}/businesses")
+            if u_biz and u_biz.get("data"):
+                diag["user_biz"] = u_biz.get("data")
+                for b in u_biz.get("data", []):
+                    bid = b.get("id")
+                    if not bid:
+                        continue
+                    w_info, _ = _get_meta(f"/{bid}/owned_whatsapp_business_accounts")
+                    if w_info and w_info.get("data"):
+                        detected_waba = str(w_info["data"][0]["id"])
+                        diag["detected_via"] = f"user_biz_{bid}_owned_waba"
+                        break
+            elif u_err:
+                diag["user_biz_err"] = u_err
 
         if not detected_waba:
             return {
@@ -270,7 +341,7 @@ class CloudBackend(_Base):
                 "diagnostics": diag,
             }
 
-        # 3. Call POST /{waba_id}/subscribed_apps to register webhooks
+        # Step 6: Call POST /{detected_waba}/subscribed_apps to register webhooks
         try:
             url = GRAPH + f"/{detected_waba}/subscribed_apps"
             req = urllib.request.Request(url, data=b"", headers={

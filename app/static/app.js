@@ -467,7 +467,7 @@ function renderThread() {
   el.innerHTML = state.thread.map((m) => {
     if (m.kind === "sys") return `<div class="bub sys">${esc(m.text)}</div>`;
     const who = m.kind === "in" ? `<span class="who">${esc(m.sender || "")}</span>` : "";
-    return `<div class="bub ${m.kind}">${who}${esc(m.text)}<span class="when">${m.when || ""}</span></div>`;
+    return `<div class="bub ${m.kind}">${who}${esc(m.text)} <span class="when">${m.when || ""}</span></div>`;
   }).join("");
 }
 
