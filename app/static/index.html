@@ -113,19 +113,11 @@
 
       <div class="card chat-card">
         <div class="card-head">
-          <h3>WhatsApp thread &middot; simulator / live</h3>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <button type="button" class="btn-sm" onclick="clearActiveThread()" style="background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600;" title="Clear simulated demo messages to test live WhatsApp cleanly">Clear Demo Messages</button>
-            <span id="chat-state" class="badge alt">ready</span>
-          </div>
+          <h3>WhatsApp conversation &middot; live only</h3>
+          <span id="chat-state" class="badge alt">live</span>
         </div>
-        <div id="thread" class="thread"><div class="thread-empty">send a message below to start the conversation</div></div>
-        <div id="quick-chips" class="quick"></div>
-        <form id="msg-form" class="sendrow">
-          <select id="sender"></select>
-          <input id="msg" type="text" placeholder='e.g. fasting 128 | 2 roti, dal, sabzi | post lunch 170' />
-          <button type="submit">Send</button>
-        </form>
+        <div id="thread" class="thread"><div class="thread-empty">No messages yet &mdash; patient WhatsApp messages appear here once Meta delivers them</div></div>
+        <p class="muted" style="font-size: 12.5px; margin: 8px 0 0;">Read-only: messages arrive from the patient&rsquo;s WhatsApp via the Meta Cloud API and land here instantly. There is no simulator in this dashboard.</p>
       </div>
     </section>
 
@@ -185,7 +177,9 @@
         <div style="margin-top: 1rem; padding: 0.6rem; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px;">
           <h4 style="margin: 0 0 0.3rem 0; color: #1e40af; font-size: 0.9rem;">Google Gemini AI Reasoning Engine</h4>
           <p class="muted" style="margin: 0 0 0.4rem 0; font-size: 0.8rem;">
-            Aahaar uses Google Gemini for conversational Hinglish reasoning, dialect correction, and talking-back patient guidance. If <code>GEMINI_API_KEY</code> is set in Render environment variables, it activates automatically.
+            Gemini is used offline for analysing stored patient input (raw messages are
+            captured verbatim on the live path). It is <b>never</b> called inside the
+            WhatsApp webhook unless <code>AAHAAR_AI_ON_INBOUND</code> is explicitly enabled.
           </p>
           <div class="live-row">
             <input id="diag-gemini-key" type="password" placeholder="Gemini API Key (leave blank to test Render env key)" style="flex: 2; padding: 0.4rem;" />

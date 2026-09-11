@@ -23,9 +23,6 @@ const SLOTS = [
   { key: "post_lunch", label: "Post-Lunch", color: "var(--pl)" },
   { key: "post_dinner", label: "Post-Dinner", color: "var(--pd)" },
 ];
-const QUICK = ["fasting 128", "post breakfast 158", "post lunch 170", "post dinner 190",
-               "2 roti, dal, sabzi", "yes", "correct m"];
-
 // ---------- boot / patients ----------
 async function boot() {
   const h = await fetch("/healthz").then((r) => r.json()).catch(() => ({}));
@@ -127,29 +124,10 @@ async function selectPatient(id) {
   if (!m) $("ov-empty").textContent = "no window data yet — run the demo first.";
 
   seedThread();
-  seedSender();
   loadAudit();
 }
 
 // ---------- live WhatsApp numbers (operator-linked) ----------
-function seedSender() {
-  const p = state.patients.find((x) => x.id === state.active);
-  const sel = $("sender");
-  if (!sel || !p) return;
-  const prev = sel.value;
-  sel.innerHTML = "";
-  const opts = [{ value: p.patient_phone || "", label: "Patient (" + (p.patient_phone || "—") + ")" }];
-  if (p.caregiver_phone) opts.push({ value: p.caregiver_phone, label: "Caregiver (" + p.caregiver_phone + ")" });
-  opts.push({ value: "+919999999999", label: "Unknown number (guard)" });
-  for (const o of opts) {
-    const el = document.createElement("option");
-    el.value = o.value;
-    el.textContent = o.label;
-    sel.appendChild(el);
-  }
-  if (prev && Array.from(sel.options).some((o) => o.value === prev)) sel.value = prev;
-}
-
 function populateLive() {
   const p = state.patients.find((x) => x.id === state.active);
   if (!p) return;
@@ -175,7 +153,6 @@ async function saveLive() {
       ". Add these same numbers as Meta recipients, then message the test number from that phone.";
     const q = await j("GET", "/api/v1/patients");
     if (q.ok) { state.patients = q.data; renderPatients(); }
-    seedSender();
   } else {
     note.textContent = "error: " + (r.data.error || ("HTTP " + r.status));
   }
@@ -454,8 +431,6 @@ function setupTabs() {
     };
   });
 
-  renderQuick();
-  $("msg-form").onsubmit = sendMsg;
   $("live-save").onclick = saveLive;
   const dmBtn = $("direct-msg-send");
   if (dmBtn) dmBtn.onclick = sendDirectMessage;
@@ -467,20 +442,10 @@ function setupTabs() {
   if (geminiBtn) geminiBtn.onclick = testGeminiAPI;
 }
 
-function renderQuick() {
-  $("quick-chips").innerHTML = QUICK.map((q) =>
-    `<button type="button" class="chip-send" onclick="quickSend('${esc(q)}')">${esc(q)}</button>`).join("");
-}
-
-function quickSend(text) {
-  $("msg").value = text;
-  sendMsg(new Event("submit"));
-}
-
 function renderThread() {
   const el = $("thread");
   if (!state.thread.length) {
-    el.innerHTML = '<div class="thread-empty">send a message below to start the conversation</div>';
+    el.innerHTML = '<div class="thread-empty">No messages yet &mdash; patient WhatsApp messages appear here.</div>';
     return;
   }
   el.innerHTML = state.thread.map((m) => {
@@ -557,19 +522,6 @@ function seedThread() {
   }, 3000);
 }
 
-async function clearActiveThread() {
-  if (!state.active) return;
-  if (!confirm("Clear simulated chat messages for this patient? This leaves the clinical report & corridor charts intact and gives you a clean live WhatsApp conversation.")) return;
-  const r = await j("POST", `/api/v1/patients/${state.active}/clear-chat`);
-  if (r.ok) {
-    state.thread = [];
-    lastLogHash = "";
-    renderThread();
-    await refreshThreadAndContext(true);
-    await refreshLiveInbound();
-  }
-}
-
 async function refreshLiveInbound() {
   const r = await j("GET", "/api/v1/inbound/live?limit=15");
   if (!r.ok || !r.data || !r.data.messages) return;
@@ -638,48 +590,6 @@ function scrollThread() {
   if (el) el.scrollTop = el.scrollHeight;
 }
 
-async function sendMsg(ev) {
-  ev.preventDefault();
-  const text = $("msg").value.trim();
-  if (!text) return;
-  const sender = $("sender").value;
-  $("msg").value = "";
-
-  // 1. Immediately display inbound message bubble
-  state.thread.push({ kind: "in", sender, text, when: nowHHMM() });
-  $("chat-state").textContent = "sending…";
-  renderThread();
-  scrollThread();
-
-  // 2. Dispatch to backend
-  const r = await j("POST", "/api/v1/inbound", {
-    patient_id: state.active, sender_phone: sender, kind: "text", text,
-  });
-  $("chat-state").textContent = "ready";
-
-  // 3. Immediately display bot replies
-  if (r.ok && r.data && r.data.replies && r.data.replies.length) {
-    for (const reply of r.data.replies) {
-      state.thread.push({ kind: "out", sender: "Aahaar", text: reply, when: nowHHMM() });
-    }
-    renderThread();
-    scrollThread();
-  }
-
-  // 4. Refresh stats and audit
-  await loadContext();
-  renderOverview();
-  const m = state.ctx && state.metrics;
-  $("ov-empty").hidden = !!m;
-  $("ov-body").hidden = !m;
-  loadAudit();
-}
-
-function nowHHMM() {
-  const d = new Date();
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true });
-}
-
 // ---------- audit ----------
 async function loadAudit() {
   if (!state.active) return;
@@ -691,4 +601,3 @@ async function loadAudit() {
 }
 
 boot();
-window.quickSend = quickSend;
