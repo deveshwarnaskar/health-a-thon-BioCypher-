@@ -151,6 +151,7 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
                 "interval": getattr(settings, "ai_intake_interval", 15.0),
                 "auto_send": bool(getattr(settings, "ai_intake_auto_send", False)),
                 "on_read": bool(getattr(settings, "ai_intake_on_read", True)),
+                "on_read_send": bool(getattr(settings, "ai_intake_on_read_send", True)),
                 "send_gap": float(getattr(settings, "ai_intake_send_gap", 0.5)),
                 "last_run": intake_worker.last_run,
                 "last_summary": intake_worker.last_summary,
@@ -410,7 +411,9 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         """Live feed of all incoming WhatsApp and simulator messages for clinic visibility."""
         if settings.ai_intake_on_read:
             try:
-                intake_worker.run_once(limit=50, should_send=False)
+                intake_worker.run_once(
+                    limit=8, should_send=settings.ai_intake_on_read_send,
+                    send_gap=float(getattr(settings, "ai_intake_send_gap", 0.5)))
             except Exception as e:
                 print("[Aahaar] live feed auto-analysis error:", e)
         msgs = store.raw_inbound_all(limit=limit)
@@ -454,10 +457,11 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             "interval": getattr(settings, "ai_intake_interval", 15.0),
             "auto_send": bool(getattr(settings, "ai_intake_auto_send", False)),
             "on_read": bool(getattr(settings, "ai_intake_on_read", True)),
+            "on_read_send": bool(getattr(settings, "ai_intake_on_read_send", True)),
             "send_gap": float(getattr(settings, "ai_intake_send_gap", 0.5)),
             "last_run": intake_worker.last_run,
             "last_summary": intake_worker.last_summary,
-            "note": "Reads stored raw_inbound only; never runs inside the Meta webhook. Analysis auto-triggers on dashboard reads. Follow-ups release from the dashboard only (send=true).",
+            "note": "Reads stored raw_inbound only; never runs inside the Meta webhook. Analysis + follow-up push to the patient happen on dashboard reads (send=true, one per message).",
         }
 
     @app.post("/api/v1/analyze/stored")

@@ -513,7 +513,8 @@ def test_analyze_stored_endpoint_operator_keyed_and_send(tmp_path):
     store.record_raw_received("+919234567890", "roti dal", message_id="WAMID-ANZ-1")
     store.close()
     c = TestClient(create_app(cfg=Settings(db_path=db, whatsapp="simulator",
-                                           operator_key="aahaar-2026")))
+                                           operator_key="aahaar-2026",
+                                           ai_intake_on_read_send=False)))
     # Wrong / missing operator key -> 403.
     assert c.post("/api/v1/analyze/stored").status_code == 403
     assert c.post("/api/v1/analyze/stored",
@@ -536,7 +537,7 @@ def test_analyze_stored_endpoint_operator_keyed_and_send(tmp_path):
     assert c.get("/api/v1/analyze/status").json()["ok"] is True
 
 
-def test_live_inbound_auto_analyzes_without_sending(tmp_path):
+def test_live_inbound_auto_analyzes_and_pushes_followup_once(tmp_path):
     from fastapi.testclient import TestClient
     from app.config import Settings
     from app.core.datamodel import Store
@@ -548,14 +549,38 @@ def test_live_inbound_auto_analyzes_without_sending(tmp_path):
     store.close()
     c = TestClient(create_app(cfg=Settings(db_path=db, whatsapp="simulator",
                                            operator_key="aahaar-2026")))
-    # No operator key, no manual analyze call: the live feed poll auto-analyzes.
+    # No operator key, no manual analyze call: the live feed read auto-analyzes
+    # AND pushes the follow-up to the patient exactly once.
     r = c.get("/api/v1/inbound/live")
     assert r.status_code == 200
     msgs = r.json()["messages"]
     hit = [m for m in msgs if m["raw_text"] == "sugar 145"][0]
     assert hit["ai"] is not None and hit["ai"]["intent"] == "reading"
-    # Analyze-only: nothing was released over WhatsApp.
-    assert c.get("/api/v1/analyze/status").json()["last_summary"]["sent"] == 0
+    assert hit["ai"]["should_reply"] is True
+    st = c.get("/api/v1/analyze/status").json()
+    assert st["last_summary"]["analyzed"] == 1 and st["last_summary"]["sent"] == 1
+    # A second read must not re-analyze or re-send (one follow-up per message).
+    c.get("/api/v1/inbound/live")
+    st2 = c.get("/api/v1/analyze/status").json()
+    assert st2["last_summary"]["analyzed"] == 0 and st2["last_summary"]["sent"] == 0
+
+
+def test_live_inbound_on_read_send_off_keeps_hints_only(tmp_path):
+    from fastapi.testclient import TestClient
+    from app.config import Settings
+    from app.core.datamodel import Store
+    from app.server.main import create_app
+    db = str(tmp_path / "auto-off.db")
+    store = Store(db)
+    store.add_patient("Test Off", "TO-1", "+919356789012")
+    store.record_raw_received("+919356789012", "sugar 145", message_id="WAMID-AUTO-2")
+    store.close()
+    c = TestClient(create_app(cfg=Settings(db_path=db, whatsapp="simulator",
+                                           operator_key="aahaar-2026",
+                                           ai_intake_on_read_send=False)))
+    c.get("/api/v1/inbound/live")
+    st = c.get("/api/v1/analyze/status").json()
+    assert st["last_summary"]["analyzed"] == 1 and st["last_summary"]["sent"] == 0
 
 
 def test_webhook_never_runs_intake_llm(monkeypatch, tmp_path):

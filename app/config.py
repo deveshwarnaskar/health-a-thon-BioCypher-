@@ -56,6 +56,11 @@ class Settings:
     # Auto-analyze stored messages whenever the dashboard reads the live feed
     # (GET /api/v1/inbound/live). Analyze-only: releases no WhatsApp traffic.
     ai_intake_on_read: bool = _env("AAHAAR_AI_INTAKE_ON_READ", "on").strip().lower() not in ("0", "false", "off", "no")
+    # Push the AI follow-up to the patient's phone from the dashboard read path
+    # too (send=true). Same outbound channel the doctor composer uses; one
+    # follow-up per patient message, paced, never duplicated. Set 'off' to keep
+    # the dashboard truly send-free (hints only).
+    ai_intake_on_read_send: bool = _env("AAHAAR_AI_INTAKE_ON_READ_SEND", "on").strip().lower() not in ("0", "false", "off", "no")
 
     # --- physical paths ------------------------------------------------
     db_path: str = _env("AAHAAR_DB", "aahaar.db")
