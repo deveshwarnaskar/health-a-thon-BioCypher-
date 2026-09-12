@@ -583,6 +583,65 @@ def test_live_inbound_on_read_send_off_keeps_hints_only(tmp_path):
     assert st["last_summary"]["analyzed"] == 1 and st["last_summary"]["sent"] == 0
 
 
+def test_ambiguous_reading_values():
+    from app.core.parse import ambiguous_reading_values
+    assert ambiguous_reading_values(
+        "pata nhi shayad 230 or 330 i ate a whole steak with red wine") == [230.0, 330.0]
+    assert ambiguous_reading_values("sugar 145") == []
+    assert ambiguous_reading_values("fasting 126") == []
+    assert ambiguous_reading_values("2 roti dal") == []
+
+
+def test_webhook_suppresses_meal_confirm_for_ambiguous_reading(seeded, store, cfg):
+    pid, _wid = seeded
+    # Ambiguous reading + meal in one message: NO meal portion-confirm leaves
+    # the webhook ([]) and the row is audited; no reading is registered.
+    outs = _handle(store, cfg, pid, {
+        "sender_phone": "+919000000001", "kind": "text",
+        "text": "pata nhi shayad 230 or 330 i ate a whole steak with red wine"})
+    assert outs == []
+    assert any(a["action"] == "reading_ambiguous"
+               for a in store.audit_log())
+    # Sanity: an ordinary meal still gets its portion-confirm.
+    outs2 = _handle(store, cfg, pid, {
+        "sender_phone": "+919000000001", "kind": "text", "text": "roti dal"})
+    assert outs2 and "Correct portion" in outs2[0].body
+
+
+def test_intake_worker_registers_resolved_reading_once(seeded, store, cfg):
+    from app.core.ai_worker import IntakeWorker
+    pid, wid = seeded
+    store.record_raw_received("+919000000001", "sugar 145",
+                              message_id="WAMID-REG-1")
+    w = IntakeWorker(store, cfg, send_func=lambda out: True)
+    s1 = w.run_once(limit=10, should_send=False)
+    assert s1["analyzed"] == 1
+    readings = store.readings_for_window(wid)
+    assert len(readings) == 1 and abs(readings[0]["value"] - 145) < 0.5
+    assert any(a["action"] == "reading_registered"
+               for a in store.audit_log())
+    # Rerun must not double-register.
+    w.run_once(limit=10, should_send=False)
+    assert len(store.readings_for_window(wid)) == 1
+
+
+def test_intake_worker_never_registers_ambiguous_reading(seeded, store, cfg):
+    from app.core.ai_worker import IntakeWorker
+    pid, wid = seeded
+    store.record_raw_received("+919000000001",
+                              "pata nahi shayad 230 or 330",
+                              message_id="WAMID-AMB-1")
+    w = IntakeWorker(store, cfg, send_func=lambda out: True)
+    w.run_once(limit=10, should_send=False)
+    assert store.readings_for_window(wid) == []
+    import json as _json
+    rows = store.raw_inbound_all(limit=10)
+    tag = [r for r in rows if r["message_id"] == "WAMID-AMB-1"][0]
+    fj = _json.loads(tag["refined_json"])
+    assert fj["reading_status"] == "ambiguous"
+    assert fj["reading_candidates"] == [230.0, 330.0]
+
+
 def test_webhook_never_runs_intake_llm(monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
     from app.config import Settings

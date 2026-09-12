@@ -25,7 +25,7 @@ from datetime import datetime
 from typing import Optional
 
 from ..config import Settings
-from .parse import parse_inbound
+from .parse import ambiguous_reading_values, parse_inbound
 
 # Words that mark the reading-context tag as explicitly stated by the patient.
 _TAG_KEYWORDS = (
@@ -45,6 +45,28 @@ _PORTION_WORDS = ("small", "medium", "large", "chota", "chhota", "chhoti",
 _MODELS = ("gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite")
 
 
+def _reading_deduction(text: str) -> dict:
+    """Deterministic deduction of a glucose READING from a stored message.
+
+    Returns {"value": float|None, "tag": str|None, "candidates": [..],
+             "status": "resolved"|"ambiguous"|"none"}.
+    Ambiguous messages (>=2 plausible values like "230 or 330") are never picked
+    — they wait for the patient's resolution. A single candidate only counts as
+    resolved when the message also carries reading context words.
+    """
+    cand = ambiguous_reading_values(text)
+    if cand:
+        return {"value": None, "tag": None, "candidates": cand, "status": "ambiguous"}
+    nums = [float(m) for m in re.findall(r"\b\d{2,3}(?:\.\d)?\b", (text or "").lower())
+            if 20 <= float(m) <= 600]
+    if len(nums) == 1:
+        low = (text or "").lower()
+        if any(k in low for k in _READING_HINTS):
+            return {"value": nums[0], "tag": None, "candidates": [],
+                    "status": "resolved"}
+    return {"value": None, "tag": None, "candidates": [], "status": "none"}
+
+
 @dataclass
 class IntakeResult:
     intent: str
@@ -54,6 +76,10 @@ class IntakeResult:
     raw_text: str
     confidence: float
     analyzed_by: str = "local-refiner"
+    reading_value: Optional[float] = None
+    reading_tag: Optional[str] = None
+    reading_candidates: list = field(default_factory=list)
+    reading_status: str = "none"  # resolved | ambiguous | none
 
 
 _INTAKE_PROMPT = (
@@ -125,14 +151,20 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings) -> IntakeResult
         if tag_stated:
             return IntakeResult(intent="reading", missing=[], reply="",
                                 should_reply=False, raw_text=raw, confidence=0.9,
-                                analyzed_by="local-refiner")
+                                analyzed_by="local-refiner",
+                                reading_value=parsed.reading,
+                                reading_tag=parsed.reading_tag,
+                                reading_status="resolved")
         return IntakeResult(
             intent="reading",
             missing=["reading_tag"],
             reply=(f"{name} ji, reading {parsed.reading:.0f} note ho gaya. "
                    "Ye fasting thi ya khane ke baad? (jaise 'fasting' ya 'post lunch')"),
             should_reply=True, raw_text=raw, confidence=0.8,
-            analyzed_by="local-refiner")
+            analyzed_by="local-refiner",
+            reading_value=parsed.reading,
+            reading_tag=parsed.reading_tag,
+            reading_status="resolved")
 
     # Reading hinted but the number is missing.
     reading_hint = any(k in low for k in _READING_HINTS)
@@ -143,6 +175,18 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings) -> IntakeResult
             reply=(f"{name} ji, reading number bataiye (jaise 'fasting 120' ya 'sugar 135')."),
             should_reply=True, raw_text=raw, confidence=0.75,
             analyzed_by="local-refiner")
+
+    # Unresolved reading ("230 or 330"): reflect it back, never guess a number.
+    cand = ambiguous_reading_values(raw)
+    if cand:
+        q = " ya ".join(f"{v:.0f}" for v in cand)
+        return IntakeResult(
+            intent="reading",
+            missing=["reading_value"],
+            reply=f"{name} ji, exact reading kya thi — {q}? (jaise 'sugar {cand[0]:.0f}')",
+            should_reply=True, raw_text=raw, confidence=0.6,
+            analyzed_by="local-refiner",
+            reading_candidates=cand, reading_status="ambiguous")
 
     # Meal: portion unknown -> one follow-up; portion given -> done.
     if parsed.is_meal or (parsed.kind == "text" and parsed.items):
@@ -212,8 +256,12 @@ def analyze_intake(text: str, patient_name: str = "Patient",
                 _last_ai_status["last_model"] = str(parsed.get("_model", ""))
             except Exception:
                 pass
+            ded = _reading_deduction(raw)
             return IntakeResult(intent=intent, missing=missing, reply=reply,
                                 should_reply=should_reply, raw_text=raw,
                                 confidence=0.98,
-                                analyzed_by=f"gemini:{parsed.get('_model', '')}")
+                                analyzed_by=f"gemini:{parsed.get('_model', '')}",
+                                reading_value=ded.get("value"),
+                                reading_candidates=ded.get("candidates") or [],
+                                reading_status=ded.get("status", "none"))
     return _local_notifier(raw, patient_name, cfg)

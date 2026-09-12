@@ -20,7 +20,7 @@ from typing import Optional
 from ..config import Settings
 from .datamodel import Store
 from .nutrition import KATORI_LABELS, gi_bucket_index
-from .parse import READING_TAG_LABELS, ParsedInput, describe_items, parse_inbound
+from .parse import READING_TAG_LABELS, ParsedInput, ambiguous_reading_values, describe_items, parse_inbound
 
 
 @dataclass
@@ -117,6 +117,15 @@ class IngestService:
             return [self._out(route=role, kind="text", to=raw.get("sender_phone"),
                               body="I didn't understand that. Send a photo of the meal, "
                                    "a reading like 'fasting 126', or text the dish name.")]
+
+        # Unresolved reading ("230 or 330", "shayad 230 ya 330...") takes priority:
+        # suppress the meal portion-confirm so the patient receives exactly ONE
+        # clarifying question — pushed by the dashboard AI intake, not the webhook.
+        cand = ambiguous_reading_values(raw_text)
+        if cand:
+            self.store.audit(role, "reading_ambiguous",
+                             f"{raw_text[:80]!r} -> {[f'{v:g}' for v in cand]}")
+            return []
 
         if parsed.is_reading:
             return self._handle_reading(patient, window, role, parsed, raw)

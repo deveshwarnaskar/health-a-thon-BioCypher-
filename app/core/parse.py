@@ -165,6 +165,32 @@ def parse_inbound(raw: dict, cfg: Settings, mock_vision=None) -> ParsedInput:
     return ParsedInput(kind="refusal", raw="unrecognized input")
 
 
+_AMBIGUITY_MARKERS = (
+    "or", "ya ", "yaa", "shayad", "shaydd", "maybe", "may be", "mabbe",
+    "approx", "approximately", "around", "roughly", "pata", "under", "close to",
+    "almost", "nearly",
+)
+
+
+def ambiguous_reading_values(text: str) -> list[float]:
+    """Deterministic (no-LLM) detector for an UNRESOLVED glucose reading.
+
+    Returns the sorted candidate values (20-600) when a single message carries
+    two or more plausible readings joined by an uncertainty/alternative word
+    ("230 or 330", "shayad 230 ya 330..."). Used so the webhook path never also
+    fires a meal portion-confirm for the same message — the dashboard AI intake
+    asks the one clarifying question instead. Returns [] when unambiguous.
+    """
+    if not text:
+        return []
+    low = str(text).lower()
+    if not any(m in low for m in _AMBIGUITY_MARKERS):
+        return []
+    vals = sorted({float(m) for m in re.findall(r"\b\d{2,3}(?:\.\d)?\b", low)
+                   if 20 <= float(m) <= 600})
+    return vals if len(vals) >= 2 else []
+
+
 def _ts(raw: dict) -> datetime:
     try:
         return datetime.fromisoformat(raw["ts"].replace("Z", ""))

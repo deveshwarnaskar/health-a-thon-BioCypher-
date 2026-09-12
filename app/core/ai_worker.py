@@ -75,6 +75,8 @@ class IntakeWorker:
                 summary["skipped"] += 1
                 continue
 
+            self._maybe_register(r, res, sender)
+
             if res.should_reply and res.reply and sender and should_send:
                 try:
                     from ..core.process import Outbound
@@ -131,10 +133,15 @@ class IntakeWorker:
             raw_text=raw_text,
             confidence=float(parsed.get("confidence") or 0.0),
             analyzed_by=parsed.get("analyzed_by", "stored"),
+            reading_value=parsed.get("reading_value"),
+            reading_tag=parsed.get("reading_tag"),
+            reading_candidates=list(parsed.get("reading_candidates") or []),
+            reading_status=parsed.get("reading_status", "none"),
         )
 
     def _save_refined(self, raw_id: int, res: IntakeResult,
-                      followup_sent: bool = False) -> None:
+                      followup_sent: bool = False,
+                      registered: bool = False) -> None:
         payload = {
             "intent": res.intent,
             "missing": res.missing,
@@ -143,10 +150,72 @@ class IntakeWorker:
             "confidence": res.confidence,
             "analyzed_by": res.analyzed_by,
             "followup_sent": bool(followup_sent),
+            "reading_value": res.reading_value,
+            "reading_tag": res.reading_tag,
+            "reading_candidates": list(res.reading_candidates or []),
+            "reading_status": res.reading_status,
+            "registered": bool(registered),
         }
         with self.store.tx() as c:
             c.execute("UPDATE raw_inbound SET refined_json=? WHERE id=?",
                       (json.dumps(payload, ensure_ascii=False), int(raw_id)))
+
+    def _maybe_register(self, raw_row: dict, res: IntakeResult, sender: str) -> None:
+        """Store the AI-deduced reading into the readings table (window-scoped).
+
+        Dashboard-driven and off-webhook: only unambiguous (resolved) values are
+        ever written; ambiguous ones ("230 or 330") wait for the patient. Never
+        duplicated — guarded by the row marker and by an existing-reading check.
+        """
+        try:
+            if res.reading_status != "resolved" or res.reading_value is None:
+                return
+            fj = raw_row.get("refined_json") or ""
+            if fj:
+                try:
+                    if json.loads(fj).get("registered"):
+                        return
+                except Exception:
+                    pass
+            if not sender:
+                return
+            patient = self.store.get_patient_by_phone(sender)
+            if not patient:
+                return
+            window = (self.store.active_window_for(patient["id"])
+                      or self.store.last_window_for(patient["id"]))
+            if not window or not window.get("id"):
+                return
+            value = float(res.reading_value)
+            tag = res.reading_tag or "postprandial"
+            for rd in self.store.readings_for_window(window["id"]):
+                try:
+                    if abs(float(rd.get("value") or 0.0) - value) < 0.5:
+                        self._mark_registered(raw_row["id"])
+                        return
+                except (TypeError, ValueError):
+                    continue
+            self.store.add_reading(window["id"], sender, "patient", tag, value)
+            self.store.audit("ai_intake", "reading_registered",
+                             f"raw_id={raw_row['id']} {tag} {value:g}")
+            self._mark_registered(raw_row["id"])
+        except Exception as e:
+            print(f"[Aahaar] AI intake register error: {e}")
+
+    def _mark_registered(self, raw_id: int) -> None:
+        try:
+            with self.store.tx() as c:
+                row = c.execute(
+                    "SELECT refined_json FROM raw_inbound WHERE id=?",
+                    (int(raw_id),)).fetchone()
+                if not row or not row["refined_json"]:
+                    return
+                p = json.loads(row["refined_json"])
+                p["registered"] = True
+                c.execute("UPDATE raw_inbound SET refined_json=? WHERE id=?",
+                          (json.dumps(p, ensure_ascii=False), int(raw_id)))
+        except Exception as e:
+            print(f"[Aahaar] AI intake mark-registered error: {e}")
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():

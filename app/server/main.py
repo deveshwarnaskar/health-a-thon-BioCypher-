@@ -432,6 +432,11 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
                         "reply": aj.get("reply"),
                         "should_reply": aj.get("should_reply"),
                         "analyzed_by": aj.get("analyzed_by"),
+                        "reading_value": aj.get("reading_value"),
+                        "reading_tag": aj.get("reading_tag"),
+                        "reading_candidates": aj.get("reading_candidates") or [],
+                        "reading_status": aj.get("reading_status", "none"),
+                        "registered": aj.get("registered") is True,
                     }
                 except Exception:
                     ai_hint = None
