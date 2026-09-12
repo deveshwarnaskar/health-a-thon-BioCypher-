@@ -536,6 +536,28 @@ def test_analyze_stored_endpoint_operator_keyed_and_send(tmp_path):
     assert c.get("/api/v1/analyze/status").json()["ok"] is True
 
 
+def test_live_inbound_auto_analyzes_without_sending(tmp_path):
+    from fastapi.testclient import TestClient
+    from app.config import Settings
+    from app.core.datamodel import Store
+    from app.server.main import create_app
+    db = str(tmp_path / "auto.db")
+    store = Store(db)
+    store.add_patient("Test Auto", "TA-1", "+919345678901")
+    store.record_raw_received("+919345678901", "sugar 145", message_id="WAMID-AUTO-1")
+    store.close()
+    c = TestClient(create_app(cfg=Settings(db_path=db, whatsapp="simulator",
+                                           operator_key="aahaar-2026")))
+    # No operator key, no manual analyze call: the live feed poll auto-analyzes.
+    r = c.get("/api/v1/inbound/live")
+    assert r.status_code == 200
+    msgs = r.json()["messages"]
+    hit = [m for m in msgs if m["raw_text"] == "sugar 145"][0]
+    assert hit["ai"] is not None and hit["ai"]["intent"] == "reading"
+    # Analyze-only: nothing was released over WhatsApp.
+    assert c.get("/api/v1/analyze/status").json()["last_summary"]["sent"] == 0
+
+
 def test_webhook_never_runs_intake_llm(monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
     from app.config import Settings

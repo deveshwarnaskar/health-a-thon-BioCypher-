@@ -150,6 +150,7 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
                 "enabled": bool(settings.ai_intake),
                 "interval": getattr(settings, "ai_intake_interval", 15.0),
                 "auto_send": bool(getattr(settings, "ai_intake_auto_send", False)),
+                "on_read": bool(getattr(settings, "ai_intake_on_read", True)),
                 "send_gap": float(getattr(settings, "ai_intake_send_gap", 0.5)),
                 "last_run": intake_worker.last_run,
                 "last_summary": intake_worker.last_summary,
@@ -407,6 +408,11 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
     @app.get("/api/v1/inbound/live")
     def live_inbound(limit: int = 40):
         """Live feed of all incoming WhatsApp and simulator messages for clinic visibility."""
+        if settings.ai_intake_on_read:
+            try:
+                intake_worker.run_once(limit=50, should_send=False)
+            except Exception as e:
+                print("[Aahaar] live feed auto-analysis error:", e)
         msgs = store.raw_inbound_all(limit=limit)
         enriched = []
         for m in msgs:
@@ -447,10 +453,11 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             "enabled": bool(settings.ai_intake),
             "interval": getattr(settings, "ai_intake_interval", 15.0),
             "auto_send": bool(getattr(settings, "ai_intake_auto_send", False)),
+            "on_read": bool(getattr(settings, "ai_intake_on_read", True)),
             "send_gap": float(getattr(settings, "ai_intake_send_gap", 0.5)),
             "last_run": intake_worker.last_run,
             "last_summary": intake_worker.last_summary,
-            "note": "Reads stored raw_inbound only; never runs inside the Meta webhook. Follow-ups release from the dashboard only (send=true).",
+            "note": "Reads stored raw_inbound only; never runs inside the Meta webhook. Analysis auto-triggers on dashboard reads. Follow-ups release from the dashboard only (send=true).",
         }
 
     @app.post("/api/v1/analyze/stored")
