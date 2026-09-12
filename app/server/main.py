@@ -436,6 +436,7 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
                         "reading_tag": aj.get("reading_tag"),
                         "reading_candidates": aj.get("reading_candidates") or [],
                         "reading_status": aj.get("reading_status", "none"),
+                        "reading_ts": aj.get("reading_ts"),
                         "meal_items": aj.get("meal_items") or [],
                         "meal_portion": aj.get("meal_portion"),
                         "meal_registered": aj.get("meal_registered") is True,
@@ -503,6 +504,65 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             "outbound": store.outbound_log(wid),
             "audit": store.audit_log(),
         }
+
+    @app.get("/api/v1/patients/{pid}/daily-log")
+    def patient_daily_log(pid: int):
+        """Per-day log arranged in Morning / Afternoon / Evening slots.
+
+        Every reading and meal is shown with its exact logged time; readings
+        whose value is still unconfirmed (ambiguous input) carry status
+        'pending' so the dashboard can show 'needs confirmation'.
+        """
+        from ..core.metrics import _meal_slot, _slot_for
+        w = store.last_window_for(pid)
+        if not w:
+            return JSONResponse({"error": "no window"}, status_code=404)
+        import json as _json
+        readings = store.readings_for_window(w["id"])
+        meals = store.meals_for_window(w["id"], confirmed_only=False)
+        confirmed_meals = [mm for mm in meals
+                           if (mm.get("status") or "confirmed") != "pending"]
+        slot_label = {"postbreakfast": "Morning", "postlunch": "Afternoon",
+                      "postdinner": "Evening", "fasting": "Fasting",
+                      "pre": "Pre-meal", "postprandial": "Other"}
+        groups: dict = {}
+        for r in readings:
+            day = (r.get("ts") or "")[:10]
+            slot = _slot_for(r, confirmed_meals)
+            g = groups.setdefault(day, {"date": day, "readings": [], "meals": []})
+            cand = r.get("candidates_json") or ""
+            candidates = []
+            try:
+                candidates = list(_json.loads(cand)) if cand else []
+            except Exception:
+                candidates = []
+            g["readings"].append({
+                "id": r["id"], "ts": r.get("ts"), "tag": r.get("tag"),
+                "value": r.get("value"),
+                "status": r.get("status", "confirmed"),
+                "candidates": candidates,
+                "slot": slot,
+                "slot_label": slot_label.get(slot, slot or "Other"),
+            })
+        for mm in meals:
+            day = (mm.get("ts") or "")[:10]
+            g = groups.setdefault(day, {"date": day, "readings": [], "meals": []})
+            items = []
+            try:
+                items = list(_json.loads(mm.get("items_json") or "[]"))
+            except Exception:
+                items = []
+            g["meals"].append({
+                "id": mm["id"], "ts": mm.get("ts"),
+                "items": items, "carbs": mm.get("carbs"),
+                "gi": mm.get("gi"), "portion": mm.get("portion"),
+                "status": mm.get("status", "pending"),
+                "source": mm.get("source") or "webhook",
+                "slot_label": slot_label.get(_meal_slot(mm.get("ts") or ""), ""),
+            })
+        days = [{"date": d, "readings": g["readings"], "meals": g["meals"]}
+                for d, g in sorted(groups.items(), reverse=True)]
+        return {"patient_id": pid, "window_id": w["id"], "days": days}
 
     @app.post("/api/v1/patients/{pid}/clear-chat")
     def clear_patient_chat(pid: int):

@@ -416,7 +416,53 @@ async function loadPreview() {
   }
 }
 
-// ---------- messages / chat ----------
+// ---------- daily log (day + slot view) ----------
+const SLOT_LABELS = {
+  Morning: "Morning", Afternoon: "Afternoon", Evening: "Evening",
+  Fasting: "Fasting", "Pre-meal": "Pre-meal", Other: "Other",
+};
+
+async function loadDayLog() {
+  const body = $("daylog-body");
+  const note = $("daylog-note");
+  if (!body || !state.active) return;
+  note.textContent = "loading…";
+  body.innerHTML = '<div class="empty">loading…</div>';
+  const r = await j("GET", `/api/v1/patients/${state.active}/daily-log`);
+  if (!r.ok || !r.data) {
+    note.textContent = "";
+    body.innerHTML = '<div class="empty">no data yet — readings and meals appear here once logged.</div>';
+    return;
+  }
+  const days = r.data.days || [];
+  note.textContent = `${days.length} day${days.length === 1 ? "" : "s"}`;
+  if (!days.length) {
+    body.innerHTML = '<div class="empty">no readings or meals logged yet.</div>';
+    return;
+  }
+  body.innerHTML = days.map((d) => {
+    const rows = (d.readings || []).map((g) => {
+      const badge = g.status === "pending"
+        ? `<span class="badge warn" title="value not confirmed by the patient yet">needs confirmation${g.candidates && g.candidates.length ? " · " + esc(g.candidates.join(" v/s ")) : ""}</span>`
+        : "";
+      const sl = (g.slot_label && SLOT_LABELS[g.slot_label]) ? SLOT_LABELS[g.slot_label] : (TAG_LABELS[g.tag] || g.tag || "");
+      return `<tr><td>${hhmm(g.ts)}</td><td><span class="slot-chip">${esc(sl)}</span></td>`
+        + `<td class="num"><b>${fmt(g.value)}</b> mg/dL</td><td>${badge}</td></tr>`;
+    }).join("");
+    const mealRows = (d.meals || []).map((m) => {
+      const items = (m.items || []).map((i) => esc(i.item || "")).join(", ");
+      const src = m.source === "ai" ? " (AI)" : "";
+      return `<div class="meal-line"><span>${hhmm(m.ts)}</span>`
+        + `${m.portion ? `<span class="slot-chip">${esc((m.portion || "").toUpperCase())}</span>` : ""}`
+        + `<span class="meal-items">${items}</span>`
+        + `<span class="muted">${fmt(m.carbs)}g carbs · GI ${fmt(m.gi)}${src}</span></div>`;
+    }).join("");
+    return `<div class="card daylog-card"><h3>${esc(d.date)}</h3>`
+      + (rows ? `<table class="daylog-table"><thead><tr><th>time</th><th>slot</th><th>sugar</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : `<p class="muted">no readings</p>`)
+      + (mealRows ? `<h4 style="margin:0.7rem 0 0.3rem;font-size:0.85rem;">Meals</h4>${mealRows}` : "")
+      + `</div>`;
+  }).join("");
+}
 function setupTabs() {
   document.querySelectorAll("#tabs button").forEach((b) => {
     b.onclick = () => {
@@ -425,6 +471,7 @@ function setupTabs() {
       b.classList.add("active");
       $("tab-" + b.dataset.tab).classList.add("active");
       if (b.dataset.tab === "trends") showTrends();
+      if (b.dataset.tab === "daylog") loadDayLog();
       if (b.dataset.tab === "report" && state.reportBuilt) loadPreview();
       if (b.dataset.tab === "audit") loadAudit();
       if (b.dataset.tab === "messages") { scrollThread(); refreshLiveInbound(); }
@@ -477,6 +524,7 @@ async function runIntakeAnalysis() {
   }
 }
 
+// ---------- messages / chat ----------
 function renderThread() {
   const el = $("thread");
   if (!state.thread.length) {

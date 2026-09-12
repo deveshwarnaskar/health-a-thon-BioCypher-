@@ -24,7 +24,8 @@ def build_report_context(store: Store, cfg: Settings, window_id: int) -> dict:
     window = store.get_window(window_id)
 
     # --- extra data pulled straight from the store ----------------------
-    readings = store.readings_for_window(window_id)
+    readings = [r for r in store.readings_for_window(window_id)
+                if r.get("status", "confirmed") != "pending"]
     meals = store.meals_for_window(window_id, confirmed_only=True)
 
     glucose_by_tag: dict[str, list[float]] = {}

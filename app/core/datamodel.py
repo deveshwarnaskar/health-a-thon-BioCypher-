@@ -21,7 +21,7 @@ import json
 import re
 import sqlite3
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Iterator, Optional
 
 SCHEMA = """
@@ -104,6 +104,16 @@ class Store:
             self.conn.execute("ALTER TABLE raw_inbound ADD COLUMN message_id TEXT")
         except sqlite3.OperationalError:
             pass  # column already present
+        # additive migration: readings confirmation state + candidate values
+        for col, ddl in (
+            ("status", "ALTER TABLE readings ADD COLUMN status TEXT DEFAULT 'confirmed'"),
+            ("candidates_json", "ALTER TABLE readings ADD COLUMN candidates_json TEXT"),
+            ("raw_id", "ALTER TABLE readings ADD COLUMN raw_id INTEGER"),
+        ):
+            try:
+                self.conn.execute(ddl)
+            except sqlite3.OperationalError:
+                pass  # column already present
         self.conn.commit()
 
     def close(self) -> None:
@@ -309,12 +319,17 @@ class Store:
 
     # ---- readings ------------------------------------------------------
     def add_reading(self, window_id: int, sender_phone: str, role: str,
-                    tag: str, value: float, ts: Optional[str] = None) -> int:
+                    tag: str, value: float, ts: Optional[str] = None,
+                    status: str = "confirmed",
+                    candidates_json: Optional[str] = None,
+                    raw_id: Optional[int] = None) -> int:
         with self.tx() as c:
             cur = c.execute(
-                "INSERT INTO readings(window_id, ts, sender_phone, role, tag, value)"
-                " VALUES(?,?,?,?,?,?)",
-                (window_id, ts or iso(datetime.now()), sender_phone, role, tag, value))
+                "INSERT INTO readings(window_id, ts, sender_phone, role, tag, value,"
+                " status, candidates_json, raw_id)"
+                " VALUES(?,?,?,?,?,?,?,?,?)",
+                (window_id, ts or iso(datetime.now()), sender_phone, role, tag, value,
+                 status, candidates_json, raw_id))
             return cur.lastrowid
 
     def readings_for_window(self, window_id: int) -> list[dict]:
@@ -322,6 +337,54 @@ class Store:
             "SELECT * FROM readings WHERE window_id=? ORDER BY ts",
             (window_id,)).fetchall()
         return [dict(r) for r in rows]
+
+    def recent_reading(self, sender_phone: str,
+                       window_id: Optional[int] = None,
+                       since_min: float = 45) -> Optional[dict]:
+        """Most recent reading from a sender (default: logged within ~45 min)."""
+        try:
+            since = (datetime.now() - timedelta(minutes=since_min)).strftime(
+                "%Y-%m-%dT%H:%M:%S")
+        except Exception:
+            since = iso(datetime.now())
+        q = ("SELECT * FROM readings WHERE sender_phone=? AND ts>=? "
+             + ("AND window_id=? " if window_id else "")
+             + "ORDER BY ts DESC LIMIT 1")
+        args = [sender_phone, since]
+        if window_id:
+            args.append(window_id)
+        r = self.conn.execute(q, tuple(args)).fetchone()
+        return dict(r) if r else None
+
+    def pending_reading_near(self, sender_phone: str,
+                             window_id: Optional[int] = None) -> Optional[dict]:
+        """Latest status='pending' reading (awaits the patient's confirmation)."""
+        q = ("SELECT * FROM readings WHERE sender_phone=? AND status='pending' "
+             + ("AND window_id=? " if window_id else "")
+             + "ORDER BY ts DESC LIMIT 1")
+        args = [sender_phone]
+        if window_id:
+            args.append(window_id)
+        r = self.conn.execute(q, tuple(args)).fetchone()
+        return dict(r) if r else None
+
+    def set_reading_tag(self, reading_id: int, tag: str) -> None:
+        with self.tx() as c:
+            c.execute("UPDATE readings SET tag=? WHERE id=?",
+                      (tag, int(reading_id)))
+
+    def resolve_reading(self, reading_id: int, value: float,
+                        tag: Optional[str] = None) -> None:
+        """Confirm an ambiguous (pending) reading to its real value."""
+        with self.tx() as c:
+            if tag:
+                c.execute("UPDATE readings SET status='confirmed', value=?, tag=?,"
+                          " candidates_json=NULL WHERE id=?",
+                          (float(value), tag, int(reading_id)))
+            else:
+                c.execute("UPDATE readings SET status='confirmed', value=?,"
+                          " candidates_json=NULL WHERE id=?",
+                          (float(value), int(reading_id)))
 
     # ---- outbound (what we said; nudge idempotency) --------------------
     def record_outbound(self, window_id: Optional[int], route: str, kind: str,
@@ -383,12 +446,12 @@ class Store:
     # ---- raw inbound (unaltered audit of all patient speech/text) -------
     def record_raw_inbound(self, window_id: Optional[int], sender_phone: str,
                            role: str, raw_text: str, refined_json: str = "",
-                           status: str = "received") -> int:
+                           status: str = "received", ts: Optional[str] = None) -> int:
         with self.tx() as c:
             cur = c.execute(
                 "INSERT INTO raw_inbound(window_id, ts, sender_phone, role, raw_text, refined_json, status)"
                 " VALUES(?,?,?,?,?,?,?)",
-                (window_id, iso(datetime.now()), sender_phone or "", role or "patient",
+                (window_id, ts or iso(datetime.now()), sender_phone or "", role or "patient",
                  raw_text or "", refined_json or "", status))
             return cur.lastrowid
 

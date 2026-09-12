@@ -31,7 +31,8 @@ def due_escalations(store: Store, cfg: Settings, now: Optional[datetime] = None)
         if not (w["start_date"] <= today.isoformat() <= w["end_date"]):
             continue
         meals = store.meals_for_window(w["id"], confirmed_only=False)
-        readings = store.readings_for_window(w["id"])
+        readings = [r for r in store.readings_for_window(w["id"])
+                    if r.get("status", "confirmed") != "pending"]
         has_meal = any(r["ts"][:10] == today.isoformat() for r in meals)
         has_reading = any(r["ts"][:10] == today.isoformat() for r in readings)
         if has_meal and has_reading:

@@ -185,3 +185,14 @@ input, select {
 .log { font-size: 12px; color: var(--muted); max-height: 420px; overflow: auto; white-space: pre-wrap; font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; }
 .log div { padding: 2px 0; border-bottom: 1px dashed var(--bord); }
 .log div:last-child { border-bottom: 0; }
+
+/* ---------- daily log ---------- */
+.daylog-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.daylog-table th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--bord); }
+.daylog-table td { padding: 7px 8px; border-bottom: 1px dashed var(--bord); font-size: 13px; vertical-align: middle; }
+.daylog-table td.num { font-weight: 600; white-space: nowrap; }
+.slot-chip { display: inline-block; background: var(--lite); border: 1px solid var(--bord2); color: var(--teal2); border-radius: 12px; padding: 1px 9px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.badge.warn { background: #fef3c7; color: #92400e; }
+.meal-line { display: flex; gap: 10px; align-items: baseline; padding: 5px 0; border-bottom: 1px dashed var(--bord); font-size: 13px; flex-wrap: wrap; }
+.meal-line:last-child { border-bottom: 0; }
+.meal-items { font-weight: 600; }

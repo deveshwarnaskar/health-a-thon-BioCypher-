@@ -46,7 +46,8 @@ class IngestService:
                 return
             except Exception:
                 pass
-        self.store.record_raw_inbound(window_id, sender, role, raw_text, status=status)
+        self.store.record_raw_inbound(window_id, sender, role, raw_text,
+                                      status=status, ts=raw.get("ts"))
 
     def handle(self, raw: dict) -> list[Outbound]:
         parsed = parse_inbound(raw, self.cfg)
@@ -97,6 +98,19 @@ class IngestService:
 
         # 100% audit of all patient speech / text (raw, unaltered)
         self._log_raw(window["id"], sender, role, raw_text, "processed", raw)
+
+        # Follow-up ANSWERS (tag / duplicate / ambiguous-value choice) are quiet
+        # at the webhook: the dashboard AI intake applies them to the log and is
+        # the single confirmer. Keeps the patient replying to questions instead
+        # of being told "didn't understand".
+        from .parse import _is_dup_answer, _is_tag_answer, _resolution_cue_value
+        tag_ans = _is_tag_answer(raw_text)
+        dup_ans = _is_dup_answer(raw_text)
+        res_ans = _resolution_cue_value(raw_text)
+        if tag_ans or dup_ans or res_ans:
+            self.store.audit(role, "answer_received",
+                             f"{raw_text[:40]!r} tag={tag_ans or ''} dup={dup_ans or ''} res={res_ans or ''}")
+            return []
 
         if parsed.kind == "refusal":
             from .ai import analyze_patient_input
@@ -164,14 +178,19 @@ class IngestService:
 
     # ---- readings -------------------------------------------------------
     def _handle_reading(self, patient, window, role, parsed: ParsedInput, raw) -> list[Outbound]:
+        """Readings are STORE-ONLY at the webhook.
+
+        The raw message is already durably captured above; the glucose VALUE is
+        written into the readings table by the dashboard AI intake (the single
+        logger + confirmer) so that duplicate/backdated/ambiguous inputs are
+        handled intelligently and a patient never gets repeating confirmations.
+        Returns no outbound — the dashboard confirms what it logs.
+        """
         ts = parsed.ts.strftime("%Y-%m-%dT%H:%M:%S")
-        label = READING_TAG_LABELS.get(parsed.reading_tag, parsed.reading_tag)
-        self.store.add_reading(window["id"], raw.get("sender_phone"), role,
-                               parsed.reading_tag, parsed.reading, ts=ts)
-        self.store.audit(role, "reading", f"{parsed.reading_tag} {parsed.reading}")
-        return [self._out(route=role, kind="text", to=raw.get("sender_phone"),
-                          body=f"Logged {label}: {parsed.reading:g} mg/dL. "
-                               "Would you like to add what you ate around this reading? Send a photo 📷, voice note 🎙️, or text ✍️ (or reply 'skip').")]
+        tag = parsed.reading_tag or "postprandial"
+        self.store.audit(role, "reading_received",
+                         f"{tag} {parsed.reading:g} at {ts}")
+        return []
 
     # ---- meals -----------------------------------------------------------
     def _handle_meal(self, patient, window, role, parsed: ParsedInput, raw) -> list[Outbound]:

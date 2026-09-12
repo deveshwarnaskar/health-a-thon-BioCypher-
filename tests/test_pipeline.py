@@ -60,19 +60,22 @@ def test_unregistered_number_refused(seeded, store, cfg):
     assert store.readings_for_window(store.list_windows(pid)[0]["id"]) == []
 
 
-def test_two_number_rule(seeded, store, cfg):
+def test_two_number_rule(seeded, store, cfg, intake):
     pid, wid = seeded
     w = store.get_window(wid)
-    # patient + one caregiver are fine
+    # patient + one caregiver are fine: webhook captures silently, the
+    # dashboard AI intake is the sole logger.
     for phone in ("+919000000001", "+919000000002"):
         replies = _handle(store, cfg, pid, {"sender_phone": phone, "kind": "text",
                                             "text": "fasting 120"})
-        assert replies and "Logged fasting" in replies[0].body
+        assert replies == []
+    intake(store, cfg)
+    assert any(abs(r["value"] - 120) < 0.5 for r in store.readings_for_window(wid))
     # appoint a new caregiver -> the previous binding is replaced, not stacked
     store.set_caregiver(pid, "+919000000009", "Someone Else")
     replies = _handle(store, cfg, pid, {"sender_phone": "+919000000009", "kind": "text",
                                         "text": "fasting 120"})
-    assert replies and "Logged fasting" in replies[0].body
+    assert replies == []
     # an entirely random number is still refused
     replies = _handle(store, cfg, pid, {"sender_phone": "+919111111111", "kind": "text",
                                         "text": "fasting 120"})
@@ -111,18 +114,19 @@ def test_reading_sanity_guard(seeded, store, cfg):
 
 
 # ---- metrics --------------------------------------------------------------
-def test_tir_classification_70_180(seeded, store, cfg):
+def test_tir_classification_70_180(seeded, store, cfg, intake):
     pid, wid = seeded
     for vals in ([120, 150, 190, 60],):
         for v in vals:
             _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
                                       "text": f"fasting {v}"})
+    intake(store, cfg)
     m = compute_window_metrics(store, cfg, wid)
     assert m["tir"]["total"] == 4
     assert m["tir"]["in"] == 50 and m["tir"]["above"] == 25 and m["tir"]["below"] == 25
 
 
-def test_weekday_weekend_ppbg_split(seeded, store, cfg):
+def test_weekday_weekend_ppbg_split(seeded, store, cfg, intake):
     pid, wid = seeded
     from datetime import date, timedelta
     w = store.get_window(wid)
@@ -139,6 +143,7 @@ def test_weekday_weekend_ppbg_split(seeded, store, cfg):
     for d, v in ((sat, 200), (tue, 150)):
         _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
                                   "text": f"post {v}", "ts": d.isoformat() + "T12:00:00"})
+    intake(store, cfg)
     m = compute_window_metrics(store, cfg, wid)
     assert m["weekday_ppbg"] == 150 and m["weekend_ppbg"] == 200
     assert m["weekend_ppbg_delta"] == 50
@@ -157,7 +162,7 @@ def test_parse_meal_slot_readings_from_text():
         assert p.is_reading and p.reading_tag == tag, text
 
 
-def test_post_slot_inferred_from_preceding_meal(seeded, store, cfg):
+def test_post_slot_inferred_from_preceding_meal(seeded, store, cfg, intake):
     pid, wid = seeded
     from datetime import date
     day = date.fromisoformat(store.get_window(wid)["start_date"])
@@ -168,12 +173,13 @@ def test_post_slot_inferred_from_preceding_meal(seeded, store, cfg):
                               "text": "yes", "ts": d + "T09:01:00"})
     _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
                               "text": "post 158", "ts": d + "T10:30:00"})
+    intake(store, cfg)
     m = compute_window_metrics(store, cfg, wid)
     assert m["post_breakfast"]["count"] == 1 and m["post_breakfast"]["mean"] == 158
     assert m["post_lunch"]["count"] == 0 and m["post_dinner"]["count"] == 0
 
 
-def test_post_slot_stats_split_weekday_weekend(seeded, store, cfg):
+def test_post_slot_stats_split_weekday_weekend(seeded, store, cfg, intake):
     pid, wid = seeded
     from datetime import date, timedelta
     w = store.get_window(wid)
@@ -190,12 +196,13 @@ def test_post_slot_stats_split_weekday_weekend(seeded, store, cfg):
     for d, v in ((sat, 200), (tue, 150)):
         _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
                                   "text": f"post dinner {v}", "ts": d.isoformat() + "T20:00:00"})
+    intake(store, cfg)
     m = compute_window_metrics(store, cfg, wid)
     assert m["post_dinner"]["count"] == 2
     assert m["post_dinner"]["weekday"] == 150 and m["post_dinner"]["weekend"] == 200
 
 
-def test_chart_context_has_three_slot_series(seeded, store, cfg):
+def test_chart_context_has_three_slot_series(seeded, store, cfg, intake):
     pid, wid = seeded
     from datetime import date
     day = date.fromisoformat(store.get_window(wid)["start_date"])
@@ -205,6 +212,7 @@ def test_chart_context_has_three_slot_series(seeded, store, cfg):
                     ("post dinner 200", "T21:00:00")):
         _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
                                   "text": txt, "ts": d + ts})
+    intake(store, cfg)
     from app.core.report import build_report_context
     ctx = build_report_context(store, cfg, wid)
     ch = ctx["charts"]
@@ -301,15 +309,21 @@ def test_natural_language_meal_and_confirm():
     assert p4.is_meal and len(p4.items) >= 1
 
 
-def test_typo_correction_and_talking_back_ai(seeded, store, cfg):
+def test_typo_correction_and_talking_back_ai(seeded, store, cfg, intake):
     pid, wid = seeded
-    # Typo: 'sugr 14o' (letter 'o' instead of zero) -> recovered as 140 mg/dL
+    # Typo: 'sugr 14o' (letter 'o' instead of zero) -> recovered as 140 mg/dL.
+    # The webhook is silent; the AI intake registers + confirms.
     r1 = _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text", "text": "sugr 14o"})
-    assert r1 and "140" in r1[0].body
+    assert r1 == []
 
     # Typo: 'fastng 125'
     r2 = _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text", "text": "fastng 125"})
-    assert r2 and "125" in r2[0].body
+    assert r2 == []
+
+    intake(store, cfg)
+    readings = store.readings_for_window(wid)
+    assert any(abs(r["value"] - 140) < 0.5 for r in readings)
+    assert any(abs(r["value"] - 125) < 0.5 for r in readings)
 
     # Ambiguous input -> Talking back AI asks polite clarification
     r3 = _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text", "text": "kuch samajh nahi aa raha"})
@@ -324,19 +338,21 @@ def test_all_raw_patient_text_is_logged_in_database(seeded, store, cfg):
     assert len(raw_logs) >= 1
     assert any("random broken text 9999" in log["raw_text"] for log in raw_logs)
 
-def test_prick_keyword_parsing(seeded, store, cfg):
+def test_prick_keyword_parsing(seeded, store, cfg, intake):
     pid, wid = seeded
-    # Patient sends 'prick 142' -> immediately recognized as blood sugar reading 142
+    # Patient sends 'prick 142' -> recognized as blood sugar 142 (webhook silent,
+    # dashboard AI registers it).
     r1 = _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text", "text": "prick 142"})
-    assert r1 and "142" in r1[0].body
-    readings = store.readings_for_window(wid)
-    assert any(rd["value"] == 142.0 for rd in readings)
+    assert r1 == []
 
     # Patient sends 'finger prick 135'
     r2 = _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text", "text": "finger prick 135"})
-    assert r2 and "135" in r2[0].body
-    readings2 = store.readings_for_window(wid)
-    assert any(rd["value"] == 135.0 for rd in readings2)
+    assert r2 == []
+
+    intake(store, cfg, limit=100)
+    readings = store.readings_for_window(wid)
+    assert any(rd["value"] == 142.0 for rd in readings)
+    assert any(rd["value"] == 135.0 for rd in readings)
 
 
 def test_live_inbound_api_and_unlinked_visibility(tmp_path):
@@ -439,22 +455,24 @@ def test_llm_gated_off_live_path_by_default(monkeypatch, cfg):
 
 
 # ---- decoupled AI intake notifier -----------------------------------------
-def test_intake_local_notifier_asks_for_missing(cfg):
+def test_intake_local_notifier_confirms_and_asks(cfg):
     from app.core.intake_ai import analyze_intake
-    # Reading with explicit tag -> complete, no follow-up needed.
+    # Reading with explicit tag -> confirmed in ONE message, no missing fields.
     r = analyze_intake("fasting 128", "Ramesh", cfg=cfg)
-    assert r.intent == "reading" and r.missing == [] and r.should_reply is False
-    # Reading without context tag -> asks exactly for the tag.
+    assert r.intent == "reading" and r.missing == [] and r.should_reply is True
+    assert "Logged sugar 128" in r.reply and "fasting" in r.reply.lower()
+    # Reading without context tag -> the confirmation also asks the tag.
     r = analyze_intake("sugar 130", "Ramesh", cfg=cfg)
     assert r.intent == "reading" and r.missing == ["reading_tag"] and r.should_reply is True
     assert "fasting" in r.reply or "khane" in r.reply
-    # Meal without portion -> asks exactly for portion.
+    # Meal without portion -> the confirmation also asks the portion.
     r = analyze_intake("roti dal sabzi", "Ramesh", cfg=cfg)
     assert r.intent == "meal" and r.missing == ["portion"] and r.should_reply is True
-    # Meal with portion -> complete.
+    # Meal with portion -> complete confirmation.
     r = analyze_intake("2 roti dal small", "Ramesh", cfg=cfg)
-    assert r.intent == "meal" and r.missing == [] and r.should_reply is False
-    # Reading number only -> asks for the value.
+    assert r.intent == "meal" and r.missing == [] and r.should_reply is True
+    assert "Logged khana" in r.reply
+    # Reading hint but no number -> asks for the value.
     r = analyze_intake("sugar only", "Ramesh", cfg=cfg)
     assert r.missing == ["reading_value"] and r.should_reply is True
 
@@ -626,7 +644,7 @@ def test_intake_worker_registers_resolved_reading_once(seeded, store, cfg):
     assert len(store.readings_for_window(wid)) == 1
 
 
-def test_intake_worker_never_registers_ambiguous_reading(seeded, store, cfg):
+def test_intake_worker_keeps_ambiguous_reading_pending(seeded, store, cfg):
     from app.core.ai_worker import IntakeWorker
     pid, wid = seeded
     store.record_raw_received("+919000000001",
@@ -634,13 +652,22 @@ def test_intake_worker_never_registers_ambiguous_reading(seeded, store, cfg):
                               message_id="WAMID-AMB-1")
     w = IntakeWorker(store, cfg, send_func=lambda out: True)
     w.run_once(limit=10, should_send=False)
-    assert store.readings_for_window(wid) == []
+    # An ambiguous reading is KEPT in the log as 'needs confirmation' — a
+    # pending row with the candidate values, never a guessed number.
+    readings = store.readings_for_window(wid)
+    assert len(readings) == 1
+    assert readings[0]["status"] == "pending"
+    assert readings[0]["candidates_json"] is not None
     import json as _json
     rows = store.raw_inbound_all(limit=10)
     tag = [r for r in rows if r["message_id"] == "WAMID-AMB-1"][0]
     fj = _json.loads(tag["refined_json"])
     assert fj["reading_status"] == "ambiguous"
     assert fj["reading_candidates"] == [230.0, 330.0]
+    assert any(a["action"] == "reading_pending" for a in store.audit_log())
+    # Rerun must not double-book the pending row.
+    w.run_once(limit=10, should_send=False)
+    assert len(store.readings_for_window(wid)) == 1
 
 
 def test_intake_worker_registers_meal_once(seeded, store, cfg):
@@ -674,7 +701,8 @@ def test_intake_worker_registers_meal_for_ambiguous_reading_message(seeded, stor
         message_id="WAMID-MEAL-AMB-1")
     w = IntakeWorker(store, cfg, send_func=lambda out: True)
     w.run_once(limit=10, should_send=False)
-    assert store.readings_for_window(wid) == []
+    readings = store.readings_for_window(wid)
+    assert len(readings) == 1 and readings[0]["status"] == "pending"
     meals = store.meals_for_window(wid, confirmed_only=False)
     assert len(meals) == 1
     assert meals[0]["source"] == "ai" and meals[0]["status"] == "pending"
@@ -702,6 +730,135 @@ def test_intake_worker_does_not_duplicate_deterministic_meal(seeded, store, cfg)
     rows = store.raw_inbound_all(limit=10)
     tag = [r for r in rows if r["message_id"] == "WAMID-MEAL-DEDUP-1"][0]
     assert _json.loads(tag["refined_json"])["meal_registered"] is True
+
+
+def test_intake_worker_applies_tag_answer_to_latest_reading(seeded, store, cfg, intake):
+    from app.core.ai_worker import IntakeWorker
+    pid, wid = seeded
+    # 'sugar 145' is registered (tag unknown), then the patient answers the tag
+    # question with 'fasting' — that answer is consumed quietly at the webhook
+    # and the dashboard AI applies it in place to the latest reading.
+    _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                              "text": "sugar 145"})
+    _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                              "text": "fasting"})
+    intake(store, cfg)
+    readings = [r for r in store.readings_for_window(wid)
+                if r["status"] == "confirmed" and abs(r["value"] - 145) < 0.5]
+    assert len(readings) == 1
+    assert readings[0]["tag"] == "fasting"
+    assert any(a["action"] == "reading_tagged" for a in store.audit_log())
+
+
+def test_intake_resolves_ambiguous_reading_on_patient_choice(seeded, store, cfg):
+    from app.core.ai_worker import IntakeWorker
+    pid, wid = seeded
+    store.record_raw_received("+919000000001", "pata nahi shayad 230 or 330",
+                              message_id="AMB-RES-1")
+    w = IntakeWorker(store, cfg, send_func=lambda out: True)
+    w.run_once(limit=10, should_send=False)
+    assert [r for r in store.readings_for_window(wid) if r["status"] == "pending"]
+    # The patient picks the true value.
+    sent = []
+    store.record_raw_received("+919000000001", "230 hai",
+                              message_id="AMB-RES-2")
+    w2 = IntakeWorker(store, cfg, send_func=lambda o: (sent.append(o), True)[1])
+    w2.run_once(limit=10, should_send=True, send_gap=0)
+    after = store.readings_for_window(wid)
+    assert not [r for r in after if r["status"] == "pending"]
+    assert any(abs(r["value"] - 230) < 0.5 and r["status"] == "confirmed"
+               for r in after)
+    assert any("230" in o.body for o in sent)
+    assert any(a["action"] == "reading_resolved" for a in store.audit_log())
+
+
+def test_intake_asks_already_logged_and_honors_dup_answer(seeded, store, cfg, intake):
+    from app.core.ai_worker import IntakeWorker
+    pid, wid = seeded
+    _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                              "text": "sugar 200"})
+    intake(store, cfg)
+    confirmed = [r for r in store.readings_for_window(wid)
+                 if r["status"] == "confirmed" and abs(r["value"] - 200) < 0.5]
+    assert len(confirmed) == 1
+    # Same value again the same day -> ask "already logged — naya ya mistake?"
+    sent = []
+    store.record_raw_received("+919000000001", "200", message_id="DUP-Q-1")
+    IntakeWorker(store, cfg, send_func=lambda o: (sent.append(o), True)[1]).run_once(
+        limit=10, should_send=True, send_gap=0)
+    assert any("already logged" in o.body for o in sent)
+    confirmed = [r for r in store.readings_for_window(wid)
+                 if r["status"] == "confirmed" and abs(r["value"] - 200) < 0.5]
+    assert len(confirmed) == 1
+    # 'mistake' -> nothing new is logged.
+    store.record_raw_received("+919000000001", "mistake", message_id="DUP-A-SKIP")
+    IntakeWorker(store, cfg, send_func=lambda o: True).run_once(
+        limit=10, should_send=True, send_gap=0)
+    confirmed = [r for r in store.readings_for_window(wid)
+                 if r["status"] == "confirmed" and abs(r["value"] - 200) < 0.5]
+    assert len(confirmed) == 1
+    # 'naya' -> the blocked value is now logged as a new confirmed reading.
+    store.record_raw_received("+919000000001", "naya", message_id="DUP-A-NEW")
+    IntakeWorker(store, cfg, send_func=lambda o: True).run_once(
+        limit=10, should_send=True, send_gap=0)
+    confirmed = [r for r in store.readings_for_window(wid)
+                 if r["status"] == "confirmed" and abs(r["value"] - 200) < 0.5]
+    assert len(confirmed) == 2
+
+
+def test_intake_registers_backdated_reading_from_explicit_words(seeded, store, cfg):
+    from app.core.ai_worker import IntakeWorker
+    from datetime import date, timedelta
+    pid, wid = seeded
+    store.record_raw_received(
+        "+919000000001",
+        "yesterday evening near 3pm the post eating sugar was 300",
+        message_id="BACKDATE-1")
+    IntakeWorker(store, cfg, send_func=lambda o: True).run_once(
+        limit=10, should_send=False)
+    readings = [r for r in store.readings_for_window(wid)
+                if r["status"] == "confirmed" and abs(r["value"] - 300) < 0.5]
+    assert len(readings) == 1
+    want_day = (date.today() - timedelta(days=1)).isoformat()
+    assert readings[0]["ts"].startswith(want_day + "T15:")
+    assert readings[0]["tag"] == "postprandial"
+    assert any("300" in a["detail"] for a in store.audit_log()
+               if a["action"] == "reading_registered")
+
+
+def test_daily_log_endpoint_groups_by_day_and_slot(tmp_path):
+    from fastapi.testclient import TestClient
+    from app.config import Settings
+    from app.core.datamodel import Store
+    from app.server.main import create_app
+    db = str(tmp_path / "dailylog.db")
+    store = Store(db)
+    pid = store.add_patient("Daily Log", "DL-1", "+919876543210")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    phone = "+919876543210"
+    store.add_reading(wid, phone, "patient", "fasting", 120,
+                      ts="2026-09-10T08:00:00")
+    store.add_reading(wid, phone, "patient", "postlunch", 150,
+                      ts="2026-09-10T14:00:00")
+    store.add_reading(wid, phone, "patient", "postdinner", 180,
+                      ts="2026-09-10T20:30:00", status="pending",
+                      candidates_json="[170,180]")
+    store.propose_meal(wid, phone, "patient", "text",
+                       [{"item": "roti", "genus": "wheat", "portion": "m",
+                         "carbs": 24, "gi": "med"}], "m", 220, 24, "med", 0.9,
+                       ts="2026-09-10T09:00:00")
+    store.close()
+    c = TestClient(create_app(cfg=Settings(db_path=db, whatsapp="simulator")))
+    data = c.get(f"/api/v1/patients/{pid}/daily-log").json()
+    assert data["window_id"] == wid
+    assert len(data["days"]) == 1 and data["days"][0]["date"] == "2026-09-10"
+    day = data["days"][0]
+    assert len(day["readings"]) == 3
+    labels = {r["slot_label"] for r in day["readings"]}
+    assert "Morning" in labels and "Afternoon" in labels and "Evening" in labels
+    assert any(r["status"] == "pending" and r["candidates"] == [170, 180]
+               for r in day["readings"])
+    assert len(day["meals"]) == 1 and day["meals"][0]["items"][0]["item"] == "roti"
 
 
 def test_webhook_never_runs_intake_llm(monkeypatch, tmp_path):

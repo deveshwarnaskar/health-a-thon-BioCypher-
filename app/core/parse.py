@@ -22,7 +22,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from ..config import Settings
@@ -48,6 +48,15 @@ READING_TAG_LABELS = {
     "postbreakfast": "post-breakfast",
     "postlunch": "post-lunch",
     "postdinner": "post-dinner",
+}
+
+# Patient-facing (Hinglish) names for the same tags in confirmations.
+PATIENT_TAG_LABELS = {
+    "fasting": "fasting", "pre": "khane se pehle",
+    "postprandial": "khane ke baad",
+    "postbreakfast": "breakfast ke baad",
+    "postlunch": "lunch ke baad",
+    "postdinner": "dinner ke baad",
 }
 
 _CONFIRM = {"yes", "y", "ok", "okay", "confirm", "hmm", "ha", "haan", "correct",
@@ -189,6 +198,143 @@ def ambiguous_reading_values(text: str) -> list[float]:
     vals = sorted({float(m) for m in re.findall(r"\b\d{2,3}(?:\.\d)?\b", low)
                    if 20 <= float(m) <= 600})
     return vals if len(vals) >= 2 else []
+
+
+# ---- follow-up answer detection (deterministic, dashboard-driven) ------
+# Short replies that answer the reading-context/tag question the AI asked
+# ("khane ke baad", "fasting", "post lunch" ...). Never treated as food/sugar.
+_TAG_CUES = ("fasting", "fast", "fbs", "khali", "morning", "subah",
+             "breakfast", "nashta", "lunch", "dopahar", "dinner", "raat",
+             "pre", "before", "pehle", "post", "after", "baad", "pp", "khane")
+_TAG_DENY = ("roti", "sabzi", "sabji", "paneer", "chana", "dahi", "chawal",
+             "rice", "paratha", "dosa", "idli", "khana", "khaana", "mithai",
+             "photo", "picture")
+
+_RESOLUTION_CUES = ("hai", "theek", "thik", "sahi", "sachi", "correct",
+                    "confirm", "pakka", "wala", "2nd", "second", "1st",
+                    "first", "it is", "it's", "yahe", "yhi", "hi hai",
+                    "definitely", "exact", "exactly", "choose ", "select ",
+                    " wali")
+
+
+def _is_tag_answer(text: Optional[str]) -> Optional[str]:
+    """'khane ke baad' / 'fasting' / 'post lunch' -> the reading-context tag.
+
+    Returns the tag when the message is a short answer to the tag question the
+    AI asked, otherwise None. Purely deterministic.
+    """
+    low = str(text or "").strip().lower()
+    if not low or len(low) > 22:
+        return None
+    if re.search(r"\d", low):
+        return None
+    if any(w in low for w in _TAG_DENY):
+        return None
+    if not any(c in low for c in _TAG_CUES):
+        return None
+    return _tag_from_text(low)
+
+
+def _resolution_cue_value(text: Optional[str]) -> Optional[float]:
+    """A single glucose value offered as THE answer ("230 hai", "it's 230",
+    "first wala 230"). Returns the value or None."""
+    low = str(text or "").lower()
+    nums = [float(m) for m in re.findall(r"\b\d{2,3}(?:\.\d)?\b", low)
+            if 20 <= float(m) <= 600]
+    if len(nums) != 1:
+        return None
+    if any(c in low for c in _RESOLUTION_CUES):
+        return nums[0]
+    return None
+
+
+def _single_number_value(text: Optional[str]) -> Optional[float]:
+    low = str(text or "")
+    nums = [float(m) for m in re.findall(r"\b\d{2,3}(?:\.\d)?\b", low)
+            if 20 <= float(m) <= 600]
+    return nums[0] if len(nums) == 1 else None
+
+
+def _is_dup_answer(text: Optional[str]) -> Optional[str]:
+    """Answer to the 'already logged — naya ya mistake?' question."""
+    low = str(text or "").lower().strip()
+    if not low:
+        return None
+    if re.search(r"\b(naya|nayi|new)\b", low):
+        return "new"
+    if re.search(r"\b(no?[h]?i add|dont add|do not add)\b", low):
+        return "skip"
+    if low in ("nahi", "nai", "no", "nhi", "mistake", "galat", "galti",
+               "skip", "pehle se hai", "already hai", "already logged"):
+        return "skip"
+    if re.search(r"\b(mistake|galat|galti|pehle se|already)\b", low) and len(low.split()) <= 3:
+        return "skip"
+    return None
+
+
+# ---- explicit date/time references ("yesterday evening near 3pm") -------
+_TIME_SHIFTS = (
+    (r"\b(parso[ _]kal|day before yesterday|two days ago|2 din pehle|do din pehle)\b", -2),
+    (r"\b(parso[ _]parso|three days ago|3 din pehle|teen din pehle)\b", -3),
+    (r"\b(pichhle[ _]din|past[ _]few[ _]days)\b", -3),
+    (r"\b(kal|yesterday|last[ _]night|last[ _]evening)\b", -1),
+    (r"\b(aaj|today|abh?i)\b", 0),
+)
+_PART_DEFAULTS = (
+    (("subah", "savre", "morning", "pratha", "praata"), 8),
+    (("dophar", "noon", "afternoon", "doupahar"), 13),
+    (("shaam", "evening", "sanja", "sayankar"), 18),
+    (("raat", "night", "rathri", "midnight"), 21),
+)
+
+
+def time_reference(text: Optional[str]) -> tuple[int, Optional[int]]:
+    """(day_shift, minute_of_day|None) from explicit words in the message."""
+    low = str(text or "").lower()
+    shift = 0
+    for pat, s in _TIME_SHIFTS:
+        if re.search(pat, low):
+            shift = s
+            break
+    minute: Optional[int] = None
+    m = re.search(r"(\d{1,2})(?::(\d{2}))?(?:\s*(am|pm|baje)\b)", low)
+    if not m:
+        m = re.search(r"(\d{1,2}):(\d{2})\b", low)
+    if m:
+        hh = int(m.group(1))
+        mm = int(m.group(2) or 0)
+        period = (m.group(3) or "").strip()
+        if period == "pm" and hh < 12:
+            hh += 12
+        elif period == "am" and hh == 12:
+            hh = 0
+        elif period == "baje" and hh < 12:
+            pass
+        minute = hh * 60 + mm
+    if minute is None:
+        for words, default_h in _PART_DEFAULTS:
+            if any(w in low for w in words):
+                minute = default_h * 60
+                break
+    return shift, minute
+
+
+def reading_timestamp(text: Optional[str], msg_ts: str) -> datetime:
+    """Timestamp for this reading: the message time by default, overridden
+    only when the patient explicitly mentions another day/time
+    ("yesterday evening near 3pm", ...)."""
+    try:
+        base = datetime.fromisoformat(str(msg_ts).replace("Z", "")[:19])
+    except (ValueError, TypeError):
+        base = datetime.now()
+    shift, minute = time_reference(text)
+    if shift == 0 and minute is None:
+        return base
+    if minute is None:
+        minute = base.hour * 60 + base.minute
+    day = base.date() + timedelta(days=shift)
+    return datetime.combine(day, datetime.min.time().replace(
+        hour=minute // 60, minute=minute % 60))
 
 
 def _ts(raw: dict) -> datetime:

@@ -61,7 +61,9 @@ def test_cloud_inbound_resolves_patient_by_sender_phone(seeded, store, cfg):
     pid, _ = seeded
     replies = IngestService(store, cfg).handle(  # no patient_id in the payload
         {"sender_phone": "+919000000001", "kind": "text", "text": "fasting 120"})
-    assert replies and "Logged fasting" in replies[0].body
+    # The webhook is silent; the reading is captured and resolved as patient.
+    assert replies == []
+    assert any(a["action"] == "reading_received" for a in store.audit_log())
 
 
 def test_cloud_inbound_fails_for_unlinked_number(seeded, store, cfg):
@@ -84,7 +86,7 @@ def test_relink_phones_changes_allowed_senders(seeded, store, cfg):
     for new in ("+919800000001", "+919800000002"):
         r = ingest.handle({"patient_id": pid, "sender_phone": new,
                            "kind": "text", "text": "fasting 120"})
-        assert r and "Logged fasting" in r[0].body, new
+        assert r == [], new
 
 
 # ---- re-seed preserves operator-linked numbers ---------------------------
@@ -103,16 +105,21 @@ def test_meta_webhook_digits_only_matches_plus_phone(seeded, store, cfg):
     The DB stores '+919000000001'. The resolver must match seamlessly."""
     ingest = IngestService(store, cfg)
     replies = ingest.handle({"sender_phone": "919000000001", "kind": "text", "text": "fasting 128"})
-    assert replies and "Logged fasting: 128" in replies[0].body
+    assert replies == []
+    assert any(a["action"] == "reading_received" for a in store.audit_log())
 
 
-def test_patient_sends_fasting_keyword_only_gets_helpful_ai_prompt(seeded, store, cfg):
-    """When a patient types just 'fasting' without a number, the AI prompts for the value."""
+def test_patient_sends_fasting_keyword_only_is_consumed_as_tag_answer(seeded, store, cfg):
+    """A bare context keyword ('fasting') is a tag-answer to the AI's question:
+    the webhook consumes it quietly ([]) and the dashboard AI applies it.
+    A full 'fasting N' message is a reading and is also silent at the webhook."""
     ingest = IngestService(store, cfg)
     replies = ingest.handle({"sender_phone": "919000000001", "kind": "text", "text": "fasting"})
-    assert replies
-    reply_body = replies[0].body.lower()
-    assert "fasting" in reply_body or "reading" in reply_body or "sugar" in reply_body
+    assert replies == []
+    assert any(a["action"] == "answer_received" for a in store.audit_log())
+    replies2 = ingest.handle({"sender_phone": "919000000001", "kind": "text", "text": "fasting 128"})
+    assert replies2 == []
+    assert any(a["action"] == "reading_received" for a in store.audit_log())
 
 
 def test_patient_log_returns_inbound_and_outbound(tmp_path):
@@ -185,12 +192,13 @@ def test_clear_patient_chat(tmp_path):
     c = _cli(tmp_path)
     pid = c.get("/api/v1/patients").json()[0]["id"]
     
-    # Send a message to populate inbound and outbound
+    # Send a message to populate inbound and outbound (a meal still gets its
+    # deterministic portion-confirm reply through the webhook)
     c.post("/api/v1/inbound", json={
         "patient_id": pid,
         "sender_phone": "+917439030190",
         "kind": "text",
-        "text": "fasting 115"
+        "text": "roti dal"
     })
     log = c.get(f"/api/v1/patients/{pid}/log").json()
     assert len(log["inbound"]) > 0

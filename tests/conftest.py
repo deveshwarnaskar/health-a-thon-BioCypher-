@@ -33,3 +33,16 @@ def seeded(store, cfg):
     pid, wid = seed_demo(store, cfg, days=14,
                          phone="+919000000001", caregiver_phone="+919000000002")
     return pid, wid
+
+
+@pytest.fixture()
+def intake():
+    """Runs the dashboard-driven AI intake worker over the given store — the
+    way readings/meals get registered AFTER the (now silent) webhook capture."""
+    from app.core.ai_worker import IntakeWorker
+
+    def _run(store, cfg, limit=100, send=False):
+        return IntakeWorker(store, cfg, send_func=lambda out: True).run_once(
+            limit=limit, should_send=send)
+
+    return _run

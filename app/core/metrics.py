@@ -89,7 +89,8 @@ def compute_window_metrics(store: Store, cfg: Settings, window_id: int) -> dict:
     if not window:
         return {}
     meals = store.meals_for_window(window_id, confirmed_only=True)
-    readings = store.readings_for_window(window_id)
+    readings = [r for r in store.readings_for_window(window_id)
+                if r.get("status", "confirmed") != "pending"]
     patient = store.get_patient(window["patient_id"])
     avoid = set(store.get_avoid_items(window["patient_id"]))
     dates = IngestService.window_dates(window)

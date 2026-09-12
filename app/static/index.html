@@ -45,6 +45,7 @@
     <nav class="tabs" id="tabs">
       <button data-tab="overview" class="active">Overview</button>
       <button data-tab="trends">Trends</button>
+      <button data-tab="daylog">Day Log</button>
       <button data-tab="report">Report</button>
       <button data-tab="messages">Messages</button>
       <button data-tab="live">Live</button>
@@ -85,6 +86,16 @@
       <div class="card">
         <h3>High-GI dietary share + overall PPBG trend</h3>
         <img id="chart-bottom" class="chart" alt="dietary share chart" />
+      </div>
+    </section>
+
+    <section id="tab-daylog" class="tab">
+      <div class="card">
+        <div class="card-head">
+          <h3>Daily Log &mdash; every reading &amp; meal, arranged by day and time</h3>
+          <span id="daylog-note" class="muted">loading&hellip;</span>
+        </div>
+        <div id="daylog-body"><div class="empty">loading&hellip;</div></div>
       </div>
     </section>
 
@@ -219,6 +230,6 @@
   </main>
 </div>
 
-<script src="/app.js?v=2.4"></script>
+<script src="/app.js?v=2.5"></script>
 </body>
 </html>
