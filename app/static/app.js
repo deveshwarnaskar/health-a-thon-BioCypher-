@@ -452,14 +452,22 @@ async function runIntakeAnalysis() {
     note.textContent = "Enter the operator key first (AAHAAR_OP_KEY, demo default aahaar-2026).";
     return;
   }
-  const send = $("intake-auto-send")?.checked ?? true;
-  note.textContent = "Running intake analysis over stored messages...";
+  const send = $("intake-auto-send")?.checked ?? false;
+  note.textContent = send
+    ? "Running intake analysis and releasing follow-ups via WhatsApp..."
+    : "Running intake analysis over stored messages (no WhatsApp messages will be sent)...";
   try {
     const r = await j("POST", "/api/v1/analyze/stored?limit=25", { limit: 25, send }, { "X-Aahaar-Key": key });
     if (r.ok) {
-      note.textContent =
-        `analyzed ${r.data.analyzed ?? 0} · follow-ups sent ${r.data.sent ?? 0} · skipped ${r.data.skipped ?? 0}
-(local/offline fallback used outside the webhook; Gemini only reads stored rows)`;
+      const sent = r.data.sent ?? 0;
+      if (sent > 0) {
+        note.textContent =
+          `analyzed ${r.data.analyzed ?? 0} · follow-ups sent ${sent} · skipped ${r.data.skipped ?? 0}
+(sent one at a time via the doctor's WhatsApp channel; Gemini only reads stored rows)`;
+      } else {
+        note.textContent =
+          `analyzed ${r.data.analyzed ?? 0} · nothing sent. Review the AI hints in the feed — tick "Send follow-up via WhatsApp" and run again to release follow-ups for messages that need them.`;
+      }
       if (state.active) refreshThreadAndContext();
     } else {
       note.textContent = "error: " + (r.data.error || "HTTP " + r.status);

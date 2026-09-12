@@ -166,8 +166,8 @@
         <h3>AI Intake Notifier <span class="muted" style="font-weight: normal;">(decoupled, runs on stored messages)</span></h3>
         <p class="muted">Runs intake-only analysis on <b>already stored</b> patient messages. It only asks for missing logging details (reading value, fasting/post-meal tag, meal items, portion) in short Hinglish — it is not a doctor and never gives medical advice. Follow-up questions go out through the same WhatsApp channel the doctor uses.</p>
         <div class="live-row" style="margin-top: 0.5rem;">
-          <label style="display:flex; align-items:center; gap:0.4rem;">
-            <input id="intake-auto-send" type="checkbox" checked /> Auto-send follow-up
+          <label style="display:flex; align-items:center; gap:0.4rem;" title="Only when checked are WhatsApp follow-up messages actually sent — one at a time, for messages that need them.">
+            <input id="intake-auto-send" type="checkbox" /> Send follow-up via WhatsApp
           </label>
           <input id="intake-key" type="password" placeholder="Operator key (AAHAAR_OP_KEY)" autocomplete="off" style="flex: 2; padding: 0.5rem;" />
           <button id="btn-run-intake" type="button">Run AI Intake Analysis</button>

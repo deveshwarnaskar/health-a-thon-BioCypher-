@@ -479,17 +479,26 @@ def test_intake_worker_picks_stored_rows_and_routes_reply(store, cfg):
         sent.append(out)
         return True
     w = IntakeWorker(store, cfg, send_func=send_func, interval=5.0)
-    summary = w.run_once(limit=10, should_send=True)
-    assert summary["analyzed"] == 1 and summary["sent"] == 1
-    assert len(sent) == 1 and "fasting" in sent[0].body or "khane" in sent[0].body
+    # Phase 1: analyze-only (the default) must NOT touch WhatsApp.
+    s1 = w.run_once(limit=10, should_send=False)
+    assert s1["analyzed"] == 1 and s1["sent"] == 0
+    assert len(sent) == 0
     rows = store.raw_inbound_all(limit=10)
     tag = [r for r in rows if r["message_id"] == "WAMID-WORK-1"][0]
     import json as _json
     refined = _json.loads(tag["refined_json"])
     assert refined["intent"] == "reading" and refined["missing"] == ["reading_tag"]
-    # Idempotent: a second run must not re-analyze or re-send.
-    summary2 = w.run_once(limit=10, should_send=True)
-    assert summary2["analyzed"] == 0 and summary2["sent"] == 0
+    assert refined["followup_sent"] is False
+    # Phase 2: dashboard-driven send releases exactly one follow-up.
+    s2 = w.run_once(limit=10, should_send=True, send_gap=0.0)
+    assert s2["analyzed"] == 0 and s2["sent"] == 1
+    assert len(sent) == 1 and ("fasting" in sent[0].body or "khane" in sent[0].body)
+    tag = [r for r in store.raw_inbound_all(limit=10)
+           if r["message_id"] == "WAMID-WORK-1"][0]
+    assert _json.loads(tag["refined_json"])["followup_sent"] is True
+    # Idempotent: a third run must not re-analyze or re-send.
+    s3 = w.run_once(limit=10, should_send=True, send_gap=0.0)
+    assert s3["analyzed"] == 0 and s3["sent"] == 0
     assert len(sent) == 1
 
 
@@ -509,15 +518,21 @@ def test_analyze_stored_endpoint_operator_keyed_and_send(tmp_path):
     assert c.post("/api/v1/analyze/stored").status_code == 403
     assert c.post("/api/v1/analyze/stored",
                   headers={"X-Aahaar-Key": "wrong"}).status_code == 403
-    # Valid key -> analyzes the stored row and auto-sends via outbound channel.
-    r = c.post("/api/v1/analyze/stored", json={"limit": 25, "send": True},
+    # Default run is analyze-only: no WhatsApp messages are sent.
+    r = c.post("/api/v1/analyze/stored", json={"limit": 25},
                headers={"X-Aahaar-Key": "aahaar-2026"})
     assert r.status_code == 200
     data = r.json()
-    assert data["ok"] is True and data["analyzed"] == 1 and data["sent"] == 1
+    assert data["ok"] is True and data["analyzed"] == 1 and data["sent"] == 0
     feed = c.get("/api/v1/inbound/live").json()["messages"]
     hit = [m for m in feed if m["raw_text"] == "roti dal"][0]
     assert hit["ai"] is not None and hit["ai"]["intent"] == "meal"
+    # Explicit send=true releases the follow-up via the outbound channel.
+    r2 = c.post("/api/v1/analyze/stored", json={"limit": 25, "send": True},
+                headers={"X-Aahaar-Key": "aahaar-2026"})
+    assert r2.status_code == 200
+    data2 = r2.json()
+    assert data2["ok"] is True and data2["analyzed"] == 0 and data2["sent"] == 1
     assert c.get("/api/v1/analyze/status").json()["ok"] is True
 
 

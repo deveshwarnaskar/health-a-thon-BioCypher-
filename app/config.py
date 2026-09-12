@@ -48,6 +48,11 @@ class Settings:
     # from the dashboard without this flag (POST /api/v1/analyze/stored).
     ai_intake: bool = _env("AAHAAR_AI_INTAKE", "").strip().lower() in ("1", "true", "on", "yes")
     ai_intake_interval: float = _env_float("AAHAAR_AI_INTAKE_INTERVAL", "15")
+    # Background worker is analyze-only by default; follow-ups are released
+    # from the dashboard ("Send follow-up via WhatsApp" checkbox / send=true).
+    ai_intake_auto_send: bool = _env("AAHAAR_AI_INTAKE_AUTO_SEND", "").strip().lower() in ("1", "true", "on", "yes")
+    # Short pacing gap between sequential WhatsApp follow-ups (one at a time).
+    ai_intake_send_gap: float = _env_float("AAHAAR_AI_INTAKE_SEND_GAP", "0.5")
 
     # --- physical paths ------------------------------------------------
     db_path: str = _env("AAHAAR_DB", "aahaar.db")

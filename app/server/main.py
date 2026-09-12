@@ -149,6 +149,8 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             "ai_intake": {
                 "enabled": bool(settings.ai_intake),
                 "interval": getattr(settings, "ai_intake_interval", 15.0),
+                "auto_send": bool(getattr(settings, "ai_intake_auto_send", False)),
+                "send_gap": float(getattr(settings, "ai_intake_send_gap", 0.5)),
                 "last_run": intake_worker.last_run,
                 "last_summary": intake_worker.last_summary,
             },
@@ -444,9 +446,11 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             "ok": True,
             "enabled": bool(settings.ai_intake),
             "interval": getattr(settings, "ai_intake_interval", 15.0),
+            "auto_send": bool(getattr(settings, "ai_intake_auto_send", False)),
+            "send_gap": float(getattr(settings, "ai_intake_send_gap", 0.5)),
             "last_run": intake_worker.last_run,
             "last_summary": intake_worker.last_summary,
-            "note": "Reads stored raw_inbound only; never runs inside the Meta webhook.",
+            "note": "Reads stored raw_inbound only; never runs inside the Meta webhook. Follow-ups release from the dashboard only (send=true).",
         }
 
     @app.post("/api/v1/analyze/stored")
@@ -462,8 +466,11 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             return JSONResponse({"error": "invalid operator key"}, status_code=403)
         payload = payload or {}
         limit = max(1, min(int(payload.get("limit") or limit), 200))
-        send = bool(payload.get("send", True))
-        summary = intake_worker.run_once(limit=limit, should_send=send)
+        # Analyze-only by default; follow-ups release only when send=true.
+        send = bool(payload.get("send", False))
+        summary = intake_worker.run_once(
+            limit=limit, should_send=send,
+            send_gap=float(getattr(settings, "ai_intake_send_gap", 0.5)))
         return {"ok": True, **summary}
 
     @app.get("/api/v1/patients/{pid}/log")
