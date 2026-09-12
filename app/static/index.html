@@ -122,6 +122,16 @@
     </section>
 
     <section id="tab-live" class="tab">
+      <div class="card" style="margin-bottom: 1rem; border-left: 4px solid #25D366;">
+        <div class="card-head">
+          <h3 style="margin: 0;">Live WhatsApp Inbound Feed (All Incoming Senders)</h3>
+          <span id="live-inbound-count-live" class="badge alt">live sync</span>
+        </div>
+        <div id="live-inbound-feed-live" class="log" style="margin-top: 0.5rem; max-height: 150px; overflow-y: auto; font-size: 13px;">
+          <div class="muted">listening for WhatsApp inbound messages...</div>
+        </div>
+      </div>
+
       <div class="card">
         <h3>Live WhatsApp numbers</h3>
         <p class="muted">Linked numbers for the selected patient. Incoming WhatsApp
@@ -209,6 +219,6 @@
   </main>
 </div>
 
-<script src="/app.js?v=2.3"></script>
+<script src="/app.js?v=2.4"></script>
 </body>
 </html>

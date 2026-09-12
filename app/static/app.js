@@ -134,6 +134,7 @@ function populateLive() {
   $("live-patient").value = p.patient_phone || "";
   $("live-caregiver").value = p.caregiver_phone || "";
   $("live-note").textContent = "";
+  refreshLiveInbound();
 }
 
 async function saveLive() {
@@ -426,7 +427,7 @@ function setupTabs() {
       if (b.dataset.tab === "trends") showTrends();
       if (b.dataset.tab === "report" && state.reportBuilt) loadPreview();
       if (b.dataset.tab === "audit") loadAudit();
-      if (b.dataset.tab === "messages") scrollThread();
+      if (b.dataset.tab === "messages") { scrollThread(); refreshLiveInbound(); }
       if (b.dataset.tab === "live") { populateLive(); loadDiagnostics(); }
     };
   });
@@ -551,21 +552,24 @@ function seedThread() {
 async function refreshLiveInbound() {
   const r = await j("GET", "/api/v1/inbound/live?limit=15");
   if (!r.ok || !r.data || !r.data.messages) return;
-  const feed = $("live-inbound-feed");
-  if (!feed) return;
-  if (!r.data.messages.length) {
-    feed.innerHTML = '<div class="muted">No incoming WhatsApp messages received yet.</div>';
-    return;
-  }
-  feed.innerHTML = r.data.messages.map((m) => {
-    const isUnlinked = (m.patient_name || "").includes("Unlinked");
-    const linkBtn = isUnlinked && m.sender_phone
-      ? `<button type="button" class="btn-sm" style="margin-left:8px;padding:2px 6px;font-size:11px;cursor:pointer;" onclick="linkActivePhone('${esc(m.sender_phone)}')">Link to active patient</button>`
-      : "";
-    const aiNote = m.ai && m.ai.should_reply && m.ai.reply
-      ? `<div style="font-size:11px;color:#7a5d00;margin-top:2px;">AI intake follow-up: "${esc(m.ai.reply)}" (${esc(m.ai.analyzed_by || "offline")})</div>`
-      : "";
-    return `<div style="padding: 4px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+  const targets = [
+    { feed: $("live-inbound-feed"), count: $("live-inbound-count") },
+    { feed: $("live-inbound-feed-live"), count: $("live-inbound-count-live") },
+  ];
+  for (const t of targets) {
+    if (!t.feed) continue;
+    if (!r.data.messages.length) {
+      t.feed.innerHTML = '<div class="muted">No incoming WhatsApp messages received yet.</div>';
+    } else {
+      t.feed.innerHTML = r.data.messages.map((m) => {
+        const isUnlinked = (m.patient_name || "").includes("Unlinked");
+        const linkBtn = isUnlinked && m.sender_phone
+          ? `<button type="button" class="btn-sm" style="margin-left:8px;padding:2px 6px;font-size:11px;cursor:pointer;" onclick="linkActivePhone('${esc(m.sender_phone)}')">Link to active patient</button>`
+          : "";
+        const aiNote = m.ai && m.ai.should_reply && m.ai.reply
+          ? `<div style="font-size:11px;color:#7a5d00;margin-top:2px;">AI intake follow-up: "${esc(m.ai.reply)}" (${esc(m.ai.analyzed_by || "offline")})</div>`
+          : "";
+        return `<div style="padding: 4px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
       <div>
         <span class="badge" style="font-size:10px;background:${isUnlinked ? '#e65100' : '#2e7d32'};color:white;">${esc(m.patient_name)}</span>
         <b>${esc(m.sender_phone || "unknown")}:</b> "${esc(m.raw_text)}"
@@ -574,9 +578,10 @@ async function refreshLiveInbound() {
       </div>
       <div>${linkBtn}</div>
     </div>`;
-  }).join("");
-  const countEl = $("live-inbound-count");
-  if (countEl) countEl.textContent = `${r.data.messages.length} live`;
+      }).join("");
+    }
+    if (t.count) t.count.textContent = `${r.data.messages.length} live`;
+  }
 }
 
 window.linkActivePhone = async function(phone) {
