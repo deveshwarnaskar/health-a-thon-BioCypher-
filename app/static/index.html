@@ -153,6 +153,19 @@
       </div>
 
       <div class="card" style="margin-top: 1rem;">
+        <h3>AI Intake Notifier <span class="muted" style="font-weight: normal;">(decoupled, runs on stored messages)</span></h3>
+        <p class="muted">Runs intake-only analysis on <b>already stored</b> patient messages. It only asks for missing logging details (reading value, fasting/post-meal tag, meal items, portion) in short Hinglish — it is not a doctor and never gives medical advice. Follow-up questions go out through the same WhatsApp channel the doctor uses.</p>
+        <div class="live-row" style="margin-top: 0.5rem;">
+          <label style="display:flex; align-items:center; gap:0.4rem;">
+            <input id="intake-auto-send" type="checkbox" checked /> Auto-send follow-up
+          </label>
+          <input id="intake-key" type="password" placeholder="Operator key (AAHAAR_OP_KEY)" autocomplete="off" style="flex: 2; padding: 0.5rem;" />
+          <button id="btn-run-intake" type="button">Run AI Intake Analysis</button>
+        </div>
+        <div id="intake-result" style="margin-top: 0.5rem; white-space: pre-wrap; font-family: monospace; font-size: 0.85rem;"></div>
+      </div>
+
+      <div class="card" style="margin-top: 1rem;">
         <h3>API &amp; Meta WhatsApp Diagnostics</h3>
         <p class="muted">Live status of WhatsApp Cloud channel, token validity, and direct ping testing.</p>
         <div id="diag-summary" style="margin: 0.5rem 0; padding: 0.5rem; background: rgba(0,0,0,0.05); border-radius: 6px; font-family: monospace; font-size: 0.85rem;">

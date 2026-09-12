@@ -14,6 +14,13 @@ def _env(key: str, default: str) -> str:
     return os.environ.get(key, default)
 
 
+def _env_float(key: str, default: str) -> float:
+    try:
+        return float(os.environ.get(key, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
 @dataclass(frozen=True)
 class Settings:
     # --- target range for time-in-range -------------------------------
@@ -33,6 +40,14 @@ class Settings:
     # Default OFF: the webhook stores raw patient input and replies via the
     # deterministic local refiner; Gemini analysis runs only offline afterwards.
     ai_on_inbound: bool = _env("AAHAAR_AI_ON_INBOUND", "").strip().lower() in ("1", "true", "on", "yes")
+
+    # AI intake notifier (env AAHAAR_AI_INTAKE). Default OFF. When on, a small
+    # background worker polls STORED raw_inbound rows (never the webhook), runs
+    # the intake notifier, and sends follow-up questions through the same
+    # outbound channel the doctor composer uses. Same run is available on demand
+    # from the dashboard without this flag (POST /api/v1/analyze/stored).
+    ai_intake: bool = _env("AAHAAR_AI_INTAKE", "").strip().lower() in ("1", "true", "on", "yes")
+    ai_intake_interval: float = _env_float("AAHAAR_AI_INTAKE_INTERVAL", "15")
 
     # --- physical paths ------------------------------------------------
     db_path: str = _env("AAHAAR_DB", "aahaar.db")

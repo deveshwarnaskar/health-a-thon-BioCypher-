@@ -440,6 +440,32 @@ function setupTabs() {
   if (wabaBtn) wabaBtn.onclick = subscribeWabaWebhooks;
   const geminiBtn = $("btn-test-gemini");
   if (geminiBtn) geminiBtn.onclick = testGeminiAPI;
+  const intakeBtn = $("btn-run-intake");
+  if (intakeBtn) intakeBtn.onclick = runIntakeAnalysis;
+}
+
+async function runIntakeAnalysis() {
+  const note = $("intake-result");
+  const key = ($("intake-key")?.value || "").trim();
+  if (!key) {
+    note.textContent = "Enter the operator key first (AAHAAR_OP_KEY, demo default aahaar-2026).";
+    return;
+  }
+  const send = $("intake-auto-send")?.checked ?? true;
+  note.textContent = "Running intake analysis over stored messages...";
+  try {
+    const r = await j("POST", "/api/v1/analyze/stored?limit=25", { limit: 25, send }, { "X-Aahaar-Key": key });
+    if (r.ok) {
+      note.textContent =
+        `analyzed ${r.data.analyzed ?? 0} · follow-ups sent ${r.data.sent ?? 0} · skipped ${r.data.skipped ?? 0}
+(local/offline fallback used outside the webhook; Gemini only reads stored rows)`;
+      if (state.active) refreshThreadAndContext();
+    } else {
+      note.textContent = "error: " + (r.data.error || "HTTP " + r.status);
+    }
+  } catch (e) {
+    note.textContent = "error: " + e.message;
+  }
 }
 
 function renderThread() {
@@ -536,11 +562,15 @@ async function refreshLiveInbound() {
     const linkBtn = isUnlinked && m.sender_phone
       ? `<button type="button" class="btn-sm" style="margin-left:8px;padding:2px 6px;font-size:11px;cursor:pointer;" onclick="linkActivePhone('${esc(m.sender_phone)}')">Link to active patient</button>`
       : "";
+    const aiNote = m.ai && m.ai.should_reply && m.ai.reply
+      ? `<div style="font-size:11px;color:#7a5d00;margin-top:2px;">AI intake follow-up: "${esc(m.ai.reply)}" (${esc(m.ai.analyzed_by || "offline")})</div>`
+      : "";
     return `<div style="padding: 4px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
       <div>
         <span class="badge" style="font-size:10px;background:${isUnlinked ? '#e65100' : '#2e7d32'};color:white;">${esc(m.patient_name)}</span>
         <b>${esc(m.sender_phone || "unknown")}:</b> "${esc(m.raw_text)}"
         <span class="muted" style="font-size:11px;">(${hhmm(m.ts)})</span>
+        ${aiNote}
       </div>
       <div>${linkBtn}</div>
     </div>`;

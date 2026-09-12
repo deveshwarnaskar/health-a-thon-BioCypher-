@@ -26,6 +26,7 @@ from ..core.metrics import latest_metrics
 from ..core.report import latest_report_context
 from ..core.seed import seed_demo
 from ..core.process import IngestService
+from ..core.ai_worker import IntakeWorker
 from .whatsapp import CloudBackend, SimulatorBackend
 
 settings: Settings = get_settings()
@@ -72,6 +73,23 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
     backend = _make_backend(store)
     ingest = IngestService(store, settings)
 
+    def _intake_send(out):
+        try:
+            return backend.send(out)
+        except Exception as e:
+            print("[Aahaar] AI intake send failed:", e)
+            return False
+
+    # Decoupled AI intake notifier: reads STORED raw_inbound rows (never the
+    # webhook) and sends follow-up questions through the same outbound channel
+    # the doctor composer uses. On-demand via POST /api/v1/analyze/stored;
+    # optional background poller only when AAHAAR_AI_INTAKE=on.
+    intake_worker = IntakeWorker(store, settings, send_func=_intake_send,
+                                 interval=getattr(settings, "ai_intake_interval", 15.0))
+    if settings.ai_intake:
+        intake_worker.start()
+        store.audit("system", "ai_intake_start", "AI intake worker enabled")
+
     # first-run convenience: seed a demo patient so the dashboard has data
     if not store.list_patients():
         seed_demo(store, settings, days=14)
@@ -107,6 +125,12 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             "gemini_api_key_configured": bool(gemini_key),
             "gemini_key_masked": masked_gemini,
             "ai_status": ai_stat,
+            "ai_intake": {
+                "enabled": bool(settings.ai_intake),
+                "interval": getattr(settings, "ai_intake_interval", 15.0),
+                "last_run": intake_worker.last_run,
+                "last_summary": intake_worker.last_summary,
+            },
             "last_dispatch": last_dispatch,
             "recent_raw_inbound_count": len(recent_inbounds),
             "recent_inbounds": recent_inbounds[:3],
@@ -356,6 +380,20 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         for m in msgs:
             sender = m.get("sender_phone") or ""
             p_match = store.get_patient_by_phone(sender) if sender else None
+            ai_hint = None
+            rj = m.get("refined_json") or ""
+            if rj:
+                try:
+                    import json as _json
+                    aj = _json.loads(rj)
+                    ai_hint = {
+                        "intent": aj.get("intent"),
+                        "reply": aj.get("reply"),
+                        "should_reply": aj.get("should_reply"),
+                        "analyzed_by": aj.get("analyzed_by"),
+                    }
+                except Exception:
+                    ai_hint = None
             enriched.append({
                 "id": m["id"],
                 "ts": m["ts"],
@@ -365,8 +403,38 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
                 "status": m.get("status", "received"),
                 "patient_id": p_match["id"] if p_match else None,
                 "patient_name": p_match["name"] if p_match else "Unlinked / Unknown",
+                "ai": ai_hint,
             })
         return {"messages": enriched}
+
+    @app.get("/api/v1/analyze/status")
+    def analyze_status():
+        """Status of the decoupled AI intake notifier."""
+        return {
+            "ok": True,
+            "enabled": bool(settings.ai_intake),
+            "interval": getattr(settings, "ai_intake_interval", 15.0),
+            "last_run": intake_worker.last_run,
+            "last_summary": intake_worker.last_summary,
+            "note": "Reads stored raw_inbound only; never runs inside the Meta webhook.",
+        }
+
+    @app.post("/api/v1/analyze/stored")
+    def analyze_stored(payload: dict | None = None, limit: int = 25,
+                       x_aahaar_key: str | None = Header(default=None)):
+        """On-demand, dashboard-triggered intake analysis over STORED messages.
+
+        Fully decoupled from the WhatsApp webhook: reads raw_inbound rows from
+        the DB, writes refined_json, and (when send=true) puts the short
+        follow-up question through the same outbound channel the doctor uses.
+        """
+        if (x_aahaar_key or "") != settings.operator_key:
+            return JSONResponse({"error": "invalid operator key"}, status_code=403)
+        payload = payload or {}
+        limit = max(1, min(int(payload.get("limit") or limit), 200))
+        send = bool(payload.get("send", True))
+        summary = intake_worker.run_once(limit=limit, should_send=send)
+        return {"ok": True, **summary}
 
     @app.get("/api/v1/patients/{pid}/log")
     def patient_log(pid: int):

@@ -435,3 +435,118 @@ def test_llm_gated_off_live_path_by_default(monkeypatch, cfg):
     assert res is None
     assert get_last_ai_status()["last_status"] == "gated_offlive"
 
+
+
+# ---- decoupled AI intake notifier -----------------------------------------
+def test_intake_local_notifier_asks_for_missing(cfg):
+    from app.core.intake_ai import analyze_intake
+    # Reading with explicit tag -> complete, no follow-up needed.
+    r = analyze_intake("fasting 128", "Ramesh", cfg=cfg)
+    assert r.intent == "reading" and r.missing == [] and r.should_reply is False
+    # Reading without context tag -> asks exactly for the tag.
+    r = analyze_intake("sugar 130", "Ramesh", cfg=cfg)
+    assert r.intent == "reading" and r.missing == ["reading_tag"] and r.should_reply is True
+    assert "fasting" in r.reply or "khane" in r.reply
+    # Meal without portion -> asks exactly for portion.
+    r = analyze_intake("roti dal sabzi", "Ramesh", cfg=cfg)
+    assert r.intent == "meal" and r.missing == ["portion"] and r.should_reply is True
+    # Meal with portion -> complete.
+    r = analyze_intake("2 roti dal small", "Ramesh", cfg=cfg)
+    assert r.intent == "meal" and r.missing == [] and r.should_reply is False
+    # Reading number only -> asks for the value.
+    r = analyze_intake("sugar only", "Ramesh", cfg=cfg)
+    assert r.missing == ["reading_value"] and r.should_reply is True
+
+
+def test_intake_never_medical_advice(cfg):
+    from app.core.intake_ai import analyze_intake
+    forbid = ["target", "dose", "insulin", "medicine", "medication", "doctor",
+              "lifestyle", "exercise", "avoid", "parhej", "suggest", "consult"]
+    for text in ("sugar 130", "roti dal sabzi", "kuch samajh nahi aa raha hai",
+                 "fasting", "khana ho gaya"):
+        r = analyze_intake(text, "Ramesh", cfg=cfg)
+        low = r.reply.lower()
+        assert not any(w in low for w in forbid), (
+            f"intake reply crossed into medical advice for {text!r}: {r.reply!r}")
+
+
+def test_intake_worker_picks_stored_rows_and_routes_reply(store, cfg):
+    from app.core.ai_worker import IntakeWorker
+    pid = store.add_patient("Test Cel", "TC-1", "+919123456780")
+    store.record_raw_received("+919123456780", "sugar 130", message_id="WAMID-WORK-1")
+    sent = []
+    def send_func(out):
+        sent.append(out)
+        return True
+    w = IntakeWorker(store, cfg, send_func=send_func, interval=5.0)
+    summary = w.run_once(limit=10, should_send=True)
+    assert summary["analyzed"] == 1 and summary["sent"] == 1
+    assert len(sent) == 1 and "fasting" in sent[0].body or "khane" in sent[0].body
+    rows = store.raw_inbound_all(limit=10)
+    tag = [r for r in rows if r["message_id"] == "WAMID-WORK-1"][0]
+    import json as _json
+    refined = _json.loads(tag["refined_json"])
+    assert refined["intent"] == "reading" and refined["missing"] == ["reading_tag"]
+    # Idempotent: a second run must not re-analyze or re-send.
+    summary2 = w.run_once(limit=10, should_send=True)
+    assert summary2["analyzed"] == 0 and summary2["sent"] == 0
+    assert len(sent) == 1
+
+
+def test_analyze_stored_endpoint_operator_keyed_and_send(tmp_path):
+    from fastapi.testclient import TestClient
+    from app.config import Settings
+    from app.core.datamodel import Store
+    from app.server.main import create_app
+    db = str(tmp_path / "analyze.db")
+    store = Store(db)
+    store.add_patient("Test Cel", "TC-2", "+919234567890")
+    store.record_raw_received("+919234567890", "roti dal", message_id="WAMID-ANZ-1")
+    store.close()
+    c = TestClient(create_app(cfg=Settings(db_path=db, whatsapp="simulator",
+                                           operator_key="aahaar-2026")))
+    # Wrong / missing operator key -> 403.
+    assert c.post("/api/v1/analyze/stored").status_code == 403
+    assert c.post("/api/v1/analyze/stored",
+                  headers={"X-Aahaar-Key": "wrong"}).status_code == 403
+    # Valid key -> analyzes the stored row and auto-sends via outbound channel.
+    r = c.post("/api/v1/analyze/stored", json={"limit": 25, "send": True},
+               headers={"X-Aahaar-Key": "aahaar-2026"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["ok"] is True and data["analyzed"] == 1 and data["sent"] == 1
+    feed = c.get("/api/v1/inbound/live").json()["messages"]
+    hit = [m for m in feed if m["raw_text"] == "roti dal"][0]
+    assert hit["ai"] is not None and hit["ai"]["intent"] == "meal"
+    assert c.get("/api/v1/analyze/status").json()["ok"] is True
+
+
+def test_webhook_never_runs_intake_llm(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+    from app.config import Settings
+    from app.server.main import create_app
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    import app.core.intake_ai as intake_ai
+    calls = {"n": 0}
+    def boom(*a, **k):
+        calls["n"] += 1
+        return None
+    monkeypatch.setattr(intake_ai, "analyze_intake", boom)
+    monkeypatch.setattr(intake_ai, "_call_gemini_intake", boom)
+    c = TestClient(create_app(cfg=Settings(db_path=str(tmp_path / "wipe.db"),
+                                           whatsapp="simulator")))
+    payload = {
+        "entry": [{
+            "changes": [{
+                "field": "messages",
+                "value": {
+                    "contacts": [{"wa_id": "917439030190"}],
+                    "messages": [{"from": "917439030190", "id": "WAMID-NOAI-1",
+                                  "type": "text", "text": {"body": "sugar 140"}}],
+                },
+            }]
+        }]
+    }
+    r = c.post("/api/v1/webhooks/whatsapp", json=payload)
+    assert r.status_code == 200 and r.json()["processed"] == 1
+    assert calls["n"] == 0, "webhook path must never invoke the intake LLM"
