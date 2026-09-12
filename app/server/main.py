@@ -219,7 +219,10 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             if u.get("_duplicate"):
                 return
             try:
-                replies = ingest.handle(u)
+                # Decoupled processing outside Meta WhatsApp timeout:
+                # Meta already got HTTP 200 OK and closed connection.
+                # Gemini runs asynchronously here and takes its time to reason.
+                replies = ingest.handle(u, force_ai=True)
                 backend.send_bulk(replies)
             except Exception as e:
                 print(f"[Aahaar] background webhook processing error: {e}")

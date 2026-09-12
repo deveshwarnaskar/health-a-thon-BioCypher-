@@ -78,7 +78,7 @@ def test_gemini_api(api_key: Optional[str] = None) -> dict:
     if not key:
         return {"success": False, "error": "No GEMINI_API_KEY provided or set in environment"}
 
-    models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    models = ["gemini-2.0-flash", "gemini-1.5-flash"]
     errors = []
     for model in models:
         try:
@@ -136,7 +136,7 @@ def call_llm_reasoning(text: str, patient_name: str, cfg: Optional[Settings] = N
         "\"conversational_reply\": \"short helpful reply in patient language\"}"
     )
 
-    models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    models = ["gemini-2.0-flash", "gemini-1.5-flash"]
     last_err = None
 
     for model in models:

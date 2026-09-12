@@ -387,11 +387,15 @@ class Store:
             return cur.lastrowid, False
 
     def mark_raw_processed(self, raw_id: int, window_id: Optional[int],
-                           role: str, status: str = "processed") -> None:
+                           role: str, status: str = "processed", refined_json: str = "") -> None:
         """Attach resolution/outcome to an already-captured raw message (in place)."""
         with self.tx() as c:
-            c.execute("UPDATE raw_inbound SET window_id=?, role=?, status=? WHERE id=?",
-                      (window_id, role or "patient", status or "processed", int(raw_id)))
+            if refined_json:
+                c.execute("UPDATE raw_inbound SET window_id=?, role=?, status=?, refined_json=? WHERE id=?",
+                          (window_id, role or "patient", status or "processed", refined_json, int(raw_id)))
+            else:
+                c.execute("UPDATE raw_inbound SET window_id=?, role=?, status=? WHERE id=?",
+                          (window_id, role or "patient", status or "processed", int(raw_id)))
 
     def raw_inbound_log(self, window_id: Optional[int] = None,
                         sender_phone: Optional[str] = None) -> list[dict]:

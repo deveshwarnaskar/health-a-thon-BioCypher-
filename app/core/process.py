@@ -48,7 +48,7 @@ class IngestService:
                 pass
         self.store.record_raw_inbound(window_id, sender, role, raw_text, status=status)
 
-    def handle(self, raw: dict) -> list[Outbound]:
+    def handle(self, raw: dict, force_ai: bool = False) -> list[Outbound]:
         parsed = parse_inbound(raw, self.cfg)
 
         sender = str(raw.get("sender_phone") or "").strip()
@@ -100,7 +100,7 @@ class IngestService:
 
         if parsed.kind == "refusal":
             from .ai import analyze_patient_input
-            ai_res = analyze_patient_input(raw_text, patient_name=patient.get("name", "Patient"), cfg=self.cfg)
+            ai_res = analyze_patient_input(raw_text, patient_name=patient.get("name", "Patient"), cfg=self.cfg, force=force_ai)
             if ai_res.intent == "decline":
                 return self._handle_decline(patient, window, role, parsed, raw)
             elif ai_res.intent == "reading" and ai_res.reading is not None:
@@ -112,7 +112,7 @@ class IngestService:
                 from .parse import _items
                 parsed.kind = "text"
                 parsed.items = _items(", ".join(ai_res.dishes), self.cfg)
-                return self._handle_meal(patient, window, role, parsed, raw)
+                return self._handle_meal(patient, window, role, parsed, raw, force_ai=force_ai)
             elif ai_res.conversational_reply:
                 return [self._out(route=role, kind="text", to=raw.get("sender_phone"),
                                   body=ai_res.conversational_reply)]
@@ -130,7 +130,7 @@ class IngestService:
             return self._handle_confirm(patient, window, role, parsed, raw)
 
         if parsed.is_meal:
-            return self._handle_meal(patient, window, role, parsed, raw)
+            return self._handle_meal(patient, window, role, parsed, raw, force_ai=force_ai)
 
         return [self._out(route=role, kind="text", to=raw.get("sender_phone"),
                           body="I couldn't process that. Try again or ask the clinic.")]
@@ -170,13 +170,14 @@ class IngestService:
                                "Would you like to add what you ate around this reading? Send a photo 📷, voice note 🎙️, or text ✍️ (or reply 'skip').")]
 
     # ---- meals -----------------------------------------------------------
-    def _handle_meal(self, patient, window, role, parsed: ParsedInput, raw) -> list[Outbound]:
+    def _handle_meal(self, patient, window, role, parsed: ParsedInput, raw, force_ai: bool = False) -> list[Outbound]:
         if not parsed.items:
             to = raw.get("sender_phone")
             from .ai import analyze_patient_input
             ai_res = analyze_patient_input(str(raw.get("text") or ""),
                                            patient_name=patient.get("name", "Patient"),
-                                           cfg=self.cfg)
+                                           cfg=self.cfg,
+                                           force=force_ai)
             if ai_res.intent == "reading" and ai_res.reading is not None:
                 parsed.kind = "reading"
                 parsed.reading = ai_res.reading
@@ -187,7 +188,7 @@ class IngestService:
                 parsed.kind = "text"
                 parsed.items = _items(", ".join(ai_res.dishes), self.cfg)
                 if parsed.items:
-                    return self._handle_meal(patient, window, role, parsed, raw)
+                    return self._handle_meal(patient, window, role, parsed, raw, force_ai=force_ai)
             if ai_res.conversational_reply:
                 return [self._out(route=role, kind="text", to=to,
                                   body=ai_res.conversational_reply)]
