@@ -106,7 +106,7 @@ def test_gemini_api(api_key: Optional[str] = None) -> dict:
     return {"success": False, "error": "All models failed", "details": errors}
 
 
-def call_llm_reasoning(text: str, patient_name: str, cfg: Optional[Settings] = None) -> Optional[AIRefinement]:
+def call_llm_reasoning(text: str, patient_name: str, cfg: Optional[Settings] = None, force: bool = False) -> Optional[AIRefinement]:
     """Call Google Gemini if API key is provided for deep dialect & reasoning."""
     key = os.environ.get("GEMINI_API_KEY") or getattr(cfg, "gemini_api_key", "")
     if not key:
@@ -117,7 +117,7 @@ def call_llm_reasoning(text: str, patient_name: str, cfg: Optional[Settings] = N
     # Safety gate (AAHAAR_AI_ON_INBOUND): the live WhatsApp/webhook path never
     # calls an LLM by default. Patient input is stored verbatim; the deep model
     # is only usable offline (scripts/analyze_stored.py) unless explicitly opted in.
-    if not getattr(cfg, "ai_on_inbound", False):
+    if not force and not getattr(cfg, "ai_on_inbound", False):
         _last_ai_status["configured"] = bool(key)
         _last_ai_status["last_status"] = "gated_offlive"
         return None
@@ -129,7 +129,7 @@ def call_llm_reasoning(text: str, patient_name: str, cfg: Optional[Settings] = N
     prompt = (
         f"Clinical diabetes assistant. Patient: {patient_name}. Message: '{text[:200]}'.\n"
         "Analyze intent and return strictly valid JSON: "
-        "{\"intent\": \"reading\"|\"meal\"|\"confirm\"|\"clarify\", "
+        "{\"intent\": \"reading\"|\"meal\"|\"confirm\"|\"decline\"|\"clarify\", "
         "\"reading\": number or null, "
         "\"reading_tag\": \"fasting\"|\"postbreakfast\"|\"postlunch\"|\"postdinner\"|\"pre\"|\"postprandial\" or null, "
         "\"dishes\": [\"dish1\", ...], "
@@ -189,21 +189,30 @@ def refine_text_local(text: str) -> str:
 
 
 def analyze_patient_input(text: str, patient_name: str = "Patient",
-                          cfg: Optional[Settings] = None) -> AIRefinement:
+                          cfg: Optional[Settings] = None, force: bool = False) -> AIRefinement:
     """Analyze messy/typo-filled patient text into structured intent."""
     raw = text or ""
     # 0. If Gemini/LLM is configured, use deep multimodal semantic reasoning
-    llm_res = call_llm_reasoning(raw, patient_name, cfg)
+    llm_res = call_llm_reasoning(raw, patient_name, cfg, force=force)
     if llm_res is not None:
         return llm_res
 
     cleaned = refine_text_local(raw)
     low = cleaned.lower()
 
-    # 1. Check for simple confirmations
+    # 1. Check for simple confirmations or declines
+    decline_words = {"skip", "no", "nah", "nope", "nahi", "nhi", "na", "cancel",
+                     "nothing", "kuch nahi", "kuch nhi", "kuch ni", "baad me", "baad mai"}
     confirm_words = {"yes", "y", "ok", "okay", "confirm", "ha", "haan", "theek",
                      "theek hai", "thik", "sahi", "sahi hai", "ji", "ji haan", "done"}
     words = set(low.split())
+    if words and (words.issubset(decline_words) or low in decline_words):
+        return AIRefinement(
+            intent="decline",
+            confidence=0.95,
+            raw_text=raw,
+            conversational_reply=f"Ji {patient_name} ji, koi baat nahi! Reading record ho gayi hai. Khane ki details aap baad me bhi bhej sakte hain."
+        )
     if words and (words.issubset(confirm_words) or low in confirm_words):
         return AIRefinement(
             intent="confirm",

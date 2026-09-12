@@ -136,6 +136,17 @@ class Store:
             p_clean = re.sub(r"\D", "", str(row["phone"] or ""))
             if p_clean == clean or (len(clean) >= 10 and len(p_clean) >= 10 and clean[-10:] == p_clean[-10:]):
                 return dict(row)
+        # 3. Designated caregiver phone match
+        cg_rows = self.conn.execute(
+            "SELECT c.patient_id, c.phone, p.* FROM caregivers c JOIN patients p ON c.patient_id = p.id "
+            "WHERE c.active=1 AND p.is_active=1"
+        ).fetchall()
+        for cg in cg_rows:
+            cg_clean = re.sub(r"\D", "", str(cg["phone"] or ""))
+            if cg_clean == clean or (len(clean) >= 10 and len(cg_clean) >= 10 and clean[-10:] == cg_clean[-10:]):
+                p_row = self.get_patient(cg["patient_id"])
+                if p_row:
+                    return p_row
         return None
 
     def get_patient_by_uh(self, uh_id: str) -> Optional[dict]:

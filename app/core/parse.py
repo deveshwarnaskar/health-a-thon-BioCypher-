@@ -54,6 +54,12 @@ _CONFIRM = {"yes", "y", "ok", "okay", "confirm", "hmm", "ha", "haan", "correct",
             "right", "theek", "theek hai", "thik", "thik h", "acha", "achha",
             "sahi", "sahi hai", "ji", "ji haan", "done", "yep", "sure"}
 
+_DECLINE = {
+    "skip", "no", "nah", "nope", "nahi", "nhi", "na", "cancel",
+    "kuch nahi", "kuch nhi", "kuch ni", "nothing", "baad me", "baad mai",
+    "later", "not now", "abhi nahi", "abhi nhi", "choro", "chhodo",
+}
+
 _PORTION_MAP = {
     "s": "s", "small": "s", "chota": "s", "chhota": "s", "kam": "s",
     "m": "m", "medium": "m", "theek": "m", "normal": "m",
@@ -73,6 +79,10 @@ class ParsedInput:
     raw: str = ""
 
     @property
+    def is_decline(self) -> bool:
+        return self.kind == "decline"
+
+    @property
     def is_reading(self) -> bool:
         return self.kind == "reading"
 
@@ -83,6 +93,16 @@ class ParsedInput:
     @property
     def is_confirm(self) -> bool:
         return self.kind == "confirm"
+
+
+def _is_decline(text: str) -> bool:
+    low = text.strip().lower()
+    if low in _DECLINE:
+        return True
+    words = low.split()
+    if len(words) <= 4 and all(w in _DECLINE or w in ("ji", "bhi", "tha", "sir", "hai", "h") for w in words):
+        return True
+    return False
 
 
 def _is_confirm(text: str) -> bool:
@@ -138,9 +158,11 @@ def parse_inbound(raw: dict, cfg: Settings, mock_vision=None) -> ParsedInput:
         if r:
             return r
 
-    # Confirm / correct replies to a pending meal estimate.
+    # Confirm / decline / correct replies to a pending meal estimate.
     if text:
         low = text.strip().lower()
+        if _is_decline(text):
+            return ParsedInput(kind="decline", text=low, ts=_ts(raw), raw=low)
         if _is_confirm(text):
             return ParsedInput(kind="confirm", text=low, ts=_ts(raw), raw=low)
         pm = re.match(r"^(correct|nhi|nahi|no)\s*.?\s*([a-z]+)$", low)

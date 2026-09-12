@@ -331,6 +331,36 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         return {"ok": True, "patient_phone": p_phone,
                 "caregiver_phone": cg_phone}
 
+    @app.post("/api/v1/analyze/stored")
+    def analyze_stored_messages(limit: int = 50, force: bool = False):
+        """On-demand / offline batch Gemini analysis over stored raw inbound records."""
+        import json
+        from ..core.ai import analyze_patient_input
+        rows = store.raw_inbound_all(limit=limit)
+        updated = 0
+        for r in rows:
+            if not r.get("raw_text"):
+                continue
+            if bool(r.get("refined_json")) and not force:
+                continue
+            sender = r.get("sender_phone") or ""
+            p = store.get_patient_by_phone(sender) if sender else None
+            pname = p["name"] if p else "Patient"
+            res = analyze_patient_input(str(r["raw_text"]), patient_name=pname, cfg=settings, force=True)
+            payload = {
+                "intent": res.intent,
+                "confidence": res.confidence,
+                "reading": res.reading,
+                "reading_tag": res.reading_tag,
+                "dishes": res.dishes,
+                "conversational_reply": res.conversational_reply,
+            }
+            with store.tx() as c:
+                c.execute("UPDATE raw_inbound SET refined_json=? WHERE id=?",
+                          (json.dumps(payload, ensure_ascii=False), r["id"]))
+            updated += 1
+        return {"ok": True, "analyzed": updated}
+
     @app.post("/api/v1/patients/{pid}/message")
     def send_direct_message(pid: int, payload: dict,
                             x_aahaar_key: str | None = Header(default=None)):

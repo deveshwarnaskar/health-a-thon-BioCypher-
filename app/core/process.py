@@ -101,7 +101,9 @@ class IngestService:
         if parsed.kind == "refusal":
             from .ai import analyze_patient_input
             ai_res = analyze_patient_input(raw_text, patient_name=patient.get("name", "Patient"), cfg=self.cfg)
-            if ai_res.intent == "reading" and ai_res.reading is not None:
+            if ai_res.intent == "decline":
+                return self._handle_decline(patient, window, role, parsed, raw)
+            elif ai_res.intent == "reading" and ai_res.reading is not None:
                 parsed.kind = "reading"
                 parsed.reading = ai_res.reading
                 parsed.reading_tag = ai_res.reading_tag
@@ -120,6 +122,9 @@ class IngestService:
 
         if parsed.is_reading:
             return self._handle_reading(patient, window, role, parsed, raw)
+
+        if parsed.is_decline:
+            return self._handle_decline(patient, window, role, parsed, raw)
 
         if parsed.is_confirm:
             return self._handle_confirm(patient, window, role, parsed, raw)
@@ -205,11 +210,23 @@ class IngestService:
                 f"{KATORI_LABELS.get(portion)}. Reply YES, or 'correct m/s/l'.")
         return [self._out(route=role, kind="quick_reply", to=raw.get("sender_phone"), body=body)]
 
+    def _handle_decline(self, patient, window, role, parsed: ParsedInput, raw) -> list[Outbound]:
+        meal = self.store.newest_pending(raw.get("sender_phone"))
+        if meal:
+            self.store.finalize_meal(meal["id"], "rejected", correction_note="cancelled/declined by user")
+            self.store.audit(role, "meal_decline", f"meal_id={meal['id']}")
+            return [self._out(route=role, kind="text", to=raw.get("sender_phone"),
+                              body="Got it! Discarded that meal estimate. You can send a fresh meal photo or reading anytime.")]
+        self.store.audit(role, "context_skip", "patient skipped food prompt")
+        pname = patient.get("name") or "ji"
+        return [self._out(route=role, kind="text", to=raw.get("sender_phone"),
+                          body=f"Got it, {pname}! Your reading is safely noted for the doctor. You can share your meals whenever you're ready.")]
+
     def _handle_confirm(self, patient, window, role, parsed: ParsedInput, raw) -> list[Outbound]:
         meal = self.store.newest_pending(raw.get("sender_phone"))
         if not meal:
             return [self._out(route=role, kind="text", to=raw.get("sender_phone"),
-                              body="There's nothing waiting to confirm. Send a new meal photo.")]
+                              body="Great! Please send a photo of your meal or text what you ate (e.g. '2 roti, dal, sabzi').")]
         status = "confirmed"
         note = "confirmed by user"
         new_portion = None

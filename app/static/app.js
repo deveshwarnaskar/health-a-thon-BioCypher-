@@ -158,6 +158,48 @@ async function saveLive() {
   }
 }
 
+
+async function sendChatDirectMessage() {
+  if (!state.active) {
+    alert("Please select an active patient first.");
+    return;
+  }
+  const input = $("chat-direct-text");
+  const msg = (input ? input.value : "").trim();
+  const statusEl = $("chat-direct-status");
+  if (!msg) return;
+  if (statusEl) statusEl.textContent = "Sending WhatsApp message...";
+  const key = prompt("Enter Operator Key to send WhatsApp message to patient:", "aahaar-2026");
+  if (!key) {
+    if (statusEl) statusEl.textContent = "Cancelled";
+    return;
+  }
+  const r = await j("POST", `/api/v1/patients/${state.active}/message`, { message: msg }, { "X-Aahaar-Key": key });
+  if (r.ok) {
+    if (input) input.value = "";
+    if (statusEl) {
+      statusEl.textContent = "Message sent to patient via WhatsApp!";
+      setTimeout(() => { statusEl.textContent = ""; }, 3500);
+    }
+    await refreshThreadAndContext(true);
+  } else {
+    if (statusEl) statusEl.textContent = "Failed to send: " + (r.data ? r.data.error : "error");
+  }
+}
+
+async function runBatchAnalysis() {
+  const resBox = $("gemini-test-result");
+  if (resBox) resBox.innerHTML = '<span class="muted">Running deep Gemini analysis over stored records...</span>';
+  const r = await j("POST", "/api/v1/analyze/stored?limit=50&force=true");
+  if (r.ok) {
+    if (resBox) resBox.innerHTML = `<span style="color:#10b981;">Successfully analyzed ${r.data.analyzed} stored messages with Gemini!</span>`;
+    await refreshLiveInbound();
+    await refreshThreadAndContext();
+  } else {
+    if (resBox) resBox.innerHTML = `<span style="color:#ef4444;">Batch analysis failed: ${r.data ? r.data.error : "error"}</span>`;
+  }
+}
+
 async function sendDirectMessage() {
   const btn = $("direct-msg-send");
   const input = $("direct-msg-text");
@@ -440,6 +482,19 @@ function setupTabs() {
   if (wabaBtn) wabaBtn.onclick = subscribeWabaWebhooks;
   const geminiBtn = $("btn-test-gemini");
   if (geminiBtn) geminiBtn.onclick = testGeminiAPI;
+
+  const analyzeBtn = $("btn-analyze-stored");
+  if (analyzeBtn) analyzeBtn.onclick = runBatchAnalysis;
+
+  const chatSendBtn = $("chat-direct-send");
+  if (chatSendBtn) chatSendBtn.onclick = sendChatDirectMessage;
+
+  const chatInput = $("chat-direct-text");
+  if (chatInput) {
+    chatInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") sendChatDirectMessage();
+    });
+  }
 }
 
 function renderThread() {
@@ -574,8 +629,13 @@ function hhmm(iso) {
   if (!iso) return "";
   try {
     let s = String(iso).trim();
-    if (!s.endsWith("Z") && !s.includes("+") && !s.includes("-", 10)) {
-      s += "Z";
+    if (s.length >= 16 && s.includes("T")) {
+      const parts = s.split("T")[1];
+      const h = parseInt(parts.slice(0, 2), 10);
+      const m = parts.slice(3, 5);
+      const ampm = h >= 12 ? "PM" : "AM";
+      const h12 = h % 12 || 12;
+      return `${h12}:${m} ${ampm}`;
     }
     const d = new Date(s);
     if (isNaN(d.getTime())) return String(iso).slice(11, 16);

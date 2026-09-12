@@ -435,3 +435,64 @@ def test_llm_gated_off_live_path_by_default(monkeypatch, cfg):
     assert res is None
     assert get_last_ai_status()["last_status"] == "gated_offlive"
 
+
+
+def test_patient_declines_food_prompt_gets_clean_acknowledgment(store, cfg, seeded):
+    """When a patient texts 'skip', 'no', 'nahi', they must get a clean acknowledgment, not confusion."""
+    from app.core.process import IngestService
+    ingest = IngestService(store, cfg)
+
+    # 1. Log a reading from seeded patient (+919000000001)
+    res1 = ingest.handle({"sender_phone": "+919000000001", "text": "fasting 135"})
+    assert any("Logged fasting: 135" in o.body for o in res1)
+
+    # 2. Patient replies "skip"
+    res2 = ingest.handle({"sender_phone": "+919000000001", "text": "skip"})
+    assert any("noted for the doctor" in o.body.lower() for o in res2)
+    assert not any("couldn't recognise dishes" in o.body.lower() for o in res2)
+
+    # 3. Patient replies "nahi"
+    res3 = ingest.handle({"sender_phone": "+919000000001", "text": "nahi"})
+    assert any("noted for the doctor" in o.body.lower() for o in res3)
+
+
+def test_patient_confirms_without_pending_meal_gets_invitation(store, cfg, seeded):
+    """Replying 'yes' or 'ha' when no meal proposal is pending invites the meal instead of claiming nothing waiting."""
+    from app.core.process import IngestService
+    ingest = IngestService(store, cfg)
+    res = ingest.handle({"sender_phone": "+919000000001", "text": "yes"})
+    assert any("please send a photo of your meal or text what you ate" in o.body.lower() for o in res)
+    assert not any("there's nothing waiting to confirm" in o.body.lower() for o in res)
+
+
+def test_caregiver_phone_resolves_patient_inbound(store, cfg, seeded):
+    """Inbound messages from registered caregiver phone must resolve the patient and assign role=caregiver."""
+    from app.core.process import IngestService
+    ingest = IngestService(store, cfg)
+
+    # Seeded caregiver phone is +919000000002
+    res = ingest.handle({"sender_phone": "+919000000002", "text": "fasting 118"})
+    assert any("Logged fasting: 118" in o.body for o in res)
+
+    # Verify reading was attributed to window with role='caregiver'
+    w = store.last_window_for(1)
+    readings = store.readings_for_window(w["id"])
+    last_r = [r for r in readings if r["value"] == 118.0]
+    assert len(last_r) == 1
+    assert last_r[0]["role"] == "caregiver"
+
+
+def test_analyze_stored_endpoint_and_batch_processing(tmp_path):
+    """Test POST /api/v1/analyze/stored runs over stored raw messages."""
+    from fastapi.testclient import TestClient
+    from app.server.main import create_app
+    c = TestClient(create_app(cfg=Settings(db_path=str(tmp_path / "batch.db"), whatsapp="simulator")))
+
+    # Seed an inbound raw message
+    c.post("/api/v1/inbound", json={"sender_phone": "+919876501234", "text": "2 roti and dal"})
+
+    # Call analyze endpoint
+    r = c.post("/api/v1/analyze/stored?limit=10&force=true")
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+    assert r.json().get("analyzed") >= 1

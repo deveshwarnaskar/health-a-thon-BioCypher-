@@ -53,7 +53,8 @@ def main() -> int:
     for r in pending:
         res = analyze_patient_input(str(r["raw_text"]),
                                     patient_name="Patient",
-                                    cfg=cfg)
+                                    cfg=cfg,
+                                    force=True)
         payload = {
             "intent": res.intent,
             "confidence": res.confidence,
@@ -62,7 +63,7 @@ def main() -> int:
             "dishes": res.dishes,
             "conversational_reply": res.conversational_reply,
             "clarification_question": res.clarification_question,
-            "analyzed_by": "gemini" if cfg.ai_on_inbound else "local-refiner",
+            "analyzed_by": "gemini" if bool(__import__("os").environ.get("GEMINI_API_KEY")) else "local-refiner",
         }
         if args.dry_run:
             print(f"  [{r['id']}] {str(r['raw_text'])[:40]!r} -> {res.intent}")

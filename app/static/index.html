@@ -117,7 +117,11 @@
           <span id="chat-state" class="badge alt">live</span>
         </div>
         <div id="thread" class="thread"><div class="thread-empty">No messages yet &mdash; patient WhatsApp messages appear here once Meta delivers them</div></div>
-        <p class="muted" style="font-size: 12.5px; margin: 8px 0 0;">Read-only: messages arrive from the patient&rsquo;s WhatsApp via the Meta Cloud API and land here instantly. There is no simulator in this dashboard.</p>
+        <div class="chat-composer" style="margin-top: 10px; display: flex; gap: 8px;">
+          <input id="chat-direct-text" type="text" placeholder="Type WhatsApp reply to patient..." style="flex: 1; padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px;" />
+          <button id="chat-direct-send" type="button" class="btn" style="background: #25D366; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer;">Send WhatsApp</button>
+        </div>
+        <div id="chat-direct-status" class="muted" style="font-size: 12px; margin-top: 4px;"></div>
       </div>
     </section>
 
