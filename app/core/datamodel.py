@@ -64,9 +64,14 @@ CREATE TABLE IF NOT EXISTS raw_inbound(
     id INTEGER PRIMARY KEY, window_id INTEGER REFERENCES windows(id),
     ts TEXT, sender_phone TEXT, role TEXT, raw_text TEXT, refined_json TEXT, status TEXT);
 
+CREATE TABLE IF NOT EXISTS webhook_events(
+    id INTEGER PRIMARY KEY, ts TEXT, event_type TEXT, client_ip TEXT,
+    status TEXT, detail TEXT);
+
 CREATE INDEX IF NOT EXISTS ix_meals_window ON meals(window_id);
 CREATE INDEX IF NOT EXISTS ix_readings_window ON readings(window_id);
 CREATE INDEX IF NOT EXISTS ix_raw_inbound_window ON raw_inbound(window_id);
+CREATE INDEX IF NOT EXISTS ix_webhook_events_ts ON webhook_events(ts);
 """
 
 
@@ -85,6 +90,14 @@ class Store:
         self.path = path
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.conn.execute("PRAGMA busy_timeout=5000")
+        except sqlite3.OperationalError:
+            pass
         self.conn.executescript(SCHEMA)
         # additive migration: idempotency key for Meta webhook message IDs
         try:
@@ -341,6 +354,31 @@ class Store:
     def audit_log(self) -> list[dict]:
         rows = self.conn.execute("SELECT * FROM audit ORDER BY ts DESC LIMIT 200").fetchall()
         return [dict(r) for r in rows]
+
+    # ---- webhook events (durable across redeploys / multi-worker) -------
+    def record_webhook_event(self, event_type: str, client_ip: str,
+                             status: str, detail: dict) -> int:
+        """Persist a Meta webhook event (GET verify / POST inbound) so the
+        dashboard counter and diagnostics survive every redeploy / restart.
+        """
+        import json as _json
+        with self.tx() as c:
+            cur = c.execute(
+                "INSERT INTO webhook_events(ts, event_type, client_ip, status, detail)"
+                " VALUES(?,?,?,?,?)",
+                (iso(datetime.now()), event_type or "", client_ip or "",
+                 status or "", _json.dumps(detail or {}, ensure_ascii=False)))
+            return cur.lastrowid
+
+    def recent_webhook_events(self, limit: int = 30) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM webhook_events ORDER BY id DESC LIMIT ?",
+            (max(1, limit),)).fetchall()
+        return [dict(r) for r in rows]
+
+    def webhook_event_count(self) -> int:
+        r = self.conn.execute("SELECT COUNT(*) AS c FROM webhook_events").fetchone()
+        return int(r["c"] or 0)
 
     # ---- raw inbound (unaltered audit of all patient speech/text) -------
     def record_raw_inbound(self, window_id: Optional[int], sender_phone: str,

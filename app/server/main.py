@@ -44,7 +44,10 @@ def _valid_phone(s: str) -> bool:
 _webhook_history: list[dict] = []
 
 
-def _record_webhook_event(event_type: str, ip: str, detail: dict, status: str):
+def _record_webhook_event(store, event_type: str, ip: str, detail: dict, status: str):
+    """Record a webhook event both in-memory (fast lookup) and in SQLite so the
+    count / last-event survives every redeploy and multi-worker restart.
+    """
     from datetime import datetime
     entry = {
         "ts": datetime.now().isoformat(),
@@ -56,6 +59,24 @@ def _record_webhook_event(event_type: str, ip: str, detail: dict, status: str):
     _webhook_history.insert(0, entry)
     if len(_webhook_history) > 30:
         _webhook_history.pop()
+    try:
+        store.record_webhook_event(event_type, ip, status, detail)
+    except Exception as exc:
+        print(f"[Aahaar] persist webhook event failed: {exc}")
+
+
+def _parse_whe(row: dict | None) -> dict | None:
+    """Parse the JSON detail blob from a persisted webhook_events row."""
+    if not row:
+        return row
+    detail = row.get("detail")
+    if isinstance(detail, str):
+        try:
+            import json as _json
+            row["detail"] = _json.loads(detail)
+        except Exception:
+            pass
+    return row
 
 
 def _make_backend(store: Store):
@@ -134,16 +155,25 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             "last_dispatch": last_dispatch,
             "recent_raw_inbound_count": len(recent_inbounds),
             "recent_inbounds": recent_inbounds[:3],
-            "webhook_events_count": len(_webhook_history),
-            "last_webhook_event": _webhook_history[0] if _webhook_history else None,
+            "webhook_events_count": store.webhook_event_count(),
+            "last_webhook_event": _parse_whe(store.recent_webhook_events(limit=1)[0] if store.webhook_event_count() else None),
         }
 
     @app.get("/api/v1/debug/webhooks")
     def debug_webhooks():
         """Inspection endpoint showing exact HTTP callbacks received from Meta WhatsApp."""
+        import json as _json
+        events = store.recent_webhook_events(limit=50)
+        # JSON-encode the detail blob that was stored as text
+        for e in events:
+            if isinstance(e.get("detail"), str):
+                try:
+                    e["detail"] = _json.loads(e["detail"])
+                except Exception:
+                    pass
         return {
-            "total_events": len(_webhook_history),
-            "events": _webhook_history,
+            "total_events": store.webhook_event_count(),
+            "events": events,
             "meta_verify_token": getattr(backend, "verify_token", "aahaar-verify"),
             "expected_callback_url": "https://aahaar-573f.onrender.com/api/v1/webhooks/whatsapp",
         }
@@ -194,7 +224,7 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         client_ip = request.client.host if request.client else "unknown"
         verified = isinstance(backend, CloudBackend) and backend.verify({"hub.mode": mode,
                                                                  "hub.verify_token": token})
-        _record_webhook_event("GET_VERIFY", client_ip, {
+        _record_webhook_event(store, "GET_VERIFY", client_ip, {
             "mode": mode,
             "token_match": verified,
             "challenge_len": len(challenge or ""),
@@ -210,7 +240,7 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         try:
             payload = await request.json()
         except Exception as e:
-            _record_webhook_event("POST_INBOUND", client_ip, {"error": str(e)}, "invalid_json")
+            _record_webhook_event(store, "POST_INBOUND", client_ip, {"error": str(e)}, "invalid_json")
             return JSONResponse({"ok": False, "error": "invalid json"}, status_code=400)
 
         units = backend.parse_webhook(payload) if hasattr(backend, "parse_webhook") else []
@@ -228,7 +258,7 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         has_statuses = "statuses" in value
         duplicates = sum(1 for u in units if u.get("_duplicate"))
 
-        _record_webhook_event("POST_INBOUND", client_ip, {
+        _record_webhook_event(store, "POST_INBOUND", client_ip, {
             "units_count": len(units),
             "duplicates_skipped": duplicates,
             "units": units,

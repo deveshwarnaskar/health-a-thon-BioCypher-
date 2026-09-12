@@ -42,7 +42,7 @@ _READING_HINTS = ("sugar", "glucose", "fasting", "fast", "khali", "prick",
 _PORTION_WORDS = ("small", "medium", "large", "chota", "chhota", "chhoti",
                   "kam", "badi", "bara", "bada", "do roti", "2 roti")
 
-_MODELS = ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash")
+_MODELS = ("gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite")
 
 
 @dataclass
@@ -76,7 +76,12 @@ def _call_gemini_intake(text: str, patient_name: str, key: str) -> Optional[dict
     """Direct Gemini call for intake decisions. Never runs in the webhook path."""
     prompt = f"{_INTAKE_PROMPT}\nPatient: {patient_name}\nMessage: '{str(text)[:200]}'"
     last_err = None
-    for model in _MODELS:
+    try:
+        from .ai import discover_models
+        model_list = discover_models(key) or list(_MODELS)
+    except Exception:
+        model_list = list(_MODELS)
+    for model in model_list:
         try:
             import httpx
             url = (f"https://generativelanguage.googleapis.com/v1beta/models/{model}"

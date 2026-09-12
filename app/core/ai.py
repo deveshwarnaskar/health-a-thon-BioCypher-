@@ -64,6 +64,57 @@ _last_ai_status: dict = {
     "last_error": None,
 }
 
+# Current stable Gemini flash endpoints (2026). Older generations (2.x, 1.x)
+# 404 for new API keys, so keep only the current stable Flash family here and
+# prefer live model discovery for anything newer.
+_CURRENT_MODELS: tuple = ("gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite")
+
+_model_cache: dict = {"ts": None, "models": None}
+
+
+def discover_models(api_key: str, cache_for: float = 900.0) -> list[str]:
+    """Pick the newest available generateContent flash models for a key.
+
+    Asks the models endpoint once (cached per-process), then filters for
+    chat-capable Gemini text models. Never raises: any failure falls back to the
+    hardcoded current list.
+    """
+    import time
+    now = time.time()
+    cached = _model_cache.get("models")
+    if cached and _model_cache.get("ts") and (now - _model_cache["ts"]) < cache_for:
+        return cached
+    chosen = list(_CURRENT_MODELS)
+    try:
+        import httpx
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+        resp = httpx.get(url, timeout=5.0)
+        if resp.status_code == 200:
+            data = resp.json()
+            names = []
+            for m in data.get("models", []):
+                name = str(m.get("name") or "")
+                methods = m.get("supportedGenerationMethods") or []
+                if "generateContent" not in methods or not name.startswith("models/gemini-"):
+                    continue
+                short = name.split("/")[-1]
+                if not re.search(r"flash|lite", short, re.I):
+                    continue
+                if any(tag in short for tag in ("-tts", "-live", "-image",
+                                                "-transcribe", "-translator")):
+                    continue
+                names.append(short)
+            # newest first is not guaranteed; prefer short newer-ish names,
+            # otherwise just present them all for runtime fallback
+            names.sort(key=lambda s: (not s.startswith("gemini-3"), s))
+            if names:
+                chosen = names[:5]
+    except Exception:
+        pass
+    _model_cache["ts"] = now
+    _model_cache["models"] = chosen
+    return chosen
+
 
 def get_last_ai_status() -> dict:
     key = os.environ.get("GEMINI_API_KEY", "")
@@ -78,7 +129,7 @@ def test_gemini_api(api_key: Optional[str] = None) -> dict:
     if not key:
         return {"success": False, "error": "No GEMINI_API_KEY provided or set in environment"}
 
-    models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    models = discover_models(key)
     errors = []
     for model in models:
         try:
@@ -136,7 +187,7 @@ def call_llm_reasoning(text: str, patient_name: str, cfg: Optional[Settings] = N
         "\"conversational_reply\": \"short helpful reply in patient language\"}"
     )
 
-    models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    models = discover_models(key)
     last_err = None
 
     for model in models:

@@ -550,3 +550,49 @@ def test_webhook_never_runs_intake_llm(monkeypatch, tmp_path):
     r = c.post("/api/v1/webhooks/whatsapp", json=payload)
     assert r.status_code == 200 and r.json()["processed"] == 1
     assert calls["n"] == 0, "webhook path must never invoke the intake LLM"
+
+
+# ---- persistent webhook event counter ------------------------------------
+def test_webhook_events_persisted_across_restarts(tmp_path):
+    """Verify webhook events are stored in SQLite and survive a fresh Store open."""
+    from fastapi.testclient import TestClient
+    from app.config import Settings
+    from app.core.datamodel import Store
+    from app.server.main import create_app
+    db = str(tmp_path / "wh_ev.db")
+    s1 = Store(db)
+    s1.close()
+    c = TestClient(create_app(cfg=Settings(db_path=db, whatsapp="simulator",
+                                           operator_key="aahaar-2026")))
+    # 1) GET verify hits our handler (simulates Meta callback check)
+    c.get("/api/v1/webhooks/whatsapp",
+          params={"hub.mode": "subscribe",
+                  "hub.verify_token": "aahaar-verify",
+                  "hub.challenge": "abc123"})
+    # 2) POST inbound (store-first path)
+    payload = {
+        "entry": [{
+            "changes": [{
+                "field": "messages",
+                "value": {
+                    "contacts": [{"wa_id": "919100000000"}],
+                    "messages": [{"from": "919100000000", "id": "WAMID-EVP-1",
+                                  "type": "text", "text": {"body": "fasting 105"}}],
+                },
+            }]
+        }]
+    }
+    c.post("/api/v1/webhooks/whatsapp", json=payload)
+    # Status endpoint must reflect DB-persisted events, not just in-memory
+    st = c.get("/api/v1/debug/status").json()
+    assert st["webhook_events_count"] >= 2, f"expected >=2 persisted events, got {st['webhook_events_count']}"
+    last = st["last_webhook_event"]
+    assert last is not None and last["event_type"] in ("GET_VERIFY", "POST_INBOUND")
+    # Close and reopen a completely fresh Store on the same SQLite file
+    c.close()
+    s2 = Store(db)
+    assert s2.webhook_event_count() >= 2, "events must survive a fresh Store open"
+    rows = s2.recent_webhook_events(limit=10)
+    types = [r["event_type"] for r in rows]
+    assert "GET_VERIFY" in types and "POST_INBOUND" in types
+    s2.close()
