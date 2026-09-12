@@ -76,6 +76,7 @@ class IntakeWorker:
                 continue
 
             self._maybe_register(r, res, sender)
+            self._maybe_register_meal(r, res, sender)
 
             if res.should_reply and res.reply and sender and should_send:
                 try:
@@ -137,11 +138,24 @@ class IntakeWorker:
             reading_tag=parsed.get("reading_tag"),
             reading_candidates=list(parsed.get("reading_candidates") or []),
             reading_status=parsed.get("reading_status", "none"),
+            meal_items=list(parsed.get("meal_items") or []),
+            meal_portion=parsed.get("meal_portion"),
         )
 
     def _save_refined(self, raw_id: int, res: IntakeResult,
                       followup_sent: bool = False,
                       registered: bool = False) -> None:
+        prev_registered = prev_meal_registered = False
+        try:
+            row = self.store.conn.execute(
+                "SELECT refined_json FROM raw_inbound WHERE id=?",
+                (int(raw_id),)).fetchone()
+            if row and row["refined_json"]:
+                prev = json.loads(row["refined_json"])
+                prev_registered = bool(prev.get("registered"))
+                prev_meal_registered = bool(prev.get("meal_registered"))
+        except Exception:
+            pass
         payload = {
             "intent": res.intent,
             "missing": res.missing,
@@ -154,7 +168,10 @@ class IntakeWorker:
             "reading_tag": res.reading_tag,
             "reading_candidates": list(res.reading_candidates or []),
             "reading_status": res.reading_status,
-            "registered": bool(registered),
+            "meal_items": list(res.meal_items or []),
+            "meal_portion": res.meal_portion,
+            "registered": bool(prev_registered) or bool(registered),
+            "meal_registered": bool(prev_meal_registered),
         }
         with self.store.tx() as c:
             c.execute("UPDATE raw_inbound SET refined_json=? WHERE id=?",
@@ -203,6 +220,64 @@ class IntakeWorker:
             print(f"[Aahaar] AI intake register error: {e}")
 
     def _mark_registered(self, raw_id: int) -> None:
+        self._mark_flag(raw_id, "registered")
+
+    def _maybe_register_meal(self, raw_row: dict, res: IntakeResult,
+                             sender: str) -> None:
+        """Store the AI-recognized MEAL into the meals table (window-scoped).
+
+        Off-webhook and dashboard-driven, like the reading registration.
+        Only registers when dishes were actually recognized. Never duplicated:
+        guarded by the row marker AND by dedup against a meal the deterministic
+        webhook already proposed for the same dish set (ordinary meal messages
+        keep their normal proposal+confirm loop; for ambiguous-reading messages
+        the deterministic confirm is suppressed, so this becomes the only
+        logger). The message's own timestamp is kept.
+        """
+        try:
+            items = list(res.meal_items or [])
+            if not items:
+                return
+            fj = raw_row.get("refined_json") or ""
+            if fj:
+                try:
+                    if json.loads(fj).get("meal_registered"):
+                        return
+                except Exception:
+                    pass
+            if not sender:
+                return
+            patient = self.store.get_patient_by_phone(sender)
+            if not patient:
+                return
+            window = (self.store.active_window_for(patient["id"])
+                      or self.store.last_window_for(patient["id"]))
+            if not window or not window.get("id"):
+                return
+            ts = str(raw_row.get("ts") or self._now_iso())
+            want = {(str(it.get("item") or "").lower(), it.get("genus"),
+                     it.get("portion") or "m") for it in items}
+            if any(self._same_dish_set(m.get("items_json"), want)
+                   for m in self.store.meals_for_window(window["id"],
+                                                        confirmed_only=False)):
+                self._mark_flag(raw_row["id"], "meal_registered")
+                return
+            portion = res.meal_portion or items[0].get("portion", "m") or "m"
+            carbs = sum(float(it.get("carbs", 0.0)) for it in items)
+            gi = self._split_gi(items)
+            meal_id = self.store.propose_meal(
+                window["id"], sender, "patient", "ai",
+                items, portion, self.cfg.katori(portion), carbs, gi,
+                float(res.confidence), ts=ts)
+            names = ", ".join(str(it.get("item") or it) for it in items)
+            self.store.audit("ai_intake", "meal_registered",
+                             f"raw_id={raw_row['id']} meal_id={meal_id} "
+                             f"ts={ts} {names}")
+            self._mark_flag(raw_row["id"], "meal_registered")
+        except Exception as e:
+            print(f"[Aahaar] AI intake meal-register error: {e}")
+
+    def _mark_flag(self, raw_id: int, key: str) -> None:
         try:
             with self.store.tx() as c:
                 row = c.execute(
@@ -211,11 +286,32 @@ class IntakeWorker:
                 if not row or not row["refined_json"]:
                     return
                 p = json.loads(row["refined_json"])
-                p["registered"] = True
+                p[key] = True
                 c.execute("UPDATE raw_inbound SET refined_json=? WHERE id=?",
                           (json.dumps(p, ensure_ascii=False), int(raw_id)))
         except Exception as e:
             print(f"[Aahaar] AI intake mark-registered error: {e}")
+
+    @staticmethod
+    def _split_gi(items: list[dict]) -> str:
+        from .nutrition import gi_bucket_index
+        buckets = {it.get("gi", "med") for it in items}
+        ranked = sorted(buckets, key=gi_bucket_index, reverse=True)
+        return ranked[0] if ranked else "med"
+
+    @staticmethod
+    def _now_iso() -> str:
+        return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+    @staticmethod
+    def _same_dish_set(items_json: Optional[str], want: set) -> bool:
+        try:
+            have = {(str(x.get("item") or "").lower(), x.get("genus"),
+                     x.get("portion") or "m")
+                    for x in json.loads(items_json or "[]")}
+            return bool(have) and have == want
+        except Exception:
+            return False
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():

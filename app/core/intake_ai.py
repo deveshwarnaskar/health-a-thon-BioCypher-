@@ -27,6 +27,17 @@ from typing import Optional
 from ..config import Settings
 from .parse import ambiguous_reading_values, parse_inbound
 
+
+def _meal_items(text: str, cfg: Settings) -> list:
+    """Deterministically extract dish items (with carbs/GI) from stored text.
+
+    Falls back to the nutrition classifier's "mixed meal" row for novel foods,
+    so patient-described meals are never lost even when the dish is not in the
+    catalog (e.g. 'whole steak with red wine').
+    """
+    from .parse import _items
+    return list(_items(text, cfg))
+
 # Words that mark the reading-context tag as explicitly stated by the patient.
 _TAG_KEYWORDS = (
     "fasting", "fast", "fbs", "khali", "morning", "subah",
@@ -80,6 +91,8 @@ class IntakeResult:
     reading_tag: Optional[str] = None
     reading_candidates: list = field(default_factory=list)
     reading_status: str = "none"  # resolved | ambiguous | none
+    meal_items: list = field(default_factory=list)
+    meal_portion: Optional[str] = None
 
 
 _INTAKE_PROMPT = (
@@ -94,7 +107,9 @@ _INTAKE_PROMPT = (
     "post-dinner / pre-meal) 3) meal items 4) portion size (small/medium/large).\n"
     "If everything required was supplied, return missing=[] and an empty reply — do NOT ask anything extra.\n"
     'Return strictly valid JSON: {"intent":"reading"|"meal"|"confirm"|"clarify", '
-    '"missing":["reading_value"|"reading_tag"|"meal_items"|"portion"], "reply":"<one short Hinglish question or empty>"}'
+    '"missing":["reading_value"|"reading_tag"|"meal_items"|"portion"], "reply":"<one short Hinglish question or empty>", '
+    '"items":["dish 1","dish 2"] (only the dish names the patient mentioned, or []), '
+    '"portion":"s"|"m"|"l" (only when the patient stated it)}'
 )
 
 
@@ -145,6 +160,10 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings) -> IntakeResult
     parsed = parse_inbound({"kind": "text", "text": raw,
                             "ts": datetime.now().isoformat()}, cfg)
 
+    local_items = _meal_items(raw, cfg)
+    meal_portion = (parsed.portion_letter
+                    or (local_items[0].get("portion", "m") if local_items else None))
+
     # Reading: value present, tag explicitly stated -> complete, never nag.
     if parsed.is_reading and parsed.reading is not None:
         tag_stated = any(k in low for k in _TAG_KEYWORDS)
@@ -154,7 +173,8 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings) -> IntakeResult
                                 analyzed_by="local-refiner",
                                 reading_value=parsed.reading,
                                 reading_tag=parsed.reading_tag,
-                                reading_status="resolved")
+                                reading_status="resolved",
+                                meal_items=local_items, meal_portion=meal_portion)
         return IntakeResult(
             intent="reading",
             missing=["reading_tag"],
@@ -174,7 +194,8 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings) -> IntakeResult
             missing=["reading_value"],
             reply=(f"{name} ji, reading number bataiye (jaise 'fasting 120' ya 'sugar 135')."),
             should_reply=True, raw_text=raw, confidence=0.75,
-            analyzed_by="local-refiner")
+            analyzed_by="local-refiner",
+            meal_items=local_items, meal_portion=meal_portion)
 
     # Unresolved reading ("230 or 330"): reflect it back, never guess a number.
     cand = ambiguous_reading_values(raw)
@@ -186,7 +207,8 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings) -> IntakeResult
             reply=f"{name} ji, exact reading kya thi — {q}? (jaise 'sugar {cand[0]:.0f}')",
             should_reply=True, raw_text=raw, confidence=0.6,
             analyzed_by="local-refiner",
-            reading_candidates=cand, reading_status="ambiguous")
+            reading_candidates=cand, reading_status="ambiguous",
+            meal_items=local_items, meal_portion=meal_portion)
 
     # Meal: portion unknown -> one follow-up; portion given -> done.
     if parsed.is_meal or (parsed.kind == "text" and parsed.items):
@@ -198,10 +220,12 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings) -> IntakeResult
                 reply=(f"{name} ji, meal note ho gaya! Kya portion thi — "
                        "small, medium ya large?"),
                 should_reply=True, raw_text=raw, confidence=0.85,
-                analyzed_by="local-refiner")
+                analyzed_by="local-refiner",
+                meal_items=local_items, meal_portion=meal_portion)
         return IntakeResult(intent="meal", missing=[], reply="",
                             should_reply=False, raw_text=raw, confidence=0.9,
-                            analyzed_by="local-refiner")
+                            analyzed_by="local-refiner",
+                            meal_items=local_items, meal_portion=meal_portion)
 
     # Confirmations / corrections are fully handled by the deterministic path.
     if parsed.kind in ("confirm", "correct"):
@@ -219,8 +243,8 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings) -> IntakeResult
     return IntakeResult(
         intent="clarify",
         missing=["reading_value", "meal_items"],
-        reply=(f"{name} ji, thoda aur bataiye — sugar reading bhejna hai "
-               "(jaise 'sugar 130') ya khana (jaise '2 roti dal')?"),
+        reply=(f"{name} ji, thoda aur bataiye — kripya apni sugar reading "
+               "bataiye (jaise 'sugar 130' ya 'fasting 120')."),
         should_reply=True, raw_text=raw, confidence=0.5,
         analyzed_by="local-refiner")
 
@@ -257,11 +281,25 @@ def analyze_intake(text: str, patient_name: str = "Patient",
             except Exception:
                 pass
             ded = _reading_deduction(raw)
+            # Map Gemini dish names onto the nutrition classifier (carbs/GI rows),
+            # so recognized food can be registered into the meal log off-webhook.
+            g_items = []
+            raw_items = parsed.get("items") or []
+            if isinstance(raw_items, str) and raw_items.strip():
+                g_items = _meal_items(raw_items, cfg)
+            elif isinstance(raw_items, list):
+                names = [str(x).strip() for x in raw_items if str(x).strip()]
+                if names:
+                    g_items = _meal_items(", ".join(names[:4]), cfg)
+            g_portion = str(parsed.get("portion") or "").strip().lower()[:1]
+            if g_portion not in ("s", "m", "l"):
+                g_portion = (g_items[0].get("portion", "m") if g_items else None)
             return IntakeResult(intent=intent, missing=missing, reply=reply,
                                 should_reply=should_reply, raw_text=raw,
                                 confidence=0.98,
                                 analyzed_by=f"gemini:{parsed.get('_model', '')}",
                                 reading_value=ded.get("value"),
                                 reading_candidates=ded.get("candidates") or [],
-                                reading_status=ded.get("status", "none"))
+                                reading_status=ded.get("status", "none"),
+                                meal_items=g_items, meal_portion=g_portion)
     return _local_notifier(raw, patient_name, cfg)

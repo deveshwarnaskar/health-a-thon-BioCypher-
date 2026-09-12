@@ -7,6 +7,7 @@ feed the report, and one-caregiver bound per patient.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 import pytest
@@ -640,6 +641,67 @@ def test_intake_worker_never_registers_ambiguous_reading(seeded, store, cfg):
     fj = _json.loads(tag["refined_json"])
     assert fj["reading_status"] == "ambiguous"
     assert fj["reading_candidates"] == [230.0, 330.0]
+
+
+def test_intake_worker_registers_meal_once(seeded, store, cfg):
+    from app.core.ai_worker import IntakeWorker
+    pid, wid = seeded
+    store.record_raw_received("+919000000001", "roti dal",
+                              message_id="WAMID-MEAL-1")
+    w = IntakeWorker(store, cfg, send_func=lambda out: True)
+    s1 = w.run_once(limit=10, should_send=False)
+    assert s1["analyzed"] == 1
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 1 and meals[0]["status"] == "pending"
+    assert meals[0]["source"] == "ai"
+    items = json.loads(meals[0]["items_json"])
+    assert {it["item"] for it in items} == {"roti", "dal"}
+    assert any(a["action"] == "meal_registered"
+               for a in store.audit_log())
+    # Rerun must not double-register the meal.
+    w.run_once(limit=10, should_send=False)
+    assert len(store.meals_for_window(wid, confirmed_only=False)) == 1
+
+
+def test_intake_worker_registers_meal_for_ambiguous_reading_message(seeded, store, cfg):
+    # Ambiguous reading: the reading is NEVER auto-registered, but the food the
+    # patient described still gets logged into the meal record by the AI.
+    from app.core.ai_worker import IntakeWorker
+    pid, wid = seeded
+    store.record_raw_received(
+        "+919000000001",
+        "pata nahi shayad 230 or 330 i ate a whole steak with red wine",
+        message_id="WAMID-MEAL-AMB-1")
+    w = IntakeWorker(store, cfg, send_func=lambda out: True)
+    w.run_once(limit=10, should_send=False)
+    assert store.readings_for_window(wid) == []
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 1
+    assert meals[0]["source"] == "ai" and meals[0]["status"] == "pending"
+    assert any(a["action"] == "meal_registered"
+               for a in store.audit_log())
+    w.run_once(limit=10, should_send=False)
+    assert len(store.meals_for_window(wid, confirmed_only=False)) == 1
+
+
+def test_intake_worker_does_not_duplicate_deterministic_meal(seeded, store, cfg):
+    # Ordinary meal message: the deterministic webhook already proposed the meal
+    # and asked for the portion confirm. The AI worker must NOT add a second row.
+    from app.core.ai_worker import IntakeWorker
+    pid, wid = seeded
+    store.record_raw_received("+919000000001", "roti dal",
+                              message_id="WAMID-MEAL-DEDUP-1")
+    outs = _handle(store, cfg, pid, {
+        "sender_phone": "+919000000001", "kind": "text", "text": "roti dal"})
+    assert outs and "Correct portion" in outs[0].body
+    w = IntakeWorker(store, cfg, send_func=lambda out: True)
+    w.run_once(limit=10, should_send=False)
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 1  # AI does not add a second 'roti, dal' row
+    import json as _json
+    rows = store.raw_inbound_all(limit=10)
+    tag = [r for r in rows if r["message_id"] == "WAMID-MEAL-DEDUP-1"][0]
+    assert _json.loads(tag["refined_json"])["meal_registered"] is True
 
 
 def test_webhook_never_runs_intake_llm(monkeypatch, tmp_path):

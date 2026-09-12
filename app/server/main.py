@@ -436,6 +436,9 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
                         "reading_tag": aj.get("reading_tag"),
                         "reading_candidates": aj.get("reading_candidates") or [],
                         "reading_status": aj.get("reading_status", "none"),
+                        "meal_items": aj.get("meal_items") or [],
+                        "meal_portion": aj.get("meal_portion"),
+                        "meal_registered": aj.get("meal_registered") is True,
                         "registered": aj.get("registered") is True,
                     }
                 except Exception:

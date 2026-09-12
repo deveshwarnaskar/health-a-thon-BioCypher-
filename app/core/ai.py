@@ -355,8 +355,7 @@ def analyze_patient_input(text: str, patient_name: str = "Patient",
     # 4. Ambiguous / Confusing input -> Ask polite clarifying question ("Talking Back AI")
     clarify = (
         f"Namaste {patient_name} ji! I didn't understand that completely (mujhe thoda samajh nahi aaya). "
-        f"Kya aap sugar reading bhejna chahte hain (jaise 'sugar 130') ya khana (jaise '2 roti dal')? "
-        f"Kripya thoda aur batayein."
+        f"Kripya apni sugar reading bataiye (jaise 'sugar 130' ya 'fasting 120')."
     )
     return AIRefinement(
         intent="clarify",
