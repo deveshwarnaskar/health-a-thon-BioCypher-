@@ -21,9 +21,11 @@ from typing import Optional
 from ..config import Settings
 from .datamodel import Store
 from .nutrition import KATORI_LABELS, gi_bucket_index
-from .parse import (READING_TAG_LABELS, ParsedInput, ambiguous_reading_values,
-                    describe_items, parse_inbound, portion_text,
-                    reading_timestamp, _is_done)
+from .parse import (READING_TAG_LABELS, ParsedInput, _is_change_text,
+                    ambiguous_reading_values, change_old_dish,
+                    change_remainder, describe_items, dish_mentions_phrase,
+                    parse_inbound, portion_text, reading_timestamp, _is_done,
+                    _items)
 
 
 @dataclass
@@ -133,8 +135,11 @@ class IngestService:
         # In AI-intake mode the dashboard worker is the SINGLE responder: meal
         # proposals, pure chat, off-range refusals and confirmations are all
         # quiet here (readings are store-only anyway), so a patient receives
-        # exactly ONE coherent follow-up per message.
-        if self.cfg.ai_intake:
+        # exactly ONE coherent follow-up per message. This holds whether the
+        # mode came from the env flag OR a live intake worker thread already
+        # started (single responder by construction, no env required).
+        from .ai_worker import worker_active
+        if self.cfg.ai_intake or worker_active():
             self.store.audit(role, "ai_intake_quiet",
                              f"{raw_text[:40]!r} kind={parsed.kind}")
             return []
@@ -232,12 +237,24 @@ class IngestService:
                       "kam", "bada", "badi", "bara", "zyada", "jyada", "big",
                       "full", "half", "katori", "katora", "bowl", "plate",
                       "glass", "cup", "ml", "do roti", "2 roti",
-                      "change", "changed", "wrong", "galat", "actually")
+                      "change", "changed", "wrong", "galat", "actually",
+                      "instead", "instead of", "insteadof")
         _size_or_change = any(k in low for k in _SIZE_MARK)
         _EDIT_ONLY = ("change", "changed", "change karo", "edit", "edit karo",
                       "replace", "replaced", "galat", "wrong", "wrong tha",
-                      "actually", "sahi karo", "sudhar", "badlo", "badal")
+                      "actually", "sahi karo", "sudhar", "badlo", "badal",
+                      "instead", "instead of", "insteadof")
         is_edit = any(k in low for k in _EDIT_ONLY)
+        # Replacement messages name the OLD dish too ("i ate kitkat instead of
+        # the chocolate i told you"): rebuild items from the text WITHOUT the
+        # change-phrase so the old dish is never merged into the new meal.
+        old_phrase = change_old_dish(str(raw.get("text") or ""))
+        if old_phrase and _is_change_text(str(raw.get("text") or "")):
+            rem = change_remainder(str(raw.get("text") or ""))
+            if rem:
+                revived = list(_items(rem, self.cfg))
+                if revived:
+                    parsed.items = revived
         pend = self.store.newest_pending(raw.get("sender_phone"))
         pend_items = []
         if pend:
@@ -254,7 +271,22 @@ class IngestService:
         fresh = [it for it in parsed.items
                  if (str(it.get("item") or "").lower().strip().strip(".")
                      not in pend_names)]
-        if (pend and parsed.items and is_edit and fresh
+        # Prefer the row that actually holds the OLD dish (found by name) as the
+        # victim; newest pending is the fallback.
+        victim = pend
+        if old_phrase and fresh and _is_change_text(str(raw.get("text") or "")):
+            latest = (self.store.meals_for_window(
+                window["id"], confirmed_only=False)) or []
+            victim = next(
+                (m for m in reversed(latest)
+                 if m.get("sender_phone") == raw.get("sender_phone")
+                 and m.get("status") != "superseded"
+                 and m.get("items_json")
+                 and dish_mentions_phrase(
+                     [str(x.get("item") or "")
+                      for x in json.loads(m["items_json"])],
+                     old_phrase)), None) or pend
+        if ((pend or old_phrase) and parsed.items and is_edit and fresh
                 and my_names.difference(pend_names)):
             new_ts = reading_timestamp(
                 str(raw.get("text") or raw.get("kind") or ""),
@@ -271,11 +303,12 @@ class IngestService:
                  if any(x.get("gi") for x in fresh) else None),
                 0.9 if parsed.kind == "text" else 0.82,
                 ts=new_ts, portion_text=pt)
-            self.store.supersede_meal(pend["id"], new_id)
+            self.store.supersede_meal(victim["id"] if victim else pend["id"],
+                                      new_id)
             self.store.finalize_meal(new_id, "confirmed", portion,
                                      portion_text=pt)
             self.store.audit(role, "meal_replaced",
-                             f"old={pend['id']} new={new_id} "
+                             f"old={(victim or pend)['id']} new={new_id} "
                              f"new_dish={describe_items(fresh)}")
             body = (f"Detected: {describe_items(fresh)} — purana entry replace "
                     f"kar diya (✓ cross-marked), naya logged. It's in the report.")

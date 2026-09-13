@@ -28,14 +28,24 @@ from .clock import fmt_ts_log, iso_now
 from .datamodel import Store
 from .intake_ai import (
     IntakeResult,
+    _meal_items,
     _portion_stated,
     analyze_intake,
-    localize_reply,
     portion_text,
 )
-from .parse import (PATIENT_TAG_LABELS, _is_dup_answer,
-                    _is_tag_negation, _tag_from_text)
+from .parse import (PATIENT_TAG_LABELS, _is_change_text, _is_dup_answer,
+                    _is_tag_negation, _tag_from_text, change_old_dish,
+                    change_remainder, dish_mentions_phrase)
 from .nutrition import KATORI_LABELS
+
+# Threads started by any IntakeWorker.instance anywhere in this process. The
+# webhook lane consults worker_active() so it goes store-only whenever a live
+# intake worker exists — single responder by construction, no env required.
+_worker_threads: set = set()
+
+
+def worker_active() -> bool:
+    return any(t.is_alive() for t in set(_worker_threads))
 
 
 class IntakeWorker:
@@ -96,10 +106,8 @@ class IntakeWorker:
             if res.should_reply and res.reply and sender and should_send:
                 try:
                     from ..core.process import Outbound
-                    body = localize_reply(
-                        res.reply, getattr(res, "language", "hi"))
                     ok = bool(self.send(Outbound(route="patient", kind="text",
-                                                 body=body, to_phone=sender)))
+                                                 body=res.reply, to_phone=sender)))
                 except Exception as e:
                     print(f"[Aahaar] AI intake worker send error: {e}")
                     ok = False
@@ -612,6 +620,18 @@ class IntakeWorker:
         """
         try:
             items = list(res.meal_items or [])
+            # A change/replacement names TWO dishes: the OLD one to supersede
+            # and the NEW one actually eaten. Extract the old dish and rebuild
+            # the meal from the text with the change-phrase REMOVED, so the old
+            # dish is never merged into the replacement ("i ate kitkat instead
+            # of the chocolate i told you" -> kitkat only, supersede chocolate).
+            old_phrase = change_old_dish(str(res.raw_text or ""))
+            if old_phrase and _is_change_text(str(res.raw_text or "")):
+                rem = change_remainder(str(res.raw_text or ""))
+                revived = list(_meal_items(rem, self.cfg)) if rem else []
+                if revived:
+                    items = revived
+                    res.meal_items = items
             fj = raw_row.get("refined_json") or ""
             if fj:
                 try:
@@ -784,15 +804,18 @@ class IntakeWorker:
                      it.get("portion") or "m") for it in items}
             # Dedup against meals on the SAME DAY as the target ts only, so a
             # backdated "same thing yesterday" copy is logged while today's row
-            # stays untouched.
-            if any(self._same_dish_set(m.get("items_json"), want)
-                   for m in self.store.meals_for_window(wid, confirmed_only=False)
-                   if str(m.get("ts") or "")[:10] == ts[:10]):
-                if res.intent == "meal":
-                    res.reply = ""
-                    res.should_reply = False
-                self._mark_flag(raw_row["id"], "meal_registered")
-                return
+            # stays untouched. A replacement ("instead of X") always registers —
+            # it is a new eat event, never a mistaken repeat of the old row.
+            if not (old_phrase and _is_change_text(str(res.raw_text or ""))):
+                if any(self._same_dish_set(m.get("items_json"), want)
+                       for m in self.store.meals_for_window(
+                           wid, confirmed_only=False)
+                       if str(m.get("ts") or "")[:10] == ts[:10]):
+                    if res.intent == "meal":
+                        res.reply = ""
+                        res.should_reply = False
+                    self._mark_flag(raw_row["id"], "meal_registered")
+                    return
             portion = res.meal_portion or items[0].get("portion", "m") or "m"
             # A same-dish message that ALSO states a size ("the meal was large
             # chocolates" after a pending "Two Chocolates", or "120 and the meal
@@ -804,7 +827,8 @@ class IntakeWorker:
                               "galat", "wrong", "sudhar", "update",
                               "badlo", "badal", "sahi karo",
                               "not the one", "i told", "told",
-                              "pehle bola", "bola tha", "jo bola")
+                              "pehle bola", "bola tha", "jo bola",
+                              "instead of", "insteadof", "instead")
             is_change = (any(k in low for k in _STRONG_CHANGE)
                          or "actually" in low)
             pend = self.store.newest_pending(sender)
@@ -822,16 +846,41 @@ class IntakeWorker:
             # A "change X to Y" that names a genuinely NEW dish is a REPLACEMENT,
             # never an expansion: log ONLY the new dish as a fresh meal row and
             # mark the old one superseded (kept visible with a strikethrough).
-            if (pend and items and is_change and res.intent in ("meal", "reading")
-                    and any(n not in pend_names for n in my_names)):
+            # The old row is found BY NAME (the dish the patient actually
+            # replaced) and falls back to the newest pending proposal.
+            victim = pend
+            victim_names = pend_names
+            if old_phrase and is_change and items:
+                latest = (self.store.meals_for_window(
+                    wid, confirmed_only=False)) or []
+                victim = next(
+                    (m for m in reversed(latest)
+                     if m.get("sender_phone") == sender
+                     and m.get("status") != "superseded"
+                     and m.get("items_json")
+                     and dish_mentions_phrase(
+                         [str(x.get("item") or "")
+                          for x in json.loads(m["items_json"])],
+                         old_phrase)), None) or pend
+                if victim and victim.get("items_json"):
+                    try:
+                        vraw = json.loads(victim["items_json"])
+                    except Exception:
+                        vraw = []
+                    victim_names = {str(x.get("item") or "").lower()
+                                    .strip().strip(".")
+                                    for x in vraw}
+            if ((pend or old_phrase) and items and is_change
+                    and res.intent in ("meal", "reading")
+                    and any(n not in victim_names for n in my_names)):
                 fresh = [it for it in items
                          if (str(it.get("item") or "").lower().strip().strip(".")
-                             not in pend_names)]
+                             not in victim_names)]
                 if fresh:
                     fresh_names = ", ".join(str(it.get("item")) for it in fresh)
                     repl_portion = (res.meal_portion
                                     or items[0].get("portion", "m")
-                                    or pend.get("portion") or "m")
+                                    or (victim or {}).get("portion") or "m")
                     repl_txt = (res.meal_portion_text
                                 or portion_text(low) or None)
                     new_id = self.store.propose_meal(
@@ -842,15 +891,17 @@ class IntakeWorker:
                         self._split_gi(fresh)
                         if any(it.get("gi") for it in fresh) else None,
                         float(res.confidence), ts=ts, portion_text=repl_txt)
-                    self.store.supersede_meal(pend["id"], new_id)
+                    if victim:
+                        self.store.supersede_meal(victim["id"], new_id)
                     self.store.finalize_meal(new_id, "confirmed",
                                              repl_portion,
                                              portion_text=repl_txt)
                     self.store.audit(
                         "ai_intake", "meal_replaced",
-                        f"raw_id={raw_row['id']} old={pend['id']} "
+                        f"raw_id={raw_row['id']} old="
+                        f"{victim['id'] if victim else '-'} "
                         f"new={new_id} new_dish={fresh_names} ts={ts}")
-                    old_dish = ", ".join(sorted(str(x) for x in pend_names))
+                    old_dish = ", ".join(sorted(str(x) for x in victim_names))
                     res.reply = (
                         f"✅ {old_dish or 'wo'} wala entry badal kar {fresh_names} "
                         f"({KATORI_LABELS.get(repl_portion, 'Medium')}) update kar "
@@ -994,6 +1045,7 @@ class IntakeWorker:
 
         self._thread = threading.Thread(target=_loop, name="aahaar-ai-intake",
                                         daemon=True)
+        _worker_threads.add(self._thread)
         self._thread.start()
 
     def stop(self) -> None:

@@ -8,7 +8,7 @@ feed the report, and one-caregiver bound per patient.
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -1248,6 +1248,123 @@ def test_meal_change_supersedes_not_duplicates(store, cfg, intake):
     assert meals[0]["superseded_by"] == meals[1]["id"]
 
 
+def test_instead_of_supersedes_old_dish_by_name(store, cfg, intake):
+    """'i ate kitkat instead of the chocolate i told you' must log ONLY the new
+    dish and supersede the chocolate row BY NAME — chocolate is never merged
+    into the replacement meal, and an unrecognized dish (kitkat) is kept."""
+    pid = store.add_patient("Sw", "SW-1", "+919123456780")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456780", "dinner me chocolate khaya",
+                              message_id="SW-1")
+    intake(store, cfg)
+    store.record_raw_received(
+        "+919123456780",
+        "i ate kitkat instead of the chocolate i told you", message_id="SW-2")
+    intake(store, cfg)
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 2
+    old = next(m for m in meals if "chocolate" in str(m["items_json"]).lower())
+    new = next(m for m in meals if m is not old)
+    assert old["status"] == "superseded" and old["superseded_by"] == new["id"]
+    items = json.loads(new["items_json"])
+    assert {"kitkat"} == {str(it.get("item")).lower() for it in items}
+
+
+def test_change_to_keeps_only_new_dish(store, cfg, intake):
+    """'change chole bhature to white rice' supersedes the OLD dish row and the
+    new meal carries only white rice — never a merged combo row."""
+    pid = store.add_patient("Ch2", "C2-1", "+919123456781")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456781", "dinner me chole bhature khaya",
+                              message_id="C2-1")
+    intake(store, cfg)
+    store.record_raw_received("+919123456781",
+                              "change chole bhature to white rice 1 cup",
+                              message_id="C2-2")
+    intake(store, cfg)
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 2
+    new = next(m for m in meals if m["status"] != "superseded")
+    names = {str(it.get("item")).lower()
+             for it in json.loads(new["items_json"])}
+    assert names == {"white rice"}
+
+
+def test_count_is_never_glucose_reading(store, cfg, intake):
+    """'100 chocolates' is a portion COUNT, not a reading — only the real
+    sugar value (after 'sugar') gets logged as a glucose reading."""
+    pid = store.add_patient("Ct", "CT-1", "+919123456782")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received(
+        "+919123456782",
+        "100 chocolates and my sugar was 380", message_id="CT-1")
+    intake(store, cfg)
+    rows = store.readings_for_window(wid)
+    values = [r["value"] for r in rows]
+    assert values and max(values) <= 380
+    assert 100 not in values
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert meals and any("chocolate" in str(m.get("items_json") or "").lower()
+                         for m in meals)
+
+
+def test_reference_to_pending_is_not_a_change(store, cfg, intake):
+    """'the one i told' / 'not the one i told' refer to the pending meal — they
+    must NEVER read as an old-dish phrase that fabricates a supersede target."""
+    pid = store.add_patient("Rf", "RF-1", "+919123456783")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456783", "chole bhature lunch",
+                              message_id="RF-1")
+    intake(store, cfg)
+    before = store.meals_for_window(wid, confirmed_only=False)
+    store.record_raw_received(
+        "+919123456783",
+        "today at 8 30 am i actually ate chole bhature not the one i told",
+        message_id="RF-2")
+    intake(store, cfg)
+    after = store.meals_for_window(wid, confirmed_only=False)
+    # No fabricated supersede: nothing got cross-marked as 'one i told'.
+    assert not any(m["status"] == "superseded" for m in after)
+    assert len(after) >= len(before) - 1
+
+
+def test_date_words_backdate_reading_and_meal_together(store, cfg, intake):
+    """'the day before yesterday i ate roti sabzi and sugar was 220' pushes BOTH
+    the meal and the reading to that date — never a split (reading today, meal
+    backdated or vice versa)."""
+    from app.core.clock import iso_now
+    pid = store.add_patient("Dte", "DTE-1", "+919123456784")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received(
+        "+919123456784",
+        "the day before yesterday i ate roti sabzi and sugar was 220",
+        message_id="DTE-1")
+    intake(store, cfg)
+    rows = store.readings_for_window(wid)
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert rows and meals
+    target_day = (datetime.strptime(iso_now()[:10], "%Y-%m-%d")
+                  - timedelta(days=2)).strftime("%Y-%m-%d")
+    assert rows[0]["ts"][:10] == target_day
+    assert all(m["ts"][:10] == target_day for m in meals)
+
+
+def test_meal_with_time_word_is_not_tag_answer(store, cfg, intake):
+    """'lunch me chole bhature' names the meal — it must be LOGGED, never
+    swallowed as a 'which meal' tag answer (the old deny-list missed chole
+    bhature/kitkat/desserts etc.)."""
+    pid = store.add_patient("Tw", "TW-1", "+919123456785")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456785", "lunch me chole bhature",
+                              message_id="TW-1")
+    intake(store, cfg)
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert meals
+    names = {str(it.get("item")).lower()
+             for m in meals for it in json.loads(m["items_json"] or "[]")}
+    assert "chole bhature" in names
+
+
 def test_portion_text_stored_verbatim(store, cfg, intake):
     pid = store.add_patient("Sz", "SZ-1", "+919123456789")
     wid = store.open_window(pid, "2026-09-01", "2026-09-14")
@@ -2015,3 +2132,93 @@ def test_worker_whatsapp_path_never_uses_gemini(monkeypatch, store, cfg, intake)
     store.record_raw_received("+919123456793", "fasting was125 na", message_id="NL-1")
     intake(store, cfg)
     assert calls["n"] == 0, "WhatsApp-facing worker must stay deterministic"
+
+
+# ---- dashboard-only AI Intelligent Input (Gemini, never WhatsApp) --------
+def test_intelligent_input_requires_operator_key(tmp_path):
+    from fastapi.testclient import TestClient
+    from app.config import Settings
+    from app.server.main import create_app
+    db = str(tmp_path / "iii.db")
+    c = TestClient(create_app(cfg=Settings(db_path=db, whatsapp="simulator",
+                                           operator_key="aahaar-2026")))
+    assert c.post("/api/v1/ai/intelligent-input",
+                  json={"patient_id": 1, "text": "sugar 128"}).status_code == 403
+    r = c.post("/api/v1/ai/intelligent-input",
+               json={"patient_id": 1, "text": "sugar 128"},
+               headers={"X-Aahaar-Key": "wrong"})
+    assert r.status_code == 403
+
+
+def test_intelligent_input_from_stored_raw_roundtrip(tmp_path):
+    """Doctor clicks 'Log via AI' on a stored patient message: the exact sugar
+    / food the patient uttered is auto-written (no approval), the raw row is
+    marked handled so the intake worker cannot double-log it, and nothing is
+    ever sent to WhatsApp from this endpoint."""
+    from fastapi.testclient import TestClient
+    from app.config import Settings
+    from app.core.datamodel import Store
+    from app.server.main import create_app
+    db = str(tmp_path / "iii.db")
+    store = Store(db)
+    store.add_patient("Intelli", "II-1", "+919876541230")
+    store.open_window(store.list_patients()[-1]["id"], "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919876541230", "aaj sugar 245 the",
+                              message_id="WAMID-III-1")
+    c = TestClient(create_app(cfg=Settings(db_path=db, whatsapp="simulator",
+                                           operator_key="aahaar-2026",
+                                           ai_intake_on_read_send=False)))
+    pid = c.get("/api/v1/patients").json()[0]["id"]
+    raw = c.get(f"/api/v1/patients/{pid}/log").json()["inbound"][0]
+    raw_id = raw["id"]
+    assert raw_id > 0
+
+    r = c.post("/api/v1/ai/intelligent-input",
+               json={"patient_id": pid, "raw_id": raw_id},
+               headers={"X-Aahaar-Key": "aahaar-2026"})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is True
+    assert d["intent"] == "reading"
+    assert d["reading"]["value"] == 245.0
+    # The endpoint itself never sends WhatsApp messages; deterministic when the
+    # deployment has no Gemini key.
+    assert d["analyzed_by"] == "local-refiner"
+
+    # The reading really landed in the log with the patient's own words.
+    w = store.active_window_for(pid) or store.last_window_for(pid)
+    readings = store.readings_for_window(w["id"]) if w else []
+    store.close()
+    assert any(rd["value"] == 245.0 for rd in readings)
+
+    # Row is locked: a subsequent intake sweep must skip it (never double-log).
+    c2 = c.post("/api/v1/analyze/stored", json={"limit": 25},
+                headers={"X-Aahaar-Key": "aahaar-2026"})
+    assert c2.status_code == 200
+    assert c2.json()["analyzed"] == 0
+
+
+def test_intelligent_input_from_text_creates_and_logs(tmp_path):
+    from fastapi.testclient import TestClient
+    from app.config import Settings
+    from app.core.datamodel import Store
+    from app.server.main import create_app
+    db = str(tmp_path / "iiit.db")
+    store = Store(db)
+    store.add_patient("Intelli2", "II-2", "+919876543210")
+    pid = store.list_patients()[-1]["id"]
+    store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.close()
+    c = TestClient(create_app(cfg=Settings(db_path=db, whatsapp="simulator",
+                                           operator_key="aahaar-2026",
+                                           ai_intake_on_read_send=False)))
+    r = c.post("/api/v1/ai/intelligent-input",
+               json={"patient_id": pid, "text": "lunch chole bhature 1 plate"},
+               headers={"X-Aahaar-Key": "aahaar-2026"})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is True and d["intent"] in ("meal", "both")
+    meals = d["meals"]
+    assert any("chole" in (m or "").lower() for m in meals)
+    # Nothing is pushed to WhatsApp from the intelligent-input endpoint.
+    assert d.get("answered") is None or "wrote on whatsapp" not in str(d).lower()

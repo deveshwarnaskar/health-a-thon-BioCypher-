@@ -680,3 +680,9 @@ class Store:
             "SELECT * FROM raw_inbound ORDER BY id DESC LIMIT ?", (limit,)).fetchall()]
         rows.reverse()
         return rows
+
+    def raw_by_id(self, raw_id: int) -> Optional[dict]:
+        """A single stored inbound message (used by dashboard AI tools)."""
+        row = self.conn.execute(
+            "SELECT * FROM raw_inbound WHERE id=?", (int(raw_id),)).fetchone()
+        return dict(row) if row else None

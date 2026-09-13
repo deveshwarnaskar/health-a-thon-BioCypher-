@@ -159,6 +159,67 @@ _COUNT_NOISE_RE = re.compile(
     r"\b(?:do|teen|char|paanch|ek|two|three|four|five|one)\s+(?:bowl|bowls|"
     r"katori|katora|plate|plates|thali|glass|cups?|dona)\b", re.I)
 
+# Single-word dish names/aliases: a NUMBER immediately before one of these is a
+# portion COUNT ("100 chocolates", "4 chole", "6 samosa"), never a glucose
+# reading. Built from the nutrition catalog so we never guess food words.
+from .nutrition import _ALIASES as _NUTRITION_ALIASES  # noqa: E402
+from .nutrition import FOODS as _NUTRITION_FOODS  # noqa: E402
+
+
+def _food_tokens() -> set[str]:
+    toks: set[str] = set()
+    for name, _g, _c, _gi, _p in _NUTRITION_FOODS:
+        if " " not in name:
+            toks.add(name)
+    for alias in _NUTRITION_ALIASES:
+        if " " not in alias:
+            toks.add(alias)
+    return toks
+
+
+_FOOD_TOKENS = _food_tokens()
+# Words that announce a READING: a value directly after these is sugar, even if
+# a dish word happens to follow ("sugar 100 ... chocolate" keeps the 100).
+_READING_PRECEDERS = {
+    "sugar", "glucose", "reading", "level", "fasting", "fast", "fbs", "rbs",
+    "pp", "bg", "mgdl", "was", "is", "are", "were", "tha", "thi", "the", "a",
+    "subah", "shaam", "raat", "morning", "evening", "night", "after", "baad",
+    "pe", "par", "ke", "ka", "ki", "around", "about", "approx",
+}
+
+
+def _is_food_word(tok: str) -> bool:
+    t = tok.strip(".,:;'\"()!?").lower()
+    if not t:
+        return False
+    if t in _FOOD_TOKENS:
+        return True
+    if t.endswith("s") and t[:-1] in _FOOD_TOKENS:
+        return True
+    if t.endswith("ies") and (t[:-3] + "y") in _FOOD_TOKENS:
+        return True
+    return False
+
+
+def _strip_food_counts(low: str) -> str:
+    """Drop '<count> <dish>' pairs ('100 chocolates', '4 roti') so a portion
+    count is never misread as a glucose value. A count right after a reading
+    word ("sugar 100 ... chocolate") is kept — that 100 is the sugar."""
+    toks = low.split()
+    n = len(toks)
+    if n < 2:
+        return low
+    out: list[str] = []
+    for i, t in enumerate(toks):
+        prev = toks[i - 1] if i > 0 else ""
+        nxt = toks[i + 1] if i + 1 < n else ""
+        if (len(t) in (2, 3) and t.isdigit()
+                and _is_food_word(nxt)
+                and prev.strip(".,:;'\"").lower() not in _READING_PRECEDERS):
+            continue
+        out.append(t)
+    return " ".join(out)
+
 
 def _strip_space_pairs(low: str) -> str:
     """Drop '8 30 am' / 'shaam 8 30' pairs, but only when they look like a
@@ -182,6 +243,7 @@ def strip_reading_noise(text: Optional[str]) -> str:
     low = _AMPM_NOISE_RE.sub(" ", low)
     low = _SIZE_NOISE_RE.sub(" ", low)
     low = _COUNT_NOISE_RE.sub(" ", low)
+    low = _strip_food_counts(low)
     return re.sub(r"\s+", " ", low).strip()
 
 
@@ -228,6 +290,144 @@ _CORR_PREV_CUES = ("wrong", "galat", "galti", "mistake", "not", "nhi", "nahi",
 _REF_STRONG = ("not the one", "the one i told", "i told", "jo bola",
                "pehle bola", "jo maine bola", "bola tha", "boli thi",
                "told was", "told you")
+
+# ---- "change X to Y" / "instead of X" -----------------------------------
+# A replacement names TWO dishes: the OLD one to supersede (kept with a red
+# cross in the log) and the NEW one actually eaten. We need the old dish's
+# exact phrase so the new meal can EXCLUDE it and the supersede can find the
+# right row by name — never by time-recency alone.
+_STOP_BEFORE_OLD = ("today", "yesterday", "tomorrow", "kal", "aaj", "abhi",
+                    "morning", "subah", "evening", "shaam", "night", "raat",
+                    "at", "after", "baad", "was", "were", "tha", "thi", "is",
+                    "are", "and", "but", "so", "with", "then")
+
+
+def _is_change_text(text: Optional[str]) -> bool:
+    low = str(text or "").lower()
+    return ("instead of" in low or "insteadof" in low
+            or any(k in low for k in ("i told", "change", "changed",
+                                      "replace", "replaced", "badal", "badlo",
+                                      "sudhar", "swap")))
+
+
+# Pronouns/referent words are never dish names: "the one i told" refers to the
+# pending meal but carries no old-dish phrase to supersede by name. Any of
+# these inside a candidate makes it a referent, not a dish ("one i" is junk).
+_NON_DISH_JUNK = {
+    "one", "it", "that", "this", "same", "those", "these", "thing", "some",
+    "khana", "khaana", "wala", "waala", "wali", "dino", "earlier", "yesterday",
+    "today", "morning", "then", "the", "a", "an", "to", "with", "ko", "ka",
+    "ki", "ke", "se", "me", "i", "i've", "i'm", "i'", "maine", "main", "you",
+    "who", "which", "told", "mentioned", "said", "bata", "bataya", "batayi",
+    "batayo", "bola", "bolaya", "bolayi", "was", "were", "is", "are", "ate",
+    "khaya", "tha", "thi", "not", "actually", "instead",
+}
+
+
+def _is_plausible_dish_phrase(p: Optional[str]) -> bool:
+    """Guard against pronoun/'the one i told' captures when extracting the OLD
+    dish — a bare referent is not a dish to supersede by name."""
+    if not p:
+        return False
+    p = re.sub(r"\s+", " ", p.lower()).strip().strip(".,:;'\"")
+    if not p:
+        return False
+    words = p.split()
+    if len(words) > 6:
+        return False
+    if any(w in _NON_DISH_JUNK for w in words):
+        return False
+    if len(words) == 1 and not _is_food_word(words[0]):
+        return False
+    return True
+
+
+def change_old_dish(text: Optional[str]) -> Optional[str]:
+    """The OLD dish phrase in a change/replacement message, else None.
+
+    'today i actually ate chole bhature instead of the chocolate i told you'
+        -> 'chocolate'
+    'change chole bhature to white rice 1 cup'  -> 'chole bhature'
+    'i ate kitkat instead of chocolate'          -> 'chocolate'
+    """
+    low = re.sub(r"\s+", " ", str(text or "").lower()).strip().strip(".,:;'\"")
+    if not low:
+        return None
+    # "instead of (the) X ..." — consume trailing referents like 'i told you'.
+    m = re.search(r"\binstead of\s+(?:the\s+|that\s+)?(.+)$", low)
+    if m:
+        tail = m.group(1)
+        tail = re.split(r"\b(?:that\s+)?(?:i |i've |i'm |maine |main )(?:told|"
+                        r"mentioned|bata(?:ya|i|o)?|bola(?:ya)?|said)\b",
+                        tail, maxsplit=1)[0]
+        for stop in re.finditer(r"\s+(?:today|yesterday|kal|aaj|abhi|at|after|"
+                                r"and|was|were|tha|thi|morning|subah|shaam|"
+                                r"raat|night)\b", tail):
+            tail = tail[:stop.start()]
+            break
+        tail = tail.strip(" .,:;'\"")
+        if tail and _is_plausible_dish_phrase(tail):
+            return tail
+    # "change X to Y" / "replace X with Y" / "badal do X ko Y".
+    m = re.search(r"\b(?:change|changed|replace|replaced|swap|badal|badlo|"
+                  r"sudhar|update)\s+(.+?)\s+(?:to|ko|me|se|with)\s+\S", low)
+    if m:
+        old = m.group(1).strip(" .,:;'\"")
+        old = re.split(r"\b(?:to|ko|se|me|with)\b", old, maxsplit=1)[0].strip()
+        if old and _is_plausible_dish_phrase(old):
+            return old
+    # "the X i told you (was wrong)" — the OLD dish sits between a leading
+    # "the/that" and the tell-referent, which is stripped so "the chocolate i
+    # told" yields "chocolate".
+    m = re.search(r"\b(?:the|that)\s+", low)
+    if m:
+        after = low[m.end():]
+        after = re.split(r"\b(?:that\s+)?(?:i |i've |i'm |maine |main )?"
+                         r"(?:told|mentioned|said|bata(?:ya|i|o)?|"
+                         r"bola(?:ya)?)\b",
+                         after, maxsplit=1)[0]
+        after = re.split(r"\s+(?:today|yesterday|kal|aaj|morning|was|were|"
+                         r"tha|thi|is|and|but|so|not)\b", after,
+                         maxsplit=1)[0]
+        after = after.strip(" .,:;'\"")
+        if _is_plausible_dish_phrase(after):
+            return after
+    return None
+
+
+def change_remainder(text: Optional[str]) -> str:
+    """Text with the change/reference phrase stripped so dish extraction sees
+    ONLY the NEW dish. 'chole bhature instead of the chocolate i told you'
+    -> 'chole bhature'; 'i ate kitkat instead of chocolate' -> 'i ate kitkat'."""
+    low = re.sub(r"\s+", " ", str(text or "").lower()).strip()
+    low = re.sub(r"\binstead of\b.*$", " ", low)
+    low = re.sub(r"\b(?:change|changed|replace|replaced|swap|badal|badlo|"
+                 r"sudhar|update)\s+\S.*?\s+(?:to|ko|se|me|with)\s+", " ", low)
+    low = re.sub(r"\b(?:that\s+)?(?:i |i've |i'm |maine |main )?(?:told|"
+                 r"mentioned|bata(?:ya|i|o)?|bola(?:ya)?|said)\b.*?"
+                 r"(?=\b(?:today|yesterday|kal|aaj|at|after|and|was|were|"
+                 r"morning|subah|shaam|raat|night)\b)|$", " ", low)
+    return re.sub(r"\s+", " ", low).strip()
+
+
+def dish_mentions_phrase(item_names: object, phrase: Optional[str]) -> bool:
+    """True when a dish-item name matches the OLD phrase we are replacing
+    ('chocolate' matches 'chocolate'/'chocolates'; 'bhature' matches the items
+    of a 'chole bhature' row)."""
+    if not phrase:
+        return False
+    p = re.sub(r"\s+", " ", phrase.lower()).strip().strip(".,:;'\"")
+    if not p:
+        return False
+    pwords = set(re.split(r"\s+", p))
+    for name in (item_names or []):
+        n = re.sub(r"\s+", " ", str(name or "").lower()).strip().strip(".")
+        nwords = set(re.split(r"\s+", n))
+        if n == p:
+            return True
+        if pwords and nwords and len(pwords & nwords) >= min(1, len(nwords)):
+            return True
+    return False
 
 
 def _reference_correction(text: Optional[str]) -> bool:
@@ -560,6 +760,10 @@ def _is_tag_answer(text: Optional[str]) -> Optional[str]:
     if not any(c in low for c in _TAG_CUES):
         return None
     if _has_negation(low):
+        return None
+    # A message that names any FOOD ("lunch me chole bhature") is a meal,
+    # never a tag answer — the deny-list alone can't cover the whole catalog.
+    if any(_is_food_word(t) for t in low.split()):
         return None
     return _tag_from_text(low)
 

@@ -128,6 +128,7 @@ async function selectPatient(id) {
 
   seedThread();
   loadAudit();
+  refreshIntelligentInput();
 }
 
 // ---------- live WhatsApp numbers (operator-linked) ----------
@@ -610,7 +611,7 @@ function setupTabs() {
       if (b.dataset.tab === "daylog") loadDayLog();
       if (b.dataset.tab === "report" && state.reportBuilt) loadPreview();
       if (b.dataset.tab === "audit") loadAudit();
-      if (b.dataset.tab === "messages") { scrollThread(); refreshLiveInbound(); }
+      if (b.dataset.tab === "messages") { scrollThread(); refreshLiveInbound(); refreshIntelligentInput(); }
       if (b.dataset.tab === "live") { populateLive(); loadDiagnostics(); }
     };
   });
@@ -626,6 +627,8 @@ function setupTabs() {
   if (geminiBtn) geminiBtn.onclick = testGeminiAPI;
   const intakeBtn = $("btn-run-intake");
   if (intakeBtn) intakeBtn.onclick = runIntakeAnalysis;
+  const aiiiGo = $("aiii-go");
+  if (aiiiGo) aiiiGo.onclick = intelligentInputFromText;
 }
 
 async function runIntakeAnalysis() {
@@ -823,6 +826,77 @@ async function loadAudit() {
   if (!r.ok || !r.data.audit) { el.textContent = "no audit entries"; return; }
   el.innerHTML = r.data.audit.slice(0, 80).map((a) =>
     `<div><span class="muted">${hhmm(a.ts)}</span> · ${esc(a.actor)} · ${esc(a.action)}${a.detail ? " — " + esc(a.detail) : ""}</div>`).join("");
+}
+
+// ---------- AI Intelligent Input (dashboard-only, Gemini) ----------
+async function refreshIntelligentInput() {
+  const el = $("aiii-list");
+  if (!el || !state.active) return;
+  const r = await j("GET", `/api/v1/patients/${state.active}/log`);
+  const inbound = (r.ok && r.data.inbound) ? r.data.inbound : [];
+  el.innerHTML = inbound.length
+    ? inbound.map((m) => {
+        let aiRead = "";
+        try {
+          const fj = m.refined_json ? JSON.parse(m.refined_json) : null;
+          if (fj && (fj.followup_sent || fj.registered)) aiRead = ' <span class="badge" style="font-size:9px;">AI-read</span>';
+        } catch (e) { /* fine */ }
+        return `<div class="live-row">
+          <span style="flex:auto; word-break:break-word;">${hhmm(m.ts) || ""} &middot; <b>${esc(m.raw_text || "")}</b>${aiRead}</span>
+          <button type="button" onclick="intelligentInputFromRaw(${Number(m.id)})" style="font-size:11px;padding:0.18rem 0.5rem;">Log via AI</button>
+        </div>`;
+      }).join("")
+    : '<div class="muted">No patient WhatsApp messages yet — send one to the number linked to this patient.</div>';
+}
+
+function renderIntelligentResult(r, el) {
+  if (!r.ok) {
+    el.innerHTML = `<span style="color:#ef4444;">error: ${esc((r.data && r.data.error) ? r.data.error : "HTTP " + r.status)}</span>`;
+    return;
+  }
+  const d = r.data;
+  const lines = [];
+  if (d.reading) lines.push(`● reading: sugar ${d.reading.value} ${esc(d.reading.label || "")} @${hhmm(d.reading.ts || "") || d.reading.ts}`);
+  (d.meals || []).forEach((it) => lines.push(`● meal: ${esc(it)} (portion: ${d.meal_portion ? esc(d.meal_portion) + (d.meal_portion_text ? " · " + esc(d.meal_portion_text) : "") : "—"})`));
+  if (!lines.length) lines.push("nothing to log — that message had no sugar value or food");
+  el.innerHTML = `<span style="color:#10b981;">✓ logged into the record (intent=${esc(d.intent)}, via ${esc(d.analyzed_by)})</span>\n`
+    + lines.join("\n")
+    + `\n<span class="muted">nothing was sent to WhatsApp</span>`;
+}
+
+async function intelligentInputFromRaw(rawId) {
+  const resEl = $("aiii-result");
+  resEl.innerHTML = `Reading message #${rawId} via Gemini (dashboard-only)…`;
+  const r = await j("POST", "/api/v1/ai/intelligent-input",
+    { patient_id: state.active, raw_id: rawId }, OP_KEY());
+  renderIntelligentResult(r, resEl);
+  if (r.ok) {
+    await refreshThreadAndContext(true);
+    await refreshIntelligentInput();
+    refreshLiveInbound();
+    loadAudit();
+  }
+}
+
+async function intelligentInputFromText() {
+  const input = $("aiii-text");
+  const text = (input.value || "").trim();
+  const resEl = $("aiii-result");
+  if (!text) {
+    resEl.innerHTML = `<span style="color:#ef4444;">Type or paste a patient message first.</span>`;
+    return;
+  }
+  resEl.innerHTML = "Reading via Gemini (dashboard-only)…";
+  const r = await j("POST", "/api/v1/ai/intelligent-input",
+    { patient_id: state.active, text }, OP_KEY());
+  renderIntelligentResult(r, resEl);
+  if (r.ok) {
+    input.value = "";
+    await refreshThreadAndContext(true);
+    await refreshIntelligentInput();
+    refreshLiveInbound();
+    loadAudit();
+  }
 }
 
 boot();

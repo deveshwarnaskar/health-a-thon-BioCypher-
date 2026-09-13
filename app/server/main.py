@@ -514,6 +514,108 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             send_gap=float(getattr(settings, "ai_intake_send_gap", 0.5)))
         return {"ok": True, **summary}
 
+    @app.post("/api/v1/ai/intelligent-input")
+    def intelligent_input(payload: dict | None = None,
+                          x_aahaar_key: str | None = Header(default=None)):
+        """Dashboard-only Gemini intelligent input.
+
+        The doctor picks a SPECIFIC patient message; Gemini (when a key is
+        present, else the deterministic refiner) reads it with the patient's
+        own words and the exact values are auto-written to the log — the doctor
+        approves nothing. Nothing is ever sent to WhatsApp from here, and the
+        raw row is marked handled so the intake worker cannot double-log it.
+        """
+        if (x_aahaar_key or "") != settings.operator_key:
+            return JSONResponse({"error": "invalid operator key"}, status_code=403)
+        payload = payload or {}
+        pid = int(payload.get("patient_id") or 0)
+        patient = store.get_patient(pid) if pid else None
+        if not patient:
+            return JSONResponse({"error": "unknown patient"}, status_code=404)
+        sender = str(patient.get("phone") or "").strip()
+        if not sender:
+            return JSONResponse({"error": "patient has no linked WhatsApp"},
+                                status_code=400)
+        window = store.active_window_for(pid) or store.last_window_for(pid)
+        if not window or not window.get("id"):
+            return JSONResponse({"error": "no active window"}, status_code=400)
+
+        raw_id = int(payload.get("raw_id") or 0)
+        text = str(payload.get("text") or "").strip()
+        mid = str(payload.get("message_id") or "").strip()
+        ts = ""
+        if raw_id:
+            row = store.raw_by_id(raw_id)
+            if not row:
+                return JSONResponse({"error": "unknown raw message"},
+                                    status_code=404)
+            if str(row.get("sender_phone") or "").strip() != sender:
+                return JSONResponse({"error": "message belongs to another "
+                                    "patient"}, status_code=403)
+            text = (str(row.get("raw_text") or "").strip() or text)
+            ts = str(row.get("ts") or "")
+        elif text:
+            import uuid
+            mid = mid or f"dai-{uuid.uuid4().hex[:12]}"
+            raw_id, _dup = store.record_raw_received(
+                sender, text, message_id=mid)
+            store.mark_raw_processed(raw_id, window["id"], "patient",
+                                     "processed")
+        else:
+            return JSONResponse({"error": "text or raw_id required"},
+                                status_code=400)
+        if not text:
+            return JSONResponse({"error": "empty patient message"}, status_code=400)
+
+        from ..core.intake_ai import analyze_intake
+        try:
+            res = analyze_intake(
+                text, patient_name=str(patient.get("name") or "Patient"),
+                cfg=settings, msg_ts=ts, use_llm=True)
+        except Exception as e:
+            print(f"[Aahaar] intelligent-input analyze error: {e}")
+            return JSONResponse({"error": "analysis failed"}, status_code=500)
+
+        # Register with the SAME deterministic store ops the worker uses, then
+        # lock the row so the WhatsApp worker never picks it up again.
+        row = store.raw_by_id(raw_id) or {"id": raw_id, "raw_text": text}
+        intake_worker._save_refined(raw_id, res, followup_sent=False)
+        try:
+            intake_worker._maybe_register(row, res, sender)
+        except Exception as e:
+            print(f"[Aahaar] intelligent-input reading error: {e}")
+        try:
+            intake_worker._maybe_register_meal(row, res, sender)
+        except Exception as e:
+            print(f"[Aahaar] intelligent-input meal error: {e}")
+        intake_worker._save_refined(raw_id, res, followup_sent=True,
+                                    registered=True)
+        store.audit("ai_intake", "intelligent_input",
+                    f"patient_id={pid} raw_id={raw_id} "
+                    f"intent={res.intent} by={res.analyzed_by}")
+
+        from ..core.parse import PATIENT_TAG_LABELS as _PTL
+        return {
+            "ok": True,
+            "raw_id": int(raw_id),
+            "intent": res.intent,
+            "reply": res.reply or "",
+            "analyzed_by": res.analyzed_by or "local-refiner",
+            "reading": ({
+                "value": res.reading_value,
+                "tag": res.reading_tag,
+                "ts": res.reading_ts,
+                "status": res.reading_status,
+                "label": _PTL.get(res.reading_tag or "", res.reading_tag or ""),
+            } if res.reading_value is not None else None),
+            "meals": [str(it.get("item") or "")
+                      for it in list(res.meal_items or [])],
+            "meal_portion": res.meal_portion,
+            "meal_portion_text": res.meal_portion_text,
+            "meal_ts": res.meal_ts,
+            "multi_readings": list(res.multi_readings or []),
+        }
+
     @app.get("/api/v1/patients/{pid}/log")
     def patient_log(pid: int):
         w = store.last_window_for(pid)

@@ -134,6 +134,23 @@
         <div id="thread" class="thread"><div class="thread-empty">No messages yet &mdash; patient WhatsApp messages appear here once Meta delivers them</div></div>
         <p class="muted" style="font-size: 12.5px; margin: 8px 0 0;">Read-only: messages arrive from the patient&rsquo;s WhatsApp via the Meta Cloud API and land here instantly. There is no simulator in this dashboard.</p>
       </div>
+
+      <div class="card" style="margin-top:1rem; border-left: 4px solid #2563eb;">
+        <div class="card-head">
+          <h3 style="margin:0;">AI Intelligent Input <span class="muted" style="font-weight:normal;font-size:0.8rem;">(Gemini · dashboard-only · auto-writes the exact patient words)</span></h3>
+        </div>
+        <p class="muted" style="font-size:12.5px; margin:8px 0;">
+          Pick the patient&rsquo;s message below (or paste one) and Gemini reads it, then the exact sugar value and the food the patient uttered are <b>written straight into the log</b> &mdash; no approval needed, never sent to WhatsApp.
+        </p>
+        <div id="aiii-list" class="log" style="max-height: 180px; overflow-y:auto; font-size:13px; margin-bottom:0.5rem;">
+          <div class="muted">loading patient messages&hellip;</div>
+        </div>
+        <div class="live-row" style="margin-top:0.3rem;">
+          <input id="aiii-text" type="text" placeholder="&hellip;or type/paste a patient message to log via AI" style="flex:2; padding:0.4rem;" />
+          <button id="aiii-go" type="button">Log via AI</button>
+        </div>
+        <div id="aiii-result" style="margin-top:0.5rem; white-space:pre-wrap; font-family:monospace; font-size:0.82rem;"></div>
+      </div>
     </section>
 
     <section id="tab-live" class="tab">
