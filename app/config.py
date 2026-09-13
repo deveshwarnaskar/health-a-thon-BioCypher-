@@ -41,16 +41,18 @@ class Settings:
     # deterministic local refiner; Gemini analysis runs only offline afterwards.
     ai_on_inbound: bool = _env("AAHAAR_AI_ON_INBOUND", "").strip().lower() in ("1", "true", "on", "yes")
 
-    # AI intake notifier (env AAHAAR_AI_INTAKE). Default OFF. When on, a small
-    # background worker polls STORED raw_inbound rows (never the webhook), runs
-    # the intake notifier, and sends follow-up questions through the same
-    # outbound channel the doctor composer uses. Same run is available on demand
-    # from the dashboard without this flag (POST /api/v1/analyze/stored).
+    # AI intake notifier (env AAHAAR_AI_INTAKE). When on, a small background
+    # worker polls STORED raw_inbound rows (never the webhook), runs the intake
+    # notifier, and sends follow-up questions through the same outbound channel
+    # the doctor composer uses. The dashboard read path can also trigger it.
     ai_intake: bool = _env("AAHAAR_AI_INTAKE", "").strip().lower() in ("1", "true", "on", "yes")
     ai_intake_interval: float = _env_float("AAHAAR_AI_INTAKE_INTERVAL", "15")
-    # Background worker is analyze-only by default; follow-ups are released
-    # from the dashboard ("Send follow-up via WhatsApp" checkbox / send=true).
-    ai_intake_auto_send: bool = _env("AAHAAR_AI_INTAKE_AUTO_SEND", "").strip().lower() in ("1", "true", "on", "yes")
+    # Gemini is permitted only AFTER a message is safely stored. A failed or
+    # absent API key falls back to the deterministic intake parser.
+    ai_intake_use_gemini: bool = _env("AAHAAR_AI_INTAKE_GEMINI", "on").strip().lower() not in ("0", "false", "off", "no")
+    # Background worker sends the Gemini reply to WhatsApp automatically.
+    # One follow-up per message, paced, never duplicated.
+    ai_intake_auto_send: bool = _env("AAHAAR_AI_INTAKE_AUTO_SEND", "on").strip().lower() not in ("0", "false", "off", "no")
     # Short pacing gap between sequential WhatsApp follow-ups (one at a time).
     ai_intake_send_gap: float = _env_float("AAHAAR_AI_INTAKE_SEND_GAP", "0.5")
     # Auto-analyze stored messages whenever the dashboard reads the live feed

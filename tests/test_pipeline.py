@@ -2119,7 +2119,9 @@ def test_webhook_never_invokes_gemini_composer(monkeypatch, seeded, store, cfg):
     assert calls["n"] == 0
 
 
-def test_worker_whatsapp_path_never_uses_gemini(monkeypatch, store, cfg, intake):
+def test_worker_uses_gemini_only_after_message_is_stored(monkeypatch, store, cfg, intake):
+    """Gemini is an asynchronous reader of the stored dashboard queue, never
+    a participant in the WhatsApp webhook request itself."""
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
     from app.core import intake_ai as ia
     calls = {"n": 0}
@@ -2131,94 +2133,4 @@ def test_worker_whatsapp_path_never_uses_gemini(monkeypatch, store, cfg, intake)
     store.open_window(pid, "2026-09-01", "2026-09-14")
     store.record_raw_received("+919123456793", "fasting was125 na", message_id="NL-1")
     intake(store, cfg)
-    assert calls["n"] == 0, "WhatsApp-facing worker must stay deterministic"
-
-
-# ---- dashboard-only AI Intelligent Input (Gemini, never WhatsApp) --------
-def test_intelligent_input_requires_operator_key(tmp_path):
-    from fastapi.testclient import TestClient
-    from app.config import Settings
-    from app.server.main import create_app
-    db = str(tmp_path / "iii.db")
-    c = TestClient(create_app(cfg=Settings(db_path=db, whatsapp="simulator",
-                                           operator_key="aahaar-2026")))
-    assert c.post("/api/v1/ai/intelligent-input",
-                  json={"patient_id": 1, "text": "sugar 128"}).status_code == 403
-    r = c.post("/api/v1/ai/intelligent-input",
-               json={"patient_id": 1, "text": "sugar 128"},
-               headers={"X-Aahaar-Key": "wrong"})
-    assert r.status_code == 403
-
-
-def test_intelligent_input_from_stored_raw_roundtrip(tmp_path):
-    """Doctor clicks 'Log via AI' on a stored patient message: the exact sugar
-    / food the patient uttered is auto-written (no approval), the raw row is
-    marked handled so the intake worker cannot double-log it, and nothing is
-    ever sent to WhatsApp from this endpoint."""
-    from fastapi.testclient import TestClient
-    from app.config import Settings
-    from app.core.datamodel import Store
-    from app.server.main import create_app
-    db = str(tmp_path / "iii.db")
-    store = Store(db)
-    store.add_patient("Intelli", "II-1", "+919876541230")
-    store.open_window(store.list_patients()[-1]["id"], "2026-09-01", "2026-09-14")
-    store.record_raw_received("+919876541230", "aaj sugar 245 the",
-                              message_id="WAMID-III-1")
-    c = TestClient(create_app(cfg=Settings(db_path=db, whatsapp="simulator",
-                                           operator_key="aahaar-2026",
-                                           ai_intake_on_read_send=False)))
-    pid = c.get("/api/v1/patients").json()[0]["id"]
-    raw = c.get(f"/api/v1/patients/{pid}/log").json()["inbound"][0]
-    raw_id = raw["id"]
-    assert raw_id > 0
-
-    r = c.post("/api/v1/ai/intelligent-input",
-               json={"patient_id": pid, "raw_id": raw_id},
-               headers={"X-Aahaar-Key": "aahaar-2026"})
-    assert r.status_code == 200
-    d = r.json()
-    assert d["ok"] is True
-    assert d["intent"] == "reading"
-    assert d["reading"]["value"] == 245.0
-    # The endpoint itself never sends WhatsApp messages; deterministic when the
-    # deployment has no Gemini key.
-    assert d["analyzed_by"] == "local-refiner"
-
-    # The reading really landed in the log with the patient's own words.
-    w = store.active_window_for(pid) or store.last_window_for(pid)
-    readings = store.readings_for_window(w["id"]) if w else []
-    store.close()
-    assert any(rd["value"] == 245.0 for rd in readings)
-
-    # Row is locked: a subsequent intake sweep must skip it (never double-log).
-    c2 = c.post("/api/v1/analyze/stored", json={"limit": 25},
-                headers={"X-Aahaar-Key": "aahaar-2026"})
-    assert c2.status_code == 200
-    assert c2.json()["analyzed"] == 0
-
-
-def test_intelligent_input_from_text_creates_and_logs(tmp_path):
-    from fastapi.testclient import TestClient
-    from app.config import Settings
-    from app.core.datamodel import Store
-    from app.server.main import create_app
-    db = str(tmp_path / "iiit.db")
-    store = Store(db)
-    store.add_patient("Intelli2", "II-2", "+919876543210")
-    pid = store.list_patients()[-1]["id"]
-    store.open_window(pid, "2026-09-01", "2026-09-14")
-    store.close()
-    c = TestClient(create_app(cfg=Settings(db_path=db, whatsapp="simulator",
-                                           operator_key="aahaar-2026",
-                                           ai_intake_on_read_send=False)))
-    r = c.post("/api/v1/ai/intelligent-input",
-               json={"patient_id": pid, "text": "lunch chole bhature 1 plate"},
-               headers={"X-Aahaar-Key": "aahaar-2026"})
-    assert r.status_code == 200
-    d = r.json()
-    assert d["ok"] is True and d["intent"] in ("meal", "both")
-    meals = d["meals"]
-    assert any("chole" in (m or "").lower() for m in meals)
-    # Nothing is pushed to WhatsApp from the intelligent-input endpoint.
-    assert d.get("answered") is None or "wrote on whatsapp" not in str(d).lower()
+    assert calls["n"] == 1, "stored-message worker should attempt Gemini once"

@@ -62,7 +62,7 @@ class IntakeWorker:
 
     def run_once(self, limit: int = 10, should_send: bool = False,
                  send_gap: float = 0.5) -> dict:
-        """Analyze stored rows; send a follow-up only when explicitly asked.
+        """Analyze stored rows; optionally send one safe follow-up per row.
 
         Analyze-only (the default) never touches WhatsApp. When should_send is
         true, messages that still need a follow-up (should_reply and not yet
@@ -84,11 +84,16 @@ class IntakeWorker:
                     res = self._from_stored(r["raw_text"], fj)
                 else:
                     patient = self.store.get_patient_by_phone(sender) if sender else None
-                    res = analyze_intake(r["raw_text"],
-                                         patient_name=patient["name"] if patient else "Patient",
-                                         cfg=self.cfg,
-                                         msg_ts=str(r.get("ts") or ""),
-                                         use_llm=False)
+                    # This executes after database capture, never in the Meta
+                    # webhook request. Gemini failures return None internally
+                    # and analyze_intake safely retains the local result.
+                    res = analyze_intake(
+                        r["raw_text"],
+                        patient_name=patient["name"] if patient else "Patient",
+                        cfg=self.cfg,
+                        msg_ts=str(r.get("ts") or ""),
+                        use_llm=bool(getattr(self.cfg, "ai_intake_use_gemini", True)),
+                    )
                     self._save_refined(r["id"], res, followup_sent=False)
                     summary["analyzed"] += 1
             except Exception as e:

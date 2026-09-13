@@ -136,20 +136,8 @@
       </div>
 
       <div class="card" style="margin-top:1rem; border-left: 4px solid #2563eb;">
-        <div class="card-head">
-          <h3 style="margin:0;">AI Intelligent Input <span class="muted" style="font-weight:normal;font-size:0.8rem;">(Gemini · dashboard-only · auto-writes the exact patient words)</span></h3>
-        </div>
-        <p class="muted" style="font-size:12.5px; margin:8px 0;">
-          Pick the patient&rsquo;s message below (or paste one) and Gemini reads it, then the exact sugar value and the food the patient uttered are <b>written straight into the log</b> &mdash; no approval needed, never sent to WhatsApp.
-        </p>
-        <div id="aiii-list" class="log" style="max-height: 180px; overflow-y:auto; font-size:13px; margin-bottom:0.5rem;">
-          <div class="muted">loading patient messages&hellip;</div>
-        </div>
-        <div class="live-row" style="margin-top:0.3rem;">
-          <input id="aiii-text" type="text" placeholder="&hellip;or type/paste a patient message to log via AI" style="flex:2; padding:0.4rem;" />
-          <button id="aiii-go" type="button">Log via AI</button>
-        </div>
-        <div id="aiii-result" style="margin-top:0.5rem; white-space:pre-wrap; font-family:monospace; font-size:0.82rem;"></div>
+        <h3>Automatic AI intake <span class="muted" style="font-weight:normal;font-size:0.8rem;">(Gemini replies to the patient's WhatsApp)</span></h3>
+        <p class="muted" style="font-size:12.5px; margin:8px 0;">Each incoming message is saved first. The background worker then asks Gemini to read that stored message, logs only grounded values (real numbers and dishes the patient wrote), and sends Gemini's natural reply back to the patient on WhatsApp — exactly one reply per message, with no buttons or approvals needed. Gemini is never called by the WhatsApp webhook; if it is unavailable, the local safety parser continues the flow.</p>
       </div>
     </section>
 
@@ -192,19 +180,6 @@
           <button id="direct-msg-send" type="button">Send WhatsApp</button>
         </div>
         <div id="direct-msg-note" class="muted" style="margin-top: 0.5rem;"></div>
-      </div>
-
-      <div class="card" style="margin-top: 1rem;">
-        <h3>AI Intake Notifier <span class="muted" style="font-weight: normal;">(automatic on every patient message)</span></h3>
-        <p class="muted">As soon as a patient message arrives, intake-only analysis runs automatically in the dashboard and the <b>follow-up question is pushed to the patient's phone</b> via the same WhatsApp channel the doctor uses — one per message, one at a time, never duplicated. Resolved sugar values are stored into the readings table automatically and the <b>food the patient described is logged into the meal record with the message timestamp</b> (ambiguous readings like "230 or 330" wait for the patient). It only asks for missing logging details (reading value, fasting/post-meal tag, meal items, portion) in short Hinglish — it is not a doctor and never gives medical advice.</p>
-        <div class="live-row" style="margin-top: 0.5rem;">
-          <label style="display:flex; align-items:center; gap:0.4rem;" title="Only when checked are WhatsApp follow-up messages actually sent — one at a time, for messages that need them.">
-            <input id="intake-auto-send" type="checkbox" /> Send follow-up via WhatsApp
-          </label>
-          <input id="intake-key" type="password" placeholder="Operator key (AAHAAR_OP_KEY)" autocomplete="off" style="flex: 2; padding: 0.5rem;" />
-          <button id="btn-run-intake" type="button">Run AI Intake Analysis</button>
-        </div>
-        <div id="intake-result" style="margin-top: 0.5rem; white-space: pre-wrap; font-family: monospace; font-size: 0.85rem;"></div>
       </div>
 
       <div class="card" style="margin-top: 1rem;">

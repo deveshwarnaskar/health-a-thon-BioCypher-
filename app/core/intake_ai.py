@@ -11,13 +11,14 @@ This module is intentionally separate from the WhatsApp webhook path:
     channel the doctor composer uses (backend.send), never from inside the
     webhook handler.
 
-Gemini is used purely as an INPUT-COLLECTION assistant, not a doctor: it asks
-for missing logging fields in short Hinglish and never gives medical advice,
-targets, diagnoses, or prescriptions. All LOGGING decisions (which value is
-real, reading-context tag, backdated timestamps, "already logged" duplicates)
-are deterministic and decided here so the patient always gets ONE coherent
-message per input. If Gemini is unavailable, a deterministic local notifier
-takes over so the flow never breaks and the webhook behaviour never changes.
+When a Gemini key is present, Gemini is the PRIMARY intake assistant: it reads
+the stored patient message, decides what to log, and writes the natural reply
+that goes to the patient through the normal outbound channel. It is STILL
+never called from the webhook request itself (the webhook only stores the raw
+message), and the logging stays grounded — only numbers and dish words the
+patient actually wrote get written to the database. When Gemini is unavailable
+(no key, network error) the deterministic local notifier takes over so the
+flow never breaks and the webhook behaviour never changes.
 """
 from __future__ import annotations
 
@@ -248,14 +249,16 @@ _INTAKE_PROMPT = (
     "Required fields: 1) reading number 2) reading context tag (fasting / post-breakfast / post-lunch / "
     "post-dinner / pre-meal) 3) meal items 4) portion size (small/medium/large).\n"
     "Rules:\n"
+    "- ALWAYS write reply: when everything needed is in the message, confirm in a warm natural sentence "
+    "what you logged by ECHOING the exact number/food you extracted (e.g. 'sugar 140 fasting log kar diya' ); "
+    "when something is missing, ask for only that one thing. Never use checkmarks or emoji spam.\n"
     "- Only report a reading number that the patient ACTUALLY wrote. Never invent one.\n"
     "- When the message changes/corrects a meal said earlier ('not the one i told', 'the meal i told was "
     "wrong') but names no new dish and no number, set is_reference=true and items=[].\n"
     "- When the message asks to delete a reading or a meal, set is_delete=true and reply=''.\n"
-    "- If everything required was supplied, return missing=[] and an empty reply — do NOT ask anything extra.\n"
     'Return strictly valid JSON: {"intent":"reading"|"meal"|"confirm"|"clarify"|"reference"|"delete", '
-    '"missing":["reading_value"|"reading_tag"|"meal_items"|"portion"], "reply":"<one short question in the '
-    'patient language or empty>", "reading": <number the patient wrote or null>, '
+    '"missing":["reading_value"|"reading_tag"|"meal_items"|"portion"], "reply":"<always a short natural '
+    'sentence in the patient language>", "reading": <number the patient wrote or null>, '
     '"reading_tag":"fasting"|"postprandial"|"postbreakfast"|"postlunch"|"postdinner"|"pre"|"random"|null, '
     '"items":["dish 1","dish 2"] (only what the patient mentioned, or []), '
     '"portion":"s"|"m"|"l" (only when the patient stated it), '
@@ -726,11 +729,10 @@ def analyze_intake(text: str, patient_name: str = "Patient",
     """Analyze a STORED patient message and produce an intake-notifier result.
 
     This is only ever called off the live webhook path (dashboard trigger or the
-    background worker). ALL logging decisions are deterministic; Gemini (when a
-    key is present) only helps the genuinely-unclear case word a better question.
-    WhatsApp-facing calls MUST pass use_llm=False so no patient-facing message is
-    ever composed by the LLM; use_llm=True is reserved for operator dashboard
-    tools that never send a patient text directly.
+    background worker). When Gemini is available (key present and use_llm=True)
+    it is the primary reader and reply-writer — still never in the webhook
+    request.  When Gemini is unavailable the deterministic local notifier takes
+    over so the whole flow never breaks.
     """
     cfg = cfg or Settings()
     raw = str(text or "").strip()
@@ -750,15 +752,42 @@ def analyze_intake(text: str, patient_name: str = "Patient",
         _last_ai_status["last_model"] = str(parsed.get("_model", ""))
     except Exception:
         pass
+
+    # State-machine messages (corrections, dup/tag/size answers, deletes,
+    # references) MUST keep the deterministic intent so the worker can apply
+    # the exact DB action; Gemini only replaces the reply wording.
+    _STATE_ONLY = ("correction", "resolution", "tag_answer", "tag_negation",
+                   "dup_answer", "meal_confirm", "meal_delete",
+                   "reading_delete", "meal_reference", "multi_reading",
+                   "done", "confirm")
+    if local.intent in _STATE_ONLY:
+        gem_reply = str(parsed.get("reply") or "").strip()
+        if gem_reply and not gem_reply.startswith("✅"):
+            local.reply = gem_reply
+            local.should_reply = True
+        local.analyzed_by = f"gemini:{parsed.get('_model', '')}"
+        local.language = detect_language(raw)
+        return local
+
+    # Safety refusals stay untouched — no reframing.
+    if local.intent == "refusal":
+        return local
+
+    # ---- Gemini is the PRIMARY responder for new intake. It decides the
+    # intent, extracts the reading/meal from the patient's own words, and
+    # writes the NATURAL reply that goes to the patient. The guards below only
+    # pin the LOGGING to real values so the database is never fed a guess. ----
     g_intent = str(parsed.get("intent") or "").strip()
     gem_reply = str(parsed.get("reply") or "").strip()
+    model = str(parsed.get("_model", ""))
+
     noise = strip_reading_noise(raw)
     known_nums = sorted({float(m) for m in re.findall(r"\d{2,3}(?:\.\d)?", noise)
                          if 20 <= float(m) <= 600})
 
     def _real(readable: Optional[object]) -> Optional[float]:
-        """A Gemini-reported reading is only real when it matches an actual
-        number the patient wrote (in range). Never invents a value."""
+        # A Gemini-reported reading is only real when it matches an actual
+        # number the patient wrote (in range). Never invents a value.
         try:
             f = float(readable)
         except (TypeError, ValueError):
@@ -788,89 +817,112 @@ def analyze_intake(text: str, patient_name: str = "Patient",
     now_iso = reading_timestamp(raw, msg_ts or iso_now()).strftime(
         "%Y-%m-%dT%H:%M:%S")
 
-    # 1) A genuinely unclear message → Gemini words the ONE follow-up question
-    #    in the patient's language.
-    if local.intent == "clarify" and gem_reply:
-        local.reply = gem_reply
-        local.analyzed_by = f"gemini:{parsed.get('_model', '')}"
-        local.confidence = 0.98
+    result = IntakeResult(
+        intent=g_intent or local.intent,
+        missing=(list(parsed.get("missing") or [])
+                 or list(local.missing or [])),
+        reply=gem_reply or local.reply,
+        should_reply=True if (gem_reply or local.should_reply) else False,
+        raw_text=raw,
+        confidence=0.94,
+        analyzed_by=f"gemini:{model}",
+        language=detect_language(raw),
+        meal_items=_meal_items_from(parsed.get("items")),
+        meal_portion=((str(parsed.get("portion") or "").strip().lower()[:1])
+                      if str(parsed.get("portion") or "").strip().lower()[:1]
+                      in ("s", "m", "l") else None),
+    )
 
-    # 2) Reference / delete raises — only for cases the deterministic refiner
-    #    could not already see (never double-handles naya/mistake answers).
-    if parsed.get("is_reference") and local.intent == "clarify":
-        local.intent = "meal_reference"
-        local.missing = []
-        local.reply = ""
-        local.meal_ts = now_iso
-    if parsed.get("is_delete") and local.intent == "clarify":
-        low_ = raw.lower()
+    low_ = raw.lower()
+
+    # 1) Delete / reference requests — the worker performs the DB action.
+    if parsed.get("is_delete"):
         if any(mw in low_ for mw in ("khana", "khaana", "meal", "dish",
                                      "food", "makan")):
-            local.intent = "meal_delete"
+            result.intent = "meal_delete"
         else:
-            local.intent = "reading_delete"
-            local.reading_ts = now_iso
-        local.missing = []
-        local.reply = ""
-        local.should_reply = True
+            result.intent = "reading_delete"
+            result.reading_ts = now_iso
+        result.missing = []
+        result.reply = ""          # worker writes the action-specific confirm
+        result.should_reply = True
+    elif parsed.get("is_reference"):
+        result.intent = "meal_reference"
+        result.missing = []
+        result.reply = ""
+        result.meal_ts = now_iso
+        result.should_reply = True
 
-    # 3) Multiple readings ("8am 130, 9am 145") — every value must be real.
-    gem_readings = parsed.get("readings") if isinstance(
-        parsed.get("readings"), list) else []
-    validated = []
-    for mr in gem_readings:
-        if not isinstance(mr, dict):
-            continue
-        gv = _real(mr.get("value"))
-        if gv is None:
-            continue
-        validated.append({"value": gv,
-                          "tag": _tag_ok(mr.get("tag")) or "random",
-                          "ts_str": now_iso})
-    if (g_intent == "reading" and local.intent != "multi_reading"
-            and len(validated) >= 2):
-        local.intent = "multi_reading"
-        local.missing = []
-        local.reply = ""
-        local.multi_readings = validated
-        local.meal_items = _meal_items_from(parsed.get("items"))
+    # 2) Multiple readings ("8am 130, 9am 145") — every value must be real.
+    if result.intent == "reading":
+        validated = []
+        for mr in (parsed.get("readings")
+                   if isinstance(parsed.get("readings"), list) else []):
+            if not isinstance(mr, dict):
+                continue
+            gv = _real(mr.get("value"))
+            if gv is None:
+                continue
+            validated.append({"value": gv,
+                              "tag": _tag_ok(mr.get("tag")) or "random",
+                              "ts_str": now_iso})
+        if len(validated) >= 2:
+            result.intent = "multi_reading"
+            result.multi_readings = validated
+            result.missing = []
+            result.reply = ""
 
-    # 4) Single reading upgrade (never invents a number).
-    if (local.intent == "clarify" and g_intent in ("reading", "confirm")
-            and not validated):
-        gv = _real(parsed.get("reading"))
-        if gv is not None:
-            local.intent = "reading"
-            local.reading_value = gv
-            local.reading_status = "resolved"
-            local.reading_tag = _tag_ok(parsed.get("reading_tag")) or "random"
-            local.reading_ts = now_iso
-            local.missing = []
-            local.reply = (f'✅ Logged sugar {gv:g} '
-                           f'({PATIENT_TAG_LABELS.get(local.reading_tag, local.reading_tag)}) — '
-                           f'{_hm(now_iso)}. Aur kuch log karna hai — sugar ya khana?')
+    # 3) A single reading value — grounded to the number the patient wrote.
+    if result.reading_value is None and result.intent in ("reading", "confirm"):
+        amb = ambiguous_reading_values(raw)
+        if amb:
+            result.intent = "reading"
+            result.reading_status = "ambiguous"
+            result.reading_candidates = amb
+            result.missing = ["reading_value"]
+            if not result.reply:
+                result.reply = (f"{patient_name} ji, exact value bataiye — "
+                                f"{', '.join(str(x) for x in amb)}?")
+            result.should_reply = True
+        else:
+            gv = _real(parsed.get("reading"))
+            if gv is not None:
+                result.intent = "reading"
+                result.reading_value = gv
+                result.reading_status = "resolved"
+                result.reading_tag = (_tag_ok(parsed.get("reading_tag"))
+                                      or "random")
+                result.reading_ts = now_iso
+                result.missing = []
+                if not result.reply:
+                    tag_label = PATIENT_TAG_LABELS.get(
+                        result.reading_tag, result.reading_tag)
+                    result.reply = (f"✅ Logged sugar {gv:g} ({tag_label}) — "
+                                    f"{_hm(now_iso)}. Aur kuch log karna hai?")
+            elif result.missing and "reading_value" in result.missing \
+                    and not gem_reply:
+                result.reply = (f"{patient_name} ji, reading number bataiye "
+                                "(jaise 'fasting 120' ya 'sugar 135').")
+                result.should_reply = True
 
-    # 5) Meal items — Gemini's dish extraction only fills a gap and only from
-    #    real words the patient wrote.
-    if local.intent == "meal" and not local.meal_items:
-        g_items = _meal_items_from(parsed.get("items"))
-        if g_items:
-            local.meal_items = g_items
-            g_portion = str(parsed.get("portion") or "").strip().lower()[:1]
-            if g_portion in ("s", "m", "l"):
-                local.meal_portion = g_portion
-                if "portion" in (local.missing or []):
-                    local.missing.remove("portion")
-            local.meal_ts = now_iso
-    elif local.intent == "clarify" and g_intent == "meal" and validated:
-        g_items = _meal_items_from(parsed.get("items"))
-        if g_items:
-            local.intent = "meal"
-            local.meal_items = g_items
-            g_portion = str(parsed.get("portion") or "").strip().lower()[:1]
-            local.meal_portion = g_portion if g_portion in ("s", "m", "l") else None
-            local.missing = [] if local.meal_portion else ["portion"]
-            local.meal_ts = now_iso
-            local.reply = (f"✅ Logged khana: {', '.join(local.meal_items)}. "
-                           f"Kya portion thi — small, medium ya large?")
-    return local
+    # 4) Meal items — only from real words the patient wrote. If the portion is
+    #    still missing the meal stays PENDING and the worker asks for the size.
+    if result.intent == "meal" and not result.meal_items:
+        result.meal_items = _meal_items_from(parsed.get("items"))
+    if result.meal_items:
+        result.meal_ts = now_iso
+        if result.meal_portion:
+            if "portion" in (result.missing or []):
+                result.missing.remove("portion")
+        else:
+            cur = list(result.missing or [])
+            if "portion" not in cur:
+                cur.append("portion")
+            result.missing = cur
+            if not gem_reply and result.intent == "meal":
+                names = ", ".join(str(it.get("item") or "")
+                                  for it in result.meal_items)
+                result.reply = (f"✅ Logged khana: {names}. Kya portion thi — "
+                                "small, medium ya large?")
+                result.should_reply = True
+    return result
