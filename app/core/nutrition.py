@@ -66,6 +66,7 @@ FOODS: list[tuple[str, str, float, str, str]] = [
     ("pizza", "fast food", 22.0, "med", "m"),
     ("apple", "fruit", 13.0, "low", "s"),
     ("banana", "fruit", 21.0, "med", "s"),
+    ("strawberry", "fruit", 6.0, "low", "s"),
     ("chocolate", "dessert", 55.0, "high", "s"),
     ("omelette", "egg", 3.0, "low", "m"),
     ("kadi", "curry", 12.0, "low", "m"),
@@ -195,14 +196,24 @@ def classify_text(text: Optional[str]) -> list[FoodDict]:
     candidates += sorted(_ALIASES, key=len, reverse=True)
     candidates = list(dict.fromkeys(candidates))
 
+    # Leading patient-size adjectives map straight onto the calibrated katori
+    # portion ("large chocolates" -> chocolates · Large). Never invented: the
+    # adjective has to be a word the patient actually typed.
+    _SIZE_WORDS = {"small": "s", "chota": "s", "chhota": "s", "chhoti": "s",
+                   "kam": "s", "medium": "m", "normal": "m", "theek": "m",
+                   "large": "l", "bada": "l", "badi": "l", "bara": "l",
+                   "big": "l", "zyada": "l", "jyada": "l", "extra": "l",
+                   "full": "l", "half": "s"}
+
     matched_spans: list[tuple[int, int]] = []
     for token in sorted(candidates, key=len, reverse=True):
         canonical = _ALIASES.get(token, token)
         if canonical in seen:
             continue
-        # Whole-word / whole-phrase matching only — a substring hit like "bhat"
-        # inside "bhature" must never turn a bhatura into "white rice".
-        m = re.search(r"(?<!\w)" + re.escape(token) + r"(?!\w)", cleaned)
+        # Whole-word / whole-phrase matching only, tolerant of plurals, so a
+        # substring hit like "bhat" inside "bhature" must never turn a bhatura
+        # into "white rice" while "chocolates" still hits its catalog row.
+        m = re.search(r"(?<![a-z0-9])" + re.escape(token) + r"(?:s|es)?(?![a-z0-9])", cleaned)
         if not m:
             continue
         # Once "chole bhature" matches as a phrase, "chole" and "bhature" must
@@ -219,6 +230,11 @@ def classify_text(text: Optional[str]) -> list[FoodDict]:
         row["item"] = cleaned[m.start():m.end()]
         if row.get("gi") is not None:
             row["known"] = True
+        # A size adjective right before the matched dish sets the portion and
+        # stays OUT of the item name ("large chocolates" -> item "chocolates").
+        before = cleaned[:m.start()].split()
+        if before and before[-1] in _SIZE_WORDS:
+            row["portion"] = _SIZE_WORDS[before[-1]]
         resolved.append(row)
         if len(resolved) >= 4:
             break

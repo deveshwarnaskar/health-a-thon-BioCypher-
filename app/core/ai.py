@@ -340,8 +340,8 @@ def analyze_patient_input(text: str, patient_name: str = "Patient",
                   "ate", "eating", "food", "dinner", "lunch", "breakfast", "nashta")
 
     matched_foods = [f for f in food_hints if f in low and f not in ("khaya", "ate", "eating", "food")]
-    if matched_foods or any(w in low for w in ("khaya", "ate", "eating", "dinner", "lunch", "breakfast", "nashta")):
-        dishes = matched_foods or [cleaned[:30].strip()]
+    if matched_foods:
+        dishes = matched_foods
         reply = (
             f"Maine aapka meal ({', '.join(dishes)}) note kar liya. "
             f"Portion Medium (220 ml) hai na? Reply karein YES, ya 'small/large'."
@@ -353,6 +353,21 @@ def analyze_patient_input(text: str, patient_name: str = "Patient",
             dishes=dishes,
             portion="m",
             conversational_reply=reply
+        )
+    if any(w in low for w in ("khaya", "ate", "eating", "dinner", "lunch", "breakfast", "nashta")):
+        # The patient described food but no concrete dish matched. Never invent
+        # a dish name from a chatty sentence (e.g. "after fasting at 10:30am i
+        # actually ate two...") — ask for the dish instead, cleanly.
+        ask = (
+            f"Namaste {patient_name} ji! Kis cheez ka khana tha — kripya "
+            f"dishes bataiye (jaise '2 roti, dal, sabzi')."
+        )
+        return AIRefinement(
+            intent="meal",
+            confidence=0.55,
+            raw_text=raw,
+            dishes=[],
+            conversational_reply=ask
         )
 
     # 4. Ambiguous / Confusing input -> Ask polite clarifying question ("Talking Back AI")

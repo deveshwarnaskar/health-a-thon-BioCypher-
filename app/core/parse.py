@@ -82,6 +82,14 @@ _SIZE_BOWLS = ("bowl", "bowls", "katori", "katora", "plate", "plates",
 _SIZE_COUNT = ("do", "teen", "char", "paanch", "ek", "two", "three", "four",
                "five", "one")
 
+# Words that cannot be a food noun right after a count — so "3 am",
+# "8 30 am", "at 7 in the morning" are never mistaken for a portion count.
+_COUNT_FILLERS = {
+    "am", "pm", "a", "p", "baje", "o", "in", "at", "on", "the", "a", "an",
+    "of", "to", "was", "is", "are", "were", "tha", "thi", "us", "kar", "ka",
+    "ki", "ke", "me", "mein", "and", "or", "ya", "but", "so",
+}
+
 
 def portion_text(text: str) -> Optional[str]:
     """Extract the patient-stated size verbatim, e.g. '200ml', '2 bowls',
@@ -100,6 +108,15 @@ r"(\d+(?:\.\d+)?\s*(?:ml|g|l|kg|glass|bowl|katori|katora|plate|cup)"
                   r"(?:bowl|katori|plate|thali|glass|cup|dona)s?\b)", low)
     if m:
         return m.group(1).strip()
+    # A bare food count is itself the stated size: "3 strawberries",
+    # "two chocolates", "5 roti". Clock minutes never match — the token after
+    # the number must be a real word (see _COUNT_FILLERS) and the count must be
+    # small (single digit or a word).
+    m = re.search(
+        r"\b(\d|[2-9]|do|teen|char|paanch|ek|one|two|three|four|five|six|"
+        r"seven|eight|nine|ten)\s+([a-z]{2,})\b", low)
+    if m and m.group(2).lower() not in _COUNT_FILLERS:
+        return m.group(1)
     return None
 
 
@@ -304,6 +321,27 @@ def _is_confirm(text: str) -> bool:
     return False
 
 
+_DONE_PHRASES = {
+    "that's all", "thats all", "thaits all", "that's it", "thats it",
+    "all done", "all logged", "ok done", "okay done", "done", "bas",
+    "bas karo", "bas itna", "itna hi", "ho gaya", "ho gya", "hogaya",
+    "bus", "chalega", "finished", "complete", "completed", "done for today",
+    "dono ho gaya", "sab ho gaya", "sab logged", "ok thanks", "thanks ji",
+}
+
+
+def _is_done(text: Optional[str]) -> bool:
+    """'that's all' / 'bas' / 'ho gaya' — the patient says logging is over for
+    now. Pure courtesy: never blocks, never logs anything."""
+    low = str(text or "").strip().lower()
+    low = re.sub(r"\s+", " ", low).strip(".,!? ")
+    if not low or len(low) > 30:
+        return False
+    if low in _DONE_PHRASES:
+        return True
+    return False
+
+
 def _tag_from_text(prefix: str) -> str:
     cleaned = prefix.lower().strip()
     if cleaned in _TAG_MAP:
@@ -326,7 +364,10 @@ def _tag_from_text(prefix: str) -> str:
         return "pre"
     if re.search(r"\b(post|after|baad|pp|ppbg)\b", cleaned):
         return "postprandial"
-    return "postprandial"
+    # Default is Random Blood Glucose (RBG). postprandial is ONLY logged when
+    # the patient actually says after/baad/post-2hr; a bare or uncontextualised
+    # reading is a random check, never an assumed 2-hour post-meal value.
+    return "random"
 
 
 def parse_inbound(raw: dict, cfg: Settings, mock_vision=None) -> ParsedInput:
@@ -756,7 +797,7 @@ def _as_reading(raw: dict, value) -> ParsedInput:
     except (TypeError, ValueError):
         v = math.nan
     tag = str(raw.get("reading_tag") or "").lower().strip()
-    tag = _TAG_MAP.get(tag, tag or "postprandial")
+    tag = _TAG_MAP.get(tag, tag or "random")
     if not (20 <= v <= 600):
         return ParsedInput(kind="refusal", raw=f"reading out of range: {value}")
     return ParsedInput(kind="reading", reading=v, reading_tag=tag,
@@ -769,7 +810,7 @@ def _reading_from_text(text: str, raw: Optional[dict] = None) -> Optional[Parsed
     if m:
         val = float(m.group(1))
         if 20 <= val <= 600:
-            return ParsedInput(kind="reading", reading=val, reading_tag="postprandial",
+            return ParsedInput(kind="reading", reading=val, reading_tag="random",
                                ts=ts, raw=text.strip())
         return ParsedInput(kind="refusal", raw=text.strip())
 
