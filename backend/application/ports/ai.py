@@ -1,13 +1,28 @@
-"""AI extraction port (Gate 02B).
+"""AI application port (Gate 04).
 
-Future implementation target: ``backend.infrastructure.ai`` (Gemini intake
-analysis, currently ``app/core/ai.py`` / ``app/core/intake_ai.py``).
+Provider-neutral (no Gemini/OpenAI/any provider SDK). Application treats AI
+output as a DRAFT only. Generation never equals approval: the port returns an
+unapproved ``ArtifactDraft``; human review happens in the ``ReviewAIArtifact``
+use case through the domain review-state machine.
+
+Infrastructure supplies a provider-backed implementation in a later gate; tests
+supply a deterministic fake.
 """
 
+from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
+from uuid import UUID, uuid4
+
+
+@dataclass(frozen=True)
+class ArtifactDraft:
+    """AI-produced synthesis/extraction. Carries NO approval semantics."""
+
+    artifact_kind: str = "extracted_observation"
+    summary: str = ""
+    context_id: UUID = field(default_factory=uuid4)
 
 
 @runtime_checkable
-class IAiExtractionEngine(Protocol):
-    def refine(self, text: str) -> str: ...
-    def analyze_intake(self, text: str) -> dict: ...
+class AIArtifactGenerator(Protocol):
+    def generate(self, context: str, patient_id: UUID) -> ArtifactDraft: ...

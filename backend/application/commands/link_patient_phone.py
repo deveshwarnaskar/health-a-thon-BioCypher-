@@ -1,18 +1,17 @@
-"""LinkPatientPhone command placeholder (Gate 02B).
+"""LinkPatientPhone command (Gate 04).
 
-Replaces today's binary phone-role guard with an audited, relationship-aware
-phone linking use case.
+Links the patient's own phone number (patient confirmation and channel routing
+use case). The value is a validated ``PhoneNumber`` value object.
 """
 
-from dataclasses import dataclass, field
-from uuid import UUID, uuid4
+from dataclasses import dataclass
+from uuid import UUID
 
-from ...domain.value_objects.phone_number import PhoneNumber
+from ...domain.value_objects import PhoneNumber
 
 
 @dataclass(frozen=True)
 class LinkPatientPhone:
-    command_id: UUID = field(default_factory=uuid4)
-    patient_id: UUID | None = None
-    phone: PhoneNumber | None = None
-    role: str = "patient"
+    patient_id: UUID
+    phone: PhoneNumber
+    correlation_id: UUID | None = None
