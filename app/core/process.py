@@ -20,7 +20,8 @@ from typing import Optional
 from ..config import Settings
 from .datamodel import Store
 from .nutrition import KATORI_LABELS, gi_bucket_index
-from .parse import READING_TAG_LABELS, ParsedInput, ambiguous_reading_values, describe_items, parse_inbound
+from .parse import (READING_TAG_LABELS, ParsedInput, ambiguous_reading_values,
+                    describe_items, parse_inbound, reading_timestamp)
 
 
 @dataclass
@@ -103,13 +104,24 @@ class IngestService:
         # at the webhook: the dashboard AI intake applies them to the log and is
         # the single confirmer. Keeps the patient replying to questions instead
         # of being told "didn't understand".
-        from .parse import _is_dup_answer, _is_tag_answer, _resolution_cue_value
+        from .parse import (_is_dup_answer, _is_meal_delete, _is_reading_delete,
+                        _is_size_answer, _is_tag_answer,
+                        _reference_correction, _resolution_cue_value)
         tag_ans = _is_tag_answer(raw_text)
         dup_ans = _is_dup_answer(raw_text)
         res_ans = _resolution_cue_value(raw_text)
-        if tag_ans or dup_ans or res_ans:
+        # Size-only answers ("100ml"), meal references ("not the one i told")
+        # and delete commands are dashboard/AI intake territory — the webhook
+        # stays quiet so the patient gets exactly ONE coherent follow-up.
+        size_ans = _is_size_answer(raw_text)
+        ref_only = (bool(_reference_correction(raw_text))
+                    and not parsed.items)
+        del_ans = (_is_reading_delete(raw_text) or _is_meal_delete(raw_text))
+        if (tag_ans or dup_ans or res_ans or size_ans or ref_only or del_ans):
             self.store.audit(role, "answer_received",
-                             f"{raw_text[:40]!r} tag={tag_ans or ''} dup={dup_ans or ''} res={res_ans or ''}")
+                             f"{raw_text[:40]!r} tag={tag_ans or ''} "
+                             f"dup={dup_ans or ''} res={res_ans or ''} "
+                             f"size={size_ans or ''} ref={ref_only} del={del_ans}")
             return []
 
         if parsed.kind == "refusal":
@@ -224,10 +236,13 @@ class IngestService:
                      or None)
         gi = (self._split_gi(parsed.items)
               if any(it.get("gi") for it in parsed.items) else None)
-        ts = parsed.ts.strftime("%Y-%m-%dT%H:%M:%S")
+        ts = reading_timestamp(
+            str(raw.get("text") or raw.get("kind") or ""),
+            parsed.ts.strftime("%Y-%m-%dT%H:%M:%S")).strftime("%Y-%m-%dT%H:%M:%S")
         meal_id = self.store.propose_meal(
             window["id"], raw.get("sender_phone"), role, parsed.kind,
-            parsed.items, portion, self.cfg.katori(portion), carbs, gi, confidence, ts=ts)
+            parsed.items, portion, self.cfg.katori(portion), carbs, gi, confidence,
+            ts=ts, portion_text=getattr(parsed, "portion_text", None))
         self.store.audit(role, "meal_proposal", f"meal_id={meal_id}")
 
         echo = describe_items(parsed.items)
@@ -247,7 +262,9 @@ class IngestService:
             new_portion = parsed.portion_letter
             status = "corrected"
             note = "portion corrected by user"
-        self.store.finalize_meal(meal["id"], status, portion=new_portion, correction_note=note)
+        self.store.finalize_meal(meal["id"], status, portion=new_portion,
+                             correction_note=note,
+                             portion_text=parsed.portion_text)
         self.store.audit(role, "meal_final", f"meal_id={meal['id']} {status}")
         lb = KATORI_LABELS.get((new_portion or meal["portion"]), "")
         return [self._out(route=role, kind="text", to=raw.get("sender_phone"),

@@ -1543,3 +1543,193 @@ def test_demo_render_path_skips_charts_on_render(tmp_path):
     assert "Report PDF: skipped" in r.stdout
     assert not os.path.exists(os.path.join(sub, "reports")) or \
         os.listdir(os.path.join(sub, "reports")) == []
+
+
+# ---- intelligent intake: references, deletions, multi/multilingual edits -----
+
+def test_transcript_backdated_meal_and_100ml_fullflow(store, cfg):
+    """The full WhatsApp transcript: a backdated '8 30 am' meal correction plus
+    a bare '100ml' size answer finalizes the pending meal at 08:30 — and NEITHER
+    a phantom 30/100 reading NOR an 'I Told Was' dish is ever logged."""
+    from app.core.ai_worker import IntakeWorker
+    pid = store.add_patient("Sush", "S-1", "+919123456701")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+
+    # Webhook capture: the meal is proposed (quick_reply), the size answer is
+    # quiet — exactly the store-first dashboard-driven flow.
+    r1 = _handle(store, cfg, pid,
+                 {"sender_phone": "+919123456701", "kind": "text",
+                  "text": "today at 8 30 am i actually ate chole bhature "
+                          "not the one i told"})
+    assert r1 and "chole bhature" in r1[0].body.lower()
+    assert _handle(store, cfg, pid,
+                   {"sender_phone": "+919123456701", "kind": "text",
+                    "text": "100ml"}) == []
+
+    sent = []
+    IntakeWorker(store, cfg,
+                 send_func=lambda o: (sent.append(o), True)[1]).run_once(
+        limit=100, should_send=True, send_gap=0)
+
+    assert store.readings_for_window(wid) == []      # no phantom reading
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 1, meals
+    m = meals[0]
+    assert (m["ts"] or "")[:16] == "2026-09-13T08:30"
+    assert m["status"] == "confirmed"
+    assert m["portion"] == "m"                       # 100ml -> default medium
+    assert m["portion_text"] == "100ml"
+    items = json.loads(m["items_json"])
+    assert len(items) == 1, items
+    assert items[0]["item"].lower() == "chole bhature"
+    low_items = str(items).lower()
+    assert "i told" not in low_items and "wrong" not in low_items
+    assert any("log ho gaya" in o.body for o in sent), [o.body for o in sent]
+
+
+def test_webhook_quiet_for_size_ref_and_delete_messages(seeded, store, cfg):
+    pid, wid = seeded
+    for txt in ("100ml", "the meal i told was wrong", "delete that reading",
+                "ye khana delete karo"):
+        replies = _handle(store, cfg, pid,
+                          {"sender_phone": "+919000000001", "kind": "text",
+                           "text": txt})
+        assert replies == [], txt            # never echo at the webhook
+
+
+def test_size_answer_never_a_reading(store, cfg, intake):
+    pid = store.add_patient("ML", "ML-1", "+919123456702")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456702", "100ml", message_id="ML-1")
+    intake(store, cfg, send=True)
+    assert store.readings_for_window(wid) == []
+    assert store.meals_for_window(wid, confirmed_only=False) == []
+
+
+def test_meal_reference_never_fabricates_dish(store, cfg, intake):
+    pid = store.add_patient("Ref", "R-1", "+919123456703")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received(
+        "+919123456703", "it was the same only the meal i told was wrong",
+        message_id="R-1")
+    intake(store, cfg, send=True)
+    assert store.meals_for_window(wid, confirmed_only=False) == []
+    assert store.readings_for_window(wid) == []
+
+
+def test_reference_with_pending_meal_asks_portion(store, cfg, intake):
+    from app.core.ai_worker import IntakeWorker
+    pid = store.add_patient("Ref2", "R-2", "+919123456709")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456709", "khana roti aur choco",
+                              message_id="R2-1")
+    intake(store, cfg, send=True)
+    store.record_raw_received("+919123456709", "the meal i told was wrong",
+                              message_id="R2-2")
+    sent = []
+    IntakeWorker(store, cfg,
+                 send_func=lambda o: (sent.append(o), True)[1]).run_once(
+        limit=100, should_send=True, send_gap=0)
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 1                       # nothing new fabricated
+    assert any("portion" in o.body.lower() or "small" in o.body.lower()
+               for o in sent), [o.body for o in sent]
+
+
+def test_multi_reading_two_entries_registered(store, cfg, intake):
+    pid = store.add_patient("Mul", "MU-1", "+919123456704")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456704", "8am 130, 9am 145",
+                              message_id="MU-1")
+    intake(store, cfg, send=True)
+    rows = store.readings_for_window(wid)
+    assert len(rows) == 2
+    assert sorted(float(r["value"]) for r in rows) == [130.0, 145.0]
+    assert {r["ts"][11:13] for r in rows} == {"08", "09"}
+
+
+def test_multi_reading_hindi_separate_shots(store, cfg, intake):
+    pid = store.add_patient("Mul2", "MU-2", "+919123456710")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456710", "subah 130 aur shaam 150",
+                              message_id="MU-2")
+    intake(store, cfg, send=True)
+    rows = store.readings_for_window(wid)
+    assert len(rows) == 2
+    assert sorted(float(r["value"]) for r in rows) == [130.0, 150.0]
+    assert {r["ts"][11:13] for r in rows} == {"08", "18"}
+
+
+def test_dated_reading_edit_updates_past_reading(store, cfg, intake):
+    pid = store.add_patient("Ed", "E-1", "+919123456705")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456705", "kal 8am sugar 180",
+                              message_id="E-1")
+    intake(store, cfg)
+    store.record_raw_received(
+        "+919123456705", "kal 8am wala galat tha, 140 tha", message_id="E-2")
+    intake(store, cfg, send=True)
+    rows = store.readings_for_window(wid)
+    assert len(rows) == 1, rows
+    assert abs(rows[0]["value"] - 140) < 0.5
+    assert (rows[0]["ts"] or "").startswith("2026-09-12T08:")
+
+
+def test_reading_delete_removes_latest(store, cfg, intake):
+    pid = store.add_patient("Del", "D-1", "+919123456706")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456706", "sugar 150", message_id="D-1")
+    intake(store, cfg)
+    store.record_raw_received("+919123456706", "delete that reading",
+                              message_id="D-2")
+    intake(store, cfg, send=True)
+    assert store.readings_for_window(wid) == []
+
+
+def test_meal_delete_removes_meal(store, cfg, intake):
+    pid = store.add_patient("DM", "DM-1", "+919123456707")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456707", "khana roti aur choco",
+                              message_id="DM-1")
+    intake(store, cfg)
+    store.record_raw_received("+919123456707", "ye khana delete karo",
+                              message_id="DM-2")
+    intake(store, cfg, send=True)
+    assert store.meals_for_window(wid, confirmed_only=False) == []
+
+
+def test_fallback_dish_never_fabricates():
+    from app.core.nutrition import _fallback_dish
+    assert _fallback_dish("i told was wrong and the meal") == ""
+    assert _fallback_dish("it was the same only the meal") == ""
+    assert _fallback_dish("the meal i told was wrong") == ""
+    assert _fallback_dish("") == ""
+    assert _fallback_dish("i had pasta today") == "Pasta"
+
+
+def test_detect_language_regional_and_hinglish():
+    from app.core.intake_ai import detect_language
+    assert detect_language("நான் 140 சர்க்கரை எடுத்தேன்") == "ta"
+    assert detect_language("কাল দুপুরে 145 ছিল") == "bn"
+    assert detect_language("ਚੰਗਾ ਦਿਨ 120") == "pa"
+    assert detect_language("bahut badiya chole bhature 130") == "hi"
+    assert detect_language("nice morning 120 please") == "en"
+
+
+def test_localize_reply_falls_back_safely(monkeypatch):
+    from app.core.intake_ai import localize_reply
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    reply = "✅ Logged sugar 130 (fasting) — 7:15 am."
+    assert localize_reply(reply, "ta") == reply
+    assert localize_reply(reply, "hi") == reply
+    assert localize_reply(reply, None) == reply
+
+
+def test_regional_script_message_logs_reading(store, cfg, intake):
+    pid = store.add_patient("Tam", "T-1", "+919123456708")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456708", "நான் 140 சர்க்கரை எடுத்தேன்",
+                              message_id="TAM-1")
+    intake(store, cfg, send=True)
+    rows = store.readings_for_window(wid)
+    assert len(rows) == 1 and abs(rows[0]["value"] - 140) < 0.5

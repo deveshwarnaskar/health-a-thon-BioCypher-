@@ -236,22 +236,53 @@ def classify_text(text: Optional[str]) -> list[FoodDict]:
                   "omelette", "eat")
     if not resolved and text and any(c in text.lower() for c in food_clues):
         phrase = _fallback_dish(text)
-        plate_name = phrase[:30].strip(" ,:") or "Mixed meal"
-        resolved.append({
-            "item": plate_name,
-            "genus": "mixed meal",
-            "carbs_per_100g": 0.0,
-            "gi": None,
-            "portion": "m",
-            "known": False,
-        })
+        if phrase:
+            plate_name = phrase[:30].strip(" ,:")
+            resolved.append({
+                "item": plate_name,
+                "genus": "mixed meal",
+                "carbs_per_100g": 0.0,
+                "gi": None,
+                "portion": "m",
+                "known": False,
+            })
 
     return resolved
 
 
+# Words that never describe food. Filtered out of the fallback dish so a message
+# like "...not the one i told was wrong" can NEVER fabricate an "I Told Was" row.
+_JUNK_WORDS = {
+    # pronouns / links / small words
+    "i", "me", "my", "we", "us", "you", "he", "she", "it", "they", "them",
+    "the", "a", "an", "and", "or", "but", "so", "to", "of", "for", "with",
+    "in", "on", "at", "as", "what", "which", "who",
+    # auxiliary / verbs that are not eat-markers
+    "was", "were", "is", "are", "been", "being", "be", "had", "have", "has",
+    "did", "do", "does", "will", "would", "can", "could", "should", "se", "us",
+    "not", "no", "its", "it's", "it", "told", "tell", "said", "say", "saying",
+    # meal-time / reference words
+    "meal", "meals", "khana", "khaana", "dinner", "lunch", "breakfast",
+    "nashta", "food", "eating", "eaten", "ate", "khaya", "khaye", "had",
+    "wrong", "galat", "galti", "mistake", "same", "actually", "said",
+    "took", "taken", "having", "got", "get",
+    # time words
+    "today", "yesterday", "tomorrow", "kal", "aaj", "abhi", "again", "then",
+    "now", "rn", "subah", "shaam", "raat", "dopahar", "morning", "evening",
+    "night", "after", "before", "phir", "ke", "baad",
+    # hindi particles
+    "bhi", "hi", "wo", "us", "ye", "tha", "thi", "theek", "sahi", "ji", "h",
+    "aur", "ka", "ki", "ko", "se", "me", "mein", "par", "pe", "kar", "ke",
+    "bata", "bola", "boli", "bhai", "plz", "please", "ok", "okay", "hmm",
+}
+_ALNUM_WORD = re.compile(r"^[a-z][a-z-]*$")
+
+
 def _fallback_dish(text: str) -> str:
     """'i ate a chocolate and its reading was 311' -> 'chocolate'.
-    Picks the short food phrase after the eat/meal markers."""
+    Picks the short food phrase after the eat/meal markers, keeping only words
+    that could actually name a dish. Returns '' when nothing food-like remains
+    (e.g. "the meal i told was wrong" -> '') so we never invent a dish name."""
     low = text.lower()
     for m in re.finditer(
             r"\b(?:ate|had|eating|eaten|khaya|khaye|khaana|khana|meal|had\s+a|"
@@ -268,10 +299,16 @@ def _fallback_dish(text: str) -> str:
             break
         rest = re.sub(r"\b(?:the|a|an|some|about|for|of)\b", " ", rest).strip()
         words = [w for w in re.split(r"\s+", rest) if w]
-        if words:
-            dish = " ".join(words[:3])
-            return dish.title() if dish != "mixed" else "Mixed meal"
-    return "Mixed meal"
+        if not words:
+            continue
+        # keep only plausible dish words: alphabetic, not junk, not time/size
+        keep = [w.strip(".,:;") for w in words
+                if _ALNUM_WORD.match(w.strip(".,:;")) and w.strip(".,:;") not in _JUNK_WORDS]
+        if not keep:
+            continue
+        dish = " ".join(keep[:3])
+        return dish.title() if dish.lower() != "mixed" else "Mixed meal"
+    return ""
 
 
 # A small "plausible plate" library used by mock-vision (photo mode).

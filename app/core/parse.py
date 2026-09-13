@@ -26,7 +26,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from ..config import Settings
-from .clock import now_local
+from .clock import iso_now, now_local
 
 _READING_FULL = re.compile(
     r"^\s*([a-z][a-z ]*?)\??\s*[:=]?\s*(\d{2,3}(?:\.\d)?)\s*(mg/dl)?\s*$", re.I)
@@ -75,6 +75,199 @@ _PORTION_MAP = {
     "l": "l", "large": "l", "bada": "l", "zyada": "l", "jyada": "l",
 }
 
+# Patient-stated meal/portion sizes that we store verbatim ("200ml", "do katori").
+_SIZE_UNITS = ("ml", "g", "gm", "gr", "kg", "l", "litre", "litres", "liter")
+_SIZE_BOWLS = ("bowl", "bowls", "katori", "katora", "plate", "plates",
+               "thali", "glass", "cup", "cups", "dona", "pao")
+_SIZE_COUNT = ("do", "teen", "char", "paanch", "ek", "two", "three", "four",
+               "five", "one")
+
+
+def portion_text(text: str) -> Optional[str]:
+    """Extract the patient-stated size verbatim, e.g. '200ml', '2 bowls',
+    'do katori'. Returns None when no explicit size was mentioned."""
+    low = str(text or "").lower()
+    m = re.search(
+r"(\d+(?:\.\d+)?\s*(?:ml|g|l|kg|glass|bowl|katori|katora|plate|cup)"
+            r"s?)\b", low)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"(\d+\s*(?:ml|g|kg)?\s*(?:bowl|katori|plate|thali|glass|cup"
+                  r"|dona)s?\b)", low)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"((?:do|teen|char|paanch|ek|two|three|four|five)\s+"
+                  r"(?:bowl|katori|plate|thali|glass|cup|dona)s?\b)", low)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+# ---- time/size noise stripping (so clock minutes & portion counts are never
+# ---- misread as glucose readings: "8 30 am" must never yield a 30 reading)
+_CLOCK_NOISE_RE = re.compile(
+    r"\b\d{1,2}:\d{2}\s*(?:am|pm|a|p|o[ ']?clock)?\b", re.I)
+_AMPM_NOISE_RE = re.compile(
+    r"\b\d{1,2}\s*(?:am|pm|baje|o[ ']?clock)\b", re.I)
+_PART_DAY_RE = re.compile(
+    r"\b(?:morning|subah|saver|savre|savere|afternoon|dopahar|dophar|noon|"
+    r"evening|shaam|shyam|night|raat|ratri)\b", re.I)
+# "8 30 am" / "subah 8 30" — space-separated hour-minute pair.
+_SPACE_PAIR_RE = re.compile(r"\b(\d{1,2})\s+(\d{2})\s*(am|pm|baje)?\b", re.I)
+_SIZE_NOISE_RE = re.compile(
+    r"\b\d+(?:\.\d+)?\s*(?:ml|g|gm|gr|kg|litre|litres|liter|glass|bowl|bowls|"
+    r"katori|katora|plate|plates|thali|cups?|dona|pao)\b", re.I)
+_COUNT_NOISE_RE = re.compile(
+    r"\b(?:do|teen|char|paanch|ek|two|three|four|five|one)\s+(?:bowl|bowls|"
+    r"katori|katora|plate|plates|thali|glass|cups?|dona)\b", re.I)
+
+
+def _strip_space_pairs(low: str) -> str:
+    """Drop '8 30 am' / 'shaam 8 30' pairs, but only when they look like a
+    time (am/pm/baje or a day-part word in the message) so a phrase like
+    'ate 2 roti' is untouched."""
+    def _repl(m: re.Match) -> str:
+        hh, mm = int(m.group(1)), int(m.group(2))
+        period = (m.group(3) or "").lower()
+        if hh <= 23 and mm <= 59 and (period or _PART_DAY_RE.search(low)):
+            return " "
+        return m.group(0)
+    return _SPACE_PAIR_RE.sub(_repl, low)
+
+
+def strip_reading_noise(text: Optional[str]) -> str:
+    """Remove clock times, "8 30 am", "100 ml" and "do katori" clutter so only
+    real glucose numbers remain when scanning a message for a reading."""
+    low = str(text or "")
+    low = _CLOCK_NOISE_RE.sub(" ", low)
+    low = _strip_space_pairs(low)
+    low = _AMPM_NOISE_RE.sub(" ", low)
+    low = _SIZE_NOISE_RE.sub(" ", low)
+    low = _COUNT_NOISE_RE.sub(" ", low)
+    return re.sub(r"\s+", " ", low).strip()
+
+
+_SIZE_FILLERS = {
+    "the", "a", "an", "was", "were", "is", "are", "tha", "thi", "portion",
+    "size", "sahi", "pakka", "ji", "h", "ka", "ki", "ke", "me", "mein", "mai",
+    "bhi", "hi", "bas", "ye", "yhi", "wahi", "around", "about", "kya", "my",
+    "i", "it", "its", "uska", "iska", "ho", "gaya",
+}
+
+
+def _is_size_answer(text: Optional[str]) -> Optional[str]:
+    """True when the whole message is ONLY a portion-size answer ('100ml',
+    '2 bowls', 'do katori', 'was 200ml', 'small'). Returns the verbatim size
+    text so the pending meal confirm gets finalized instead of a confused
+    clarify."""
+    low = str(text or "").strip().lower()
+    if not low or len(low) > 60:
+        return None
+    ptext = portion_text(low)
+    if ptext:
+        rest = re.sub(re.escape(ptext), " ", low, count=1)
+        words = [w for w in re.split(r"[^a-z0-9]+", rest) if w]
+        if not words or all(w in _SIZE_FILLERS for w in words):
+            return ptext
+        return None
+    low2 = re.sub(r"\s+", " ", low.strip().strip(".,;:!?")).strip()
+    if low2 in _PORTION_MAP:
+        return low2
+    m = re.match(
+        r"^(half|full|do|ek|teen|char|paanch|one|two|three|four|five|"
+        r"1|2|3|4|5)?\s*(katori|bowl|plate|thali|glass|cup|dona|pao)s?$",
+        low2)
+    if m:
+        return low2
+    return None
+
+
+# ---- meal/reading correction & reference intents ----------------------
+_REF_CUES = ("same", "wahi", "wohi", "dono", "yahe", "yhi", "pehle", "earlier")
+_CORR_PREV_CUES = ("wrong", "galat", "galti", "mistake", "not", "nhi", "nahi",
+                   "tha", "told", "change", "changed", "different", "alag",
+                   "sahi", "koi aur")
+_REF_STRONG = ("not the one", "the one i told", "i told", "jo bola",
+               "pehle bola", "jo maine bola", "bola tha", "boli thi",
+               "told was", "told you")
+
+
+def _reference_correction(text: Optional[str]) -> bool:
+    """True when the message refers to a MEAL the patient named before and
+    corrects/changes it ("not the one i told", "same only, the meal i told was
+    wrong") WITHOUT naming a new dish or a number. Such a message must never
+    fabricate a dish name (see nutrition._fallback_dish) — the worker replaces
+    or confirms the prior meal instead."""
+    low = strip_reading_noise(text).lower()
+    low = re.sub(r"\s+", " ", low).strip()
+    if not low or len(low) > 60:
+        return False
+    if re.search(r"\d", low):
+        return False
+    if _is_size_answer(low) or _is_confirm(low):
+        return False
+    if any(s in low for s in _REF_STRONG):
+        return True
+    has_ref = any(w in low for w in _REF_CUES)
+    has_corr = any(w in low for w in _CORR_PREV_CUES)
+    return bool(has_ref and has_corr)
+
+
+_DELETE_WORDS = ("delete", "remove", "hata", "hatao", "hatana", "hatayo",
+                 "mita", "mitao", "mitana", "nikal", "nikalo", "clear",
+                 "erase")
+_MEAL_DELETE_WORDS = ("khana", "khaana", "meal", "dish", "dishes", "food",
+                      "makan")
+_READING_DELETE_WORDS = ("sugar", "glucose", "reading", "prick", "value",
+                         "log", "entry", "record")
+
+
+def _is_reading_delete(text: Optional[str]) -> bool:
+    """'sugar delete karo' / 'remove the 2pm reading' / 'us reading ko hatao'
+    -> True. Meal-deletes are handled separately (see _is_meal_delete)."""
+    low = str(text or "").lower()
+    if not any(re.search(rf"\b{re.escape(w)}\b", low) for w in _DELETE_WORDS):
+        return False
+    if any(mw in low for mw in _MEAL_DELETE_WORDS):
+        return False
+    if any(re.search(rf"\b{re.escape(k)}\b", low) for k in _READING_DELETE_WORDS):
+        return True
+    return bool(re.search(r"\b\d{2,3}\b", low))
+
+
+def _is_meal_delete(text: Optional[str]) -> bool:
+    """'khana delete karo' / 'delete the meal i logged' -> True."""
+    low = str(text or "").lower()
+    if not any(re.search(rf"\b{re.escape(w)}\b", low) for w in _DELETE_WORDS):
+        return False
+    return any(mw in low for mw in _MEAL_DELETE_WORDS)
+
+
+_DAY_REF_RE = re.compile(r"\b(kal|yesterday|parso[ _]kal|parso|aaj|today|abh[ií])\b")
+_EDIT_MARKS = ("wala", "wali", "wale", "galat", "wrong", "sahi", "update",
+               "change", "changed", "edit", "replace", "correct", "correction",
+               "sudhar", "badlo", "badal", "kar do")
+
+
+def _dated_edit_value(text: Optional[str],
+                      msg_ts: Optional[str] = None) -> Optional[tuple]:
+    """'kal 8 am wala galat tha, 140 tha' -> (value, ts_for_that_time).
+    Returns (float, iso-ts) when the message names an explicit day/time,
+    uses a correction marker AND carries exactly one glucose-sized value —
+    the patient is fixing a PAST logged reading, not reporting a new one."""
+    low = str(text or "").lower()
+    if not _DAY_REF_RE.search(low):
+        return None
+    if not any(m in low for m in _EDIT_MARKS):
+        return None
+    nums = [float(m) for m in re.findall(r"\b\d{2,3}(?:\.\d)?\b", low)
+            if 20 <= float(m) <= 600]
+    if len(nums) != 1:
+        return None
+    ts = reading_timestamp(text, msg_ts or iso_now()).strftime(
+        "%Y-%m-%dT%H:%M:%S")
+    return nums[0], ts
+
 
 @dataclass
 class ParsedInput:
@@ -84,6 +277,7 @@ class ParsedInput:
     reading: Optional[float] = None
     reading_tag: Optional[str] = None
     portion_letter: Optional[str] = None
+    portion_text: Optional[str] = None
     ts: datetime = field(default_factory=now_local)
     raw: str = ""
 
@@ -168,6 +362,7 @@ def parse_inbound(raw: dict, cfg: Settings, mock_vision=None) -> ParsedInput:
         if portion_word in _PORTION_MAP:
             return ParsedInput(kind="confirm", text=low,
                                portion_letter=_PORTION_MAP[portion_word],
+                               portion_text=portion_text(low),
                                ts=_ts(raw), raw=low)
         cm = re.match(r"^correct\s+(.+)$", low)
         if cm:
@@ -203,7 +398,7 @@ def ambiguous_reading_values(text: str) -> list[float]:
     """
     if not text:
         return []
-    low = str(text).lower()
+    low = strip_reading_noise(text)
     if not any(m in low for m in _AMBIGUITY_MARKERS):
         return []
     vals = sorted({float(m) for m in re.findall(r"\b\d{2,3}(?:\.\d)?\b", low)
@@ -268,6 +463,7 @@ def _strip_time(text: Optional[str]) -> str:
     patients append after answering the before/after question."""
     low = str(text or "").strip().lower()
     low = re.sub(r"\b\d{1,2}:\d{2}\s*(?:am|pm|a|p|o[ ']?clock)?\b", " ", low)
+    low = _strip_space_pairs(low)
     low = re.sub(r"\b\d{1,2}\s*(?:am|pm|baje|o[ ']?clock)\b", " ", low)
     low = re.sub(r"\b(07|7|08|8|09|9|1[0-9]|2[0-3]):\d{2}\b", " ", low)
     return re.sub(r"\s+", " ", low).strip()
@@ -466,38 +662,53 @@ def time_reference(text: Optional[str]) -> tuple[int, Optional[int]]:
     minute: Optional[int] = None
     hh: Optional[int] = None
     explicit_ampm = False
-    m = re.search(r"(\d{1,2})(?::(\d{2}))?(?:\s*(am|pm|baje)\b)", low)
-    if not m:
-        m = re.search(r"(\d{1,2}):(\d{2})\b", low)
-    if m:
-        hh = int(m.group(1))
-        mm = int(m.group(2) or 0)
-        period = (str(m.group(3) or "") if m.lastindex >= 3 else "").strip()
-        if period in ("am", "pm"):
-            explicit_ampm = True
-        if period == "pm" and hh < 12:
-            hh += 12
-        elif period == "am" and hh == 12:
-            hh = 0
-        minute = hh * 60 + mm
-    else:
-        # Bare hour tied to a part-of-day word ("at 7 in the morning",
-        # "7 subah", "8 raat", "shaam 3") — the explicit hour wins, so
-        # "yesterday at 7 in the morning" is 07:00 and NOT the generic
-        # morning default of 08:00. "sugar 130 morning" can never match
-        # because \d{1,2} cannot swallow the third digit.
-        _PART_DAY = (r"(?:morning|subah|saver|savre|savere|afternoon|dopahar|"
-                     r"evening|shaam|shyam|night|raat|ratri)")
-        m2 = re.search(
-            rf"\b(?:at|about|around|karib|lagbhag)?\s*(\d{{1,2}})"
-            rf"(?:\s*baje\b)?\s*(?=(?:in\s+the\s+)?{_PART_DAY}\b)", low)
-        if not m2:
+    # "8 30 am" / "subah 8 30" — space-separated hour-minute. Accepted only
+    # with am/pm/baje or a day-part word so 'ate 30' is never a clock.
+    m_sp = _SPACE_PAIR_RE.search(low)
+    if m_sp:
+        hh_sp, mm_sp = int(m_sp.group(1)), int(m_sp.group(2))
+        period_sp = (m_sp.group(3) or "").lower()
+        if hh_sp <= 23 and mm_sp <= 59 and (period_sp or _PART_DAY_RE.search(low)):
+            hh = hh_sp
+            explicit_ampm = period_sp in ("am", "pm")
+            if period_sp == "pm" and hh < 12:
+                hh += 12
+            elif period_sp == "am" and hh == 12:
+                hh = 0
+            minute = hh * 60 + mm_sp
+    if minute is None:
+        m = re.search(r"(\d{1,2})(?::(\d{2}))?(?:\s*(am|pm|baje)\b)", low)
+        if not m:
+            m = re.search(r"(\d{1,2}):(\d{2})\b", low)
+        if m:
+            hh = int(m.group(1))
+            mm = int(m.group(2) or 0)
+            period = (str(m.group(3) or "") if m.lastindex >= 3 else "").strip()
+            if period in ("am", "pm"):
+                explicit_ampm = True
+            if period == "pm" and hh < 12:
+                hh += 12
+            elif period == "am" and hh == 12:
+                hh = 0
+            minute = hh * 60 + mm
+        else:
+            # Bare hour tied to a part-of-day word ("at 7 in the morning",
+            # "7 subah", "8 raat", "shaam 3") — the explicit hour wins, so
+            # "yesterday at 7 in the morning" is 07:00 and NOT the generic
+            # morning default of 08:00. "sugar 130 morning" can never match
+            # because \d{1,2} cannot swallow the third digit.
+            _PART_DAY = (r"(?:morning|subah|saver|savre|savere|afternoon|"
+                         r"dopahar|evening|shaam|shyam|night|raat|ratri)")
             m2 = re.search(
-                rf"\b{_PART_DAY}\b\s*(?:ke\s+)?(\d{{1,2}})(?:\s*baje\b)?",
-                low)
-        if m2:
-            hh = int(m2.group(1))
-            minute = hh * 60
+                rf"\b(?:at|about|around|karib|lagbhag)?\s*(\d{{1,2}})(?!\d)"
+                rf"(?:\s*baje\b)?\s*(?=(?:in\s+the\s+)?{_PART_DAY}\b)", low)
+            if not m2:
+                m2 = re.search(
+                    rf"\b{_PART_DAY}\b\s*(?:ke\s+)?(\d{{1,2}})(?!\d)"
+                    rf"(?:\s*baje\b)?", low)
+            if m2:
+                hh = int(m2.group(1))
+                minute = hh * 60
     if minute is not None and not explicit_ampm and hh is not None and hh < 12:
         # Evening/night hours without am/pm: "shaam 3" -> 15:00, "raat 8" ->
         # 20:00, "shaam 3 baje" -> 15:00. True 24h-style hours stay untouched.

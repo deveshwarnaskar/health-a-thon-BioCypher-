@@ -34,14 +34,21 @@ from .parse import (
     PATIENT_TAG_LABELS,
     _PORTION_MAP,
     _correction_value,
+    _dated_edit_value,
     _is_dup_answer,
+    _is_meal_delete,
+    _is_reading_delete,
+    _is_size_answer,
     _is_tag_answer,
     _is_tag_negation,
+    _reference_correction,
     _resolution_cue_value,
     _tag_from_text,
     ambiguous_reading_values,
     parse_inbound,
+    portion_text,
     reading_timestamp,
+    strip_reading_noise,
 )
 
 
@@ -97,30 +104,8 @@ def _hm(ts_s: Optional[str]) -> str:
     return s[11:16] if len(s) >= 16 else s
 
 
-# Patient-stated meal/portion sizes that we store verbatim ("200ml").
-_SIZE_UNITS = ("ml", "g", "gm", "gr", "kg", "l", "litre", "litres", "liter")
-_SIZE_BOWLS = ("bowl", "katori", "plate", "thali", "glass", "cup", "dona",
-               "katori bhara", "pao")
-_SIZE_COUNT = ("do", "teen", "char", "paanch", "ek", "two", "three", "four",
-               "five", "one")
-
-
-def portion_text(text: str) -> Optional[str]:
-    """Extract the patient-stated size verbatim, e.g. '200ml', '2 bowls',
-    'do katori'. Returns None when no explicit size was mentioned."""
-    low = str(text or "").lower()
-    m = re.search(r"(\d+(?:\.\d+)?\s*(?:ml|g|l|kg|glass|bowl|katori|plate|cup))", low)
-    if m:
-        return m.group(1).strip()
-    m = re.search(r"(\d+\s*(?:ml|g|kg)?\s*(?:bowl|katori|plate|thali|glass|cup"
-                  r"|dona)s?\b)", low)
-    if m:
-        return m.group(1).strip()
-    m = re.search(r"((?:do|teen|char|paanch|ek|two|three|four|five)\s+"
-                  r"(?:bowl|katori|plate|thali|glass|cup|dona)s?\b)", low)
-    if m:
-        return m.group(1).strip()
-    return None
+# Patient-stated meal/portion sizes come from parse.portion_text (kept in
+# parse.py so the webhook path shares the same size parsing).
 
 
 def _portion_answer(text: str) -> Optional[tuple]:
@@ -146,6 +131,8 @@ def _reading_deduction(text: str, msg_ts: Optional[str] = None) -> dict:
 
     Returns {"value": float|None, "tag": str|None, "candidates": [..],
              "status": "resolved"|"ambiguous"|"none", "ts_str": str|None}.
+    - Time/size clutter is stripped FIRST so clock minutes ("8 30 am"),
+      portion counts ("100 ml", "do katori") can never be read as glucose.
     - Ambiguous messages (>=2 distinct plausible values like "230 or 330") never
       pick a value — they wait for the patient to say which one is real.
     - Repeating the same number ("its reading was 311 ... 311") collapses to a
@@ -156,7 +143,7 @@ def _reading_deduction(text: str, msg_ts: Optional[str] = None) -> dict:
       was 300" -> yesterday 15:00, postprandial). "morning"/"subah" are timing,
       never fasting.
     """
-    low = str(text or "")
+    low = strip_reading_noise(text)
     cand = ambiguous_reading_values(low)
     if cand:
         return {"value": None, "tag": None, "candidates": cand,
@@ -183,10 +170,46 @@ def _reading_deduction(text: str, msg_ts: Optional[str] = None) -> dict:
     tag = None
     if any(k in low.lower() for k in _TAG_KEYWORDS):
         tag = _tag_from_text(low)
-    ts_dt = reading_timestamp(low, msg_ts or iso_now())
+    ts_dt = reading_timestamp(text, msg_ts or iso_now())
     return {"value": single, "tag": tag, "candidates": [],
             "status": "resolved",
             "ts_str": ts_dt.strftime("%Y-%m-%dT%H:%M:%S")}
+
+
+_MULTI_SEP = re.compile(
+    r"[,;]|\b(?:and|aur|phir|fir|then|ke\s+baad|ke\s+bad)\b", re.I)
+
+
+def _multi_readings(text: str, msg_ts: Optional[str] = None) -> list[dict]:
+    """Split a message that reports SEVERAL readings ("8am 130, 9am 145",
+    "subah 130 aur shaam 150"). Each segment must resolve to exactly one
+    glucose-sized number that is not itself ambiguous. Returns [] unless at
+    least two such readings exist with distinct values OR timestamps — so a
+    genuine "230 or 330" stays a candidate question, never a double-log."""
+    out = []
+    for raw_seg in re.split(_MULTI_SEP, str(text or "")):
+        raw_seg = raw_seg.strip()
+        if not raw_seg:
+            continue
+        seg = strip_reading_noise(raw_seg)
+        if ambiguous_reading_values(seg):
+            continue
+        nums = [float(m) for m in re.findall(r"\b\d{2,3}(?:\.\d)?\b", seg)
+                if 20 <= float(m) <= 600]
+        if len(nums) != 1:
+            continue
+        v = nums[0]
+        tag = _tag_from_text(seg) if any(
+            k in seg.lower() for k in _TAG_KEYWORDS) else None
+        # The raw segment keeps its time words ("8am 130" -> 08:00) even though
+        # the number scan strips them.
+        ts_dt = reading_timestamp(raw_seg, msg_ts or iso_now())
+        out.append({"value": v, "tag": tag,
+                    "ts_str": ts_dt.strftime("%Y-%m-%dT%H:%M:%S")})
+    pairs = {(r["ts_str"], r["value"]) for r in out}
+    if len(out) >= 2 and len(pairs) >= 2:
+        return out
+    return []
 
 
 @dataclass
@@ -205,24 +228,40 @@ class IntakeResult:
     reading_ts: Optional[str] = None
     meal_items: list = field(default_factory=list)
     meal_portion: Optional[str] = None
+    meal_portion_text: Optional[str] = None
     meal_ts: Optional[str] = None
+    multi_readings: list = field(default_factory=list)
+    language: str = "hi"
 
 
 _INTAKE_PROMPT = (
     "You are the intake collector assistant for a diabetes-logging system. You are NOT a doctor. "
     "You never give medical advice, targets, diagnoses, doses, or diet prescriptions, and you never "
     "comment on what a reading number means.\n"
+    "Understand the patient's message in ANY language it is written in (Hindi, Hinglish, Tamil, Urdu, "
+    "Bengali, Telugu, Punjabi, Gujarati, Kannada, Malayalam, Odia, English...). Also catch typos "
+    "('mithai', 'khana', 'sugar 120', 'fasting', 'khali pet', 'prick 140').\n"
     "Your only job: decide which logging fields the patient's latest message provided, and if "
-    "anything is missing or ambiguous, ask for EXACTLY ONE in a short friendly Hinglish question "
-    "(under 70 characters). Recognise Hindi/Hinglish and typos (e.g. 'mithai', 'khana', 'sugar 120', "
-    "'fasting', 'khali pet', 'prick 140').\n"
+    "anything is missing or ambiguous, ask for EXACTLY ONE in a short friendly question written in the "
+    "patient's OWN language (under 70 characters).\n"
     "Required fields: 1) reading number 2) reading context tag (fasting / post-breakfast / post-lunch / "
     "post-dinner / pre-meal) 3) meal items 4) portion size (small/medium/large).\n"
-    "If everything required was supplied, return missing=[] and an empty reply — do NOT ask anything extra.\n"
-    'Return strictly valid JSON: {"intent":"reading"|"meal"|"confirm"|"clarify", '
-    '"missing":["reading_value"|"reading_tag"|"meal_items"|"portion"], "reply":"<one short Hinglish question or empty>", '
-    '"items":["dish 1","dish 2"] (only the dish names the patient mentioned, or []), '
-    '"portion":"s"|"m"|"l" (only when the patient stated it)}'
+    "Rules:\n"
+    "- Only report a reading number that the patient ACTUALLY wrote. Never invent one.\n"
+    "- When the message changes/corrects a meal said earlier ('not the one i told', 'the meal i told was "
+    "wrong') but names no new dish and no number, set is_reference=true and items=[].\n"
+    "- When the message asks to delete a reading or a meal, set is_delete=true and reply=''.\n"
+    "- If everything required was supplied, return missing=[] and an empty reply — do NOT ask anything extra.\n"
+    'Return strictly valid JSON: {"intent":"reading"|"meal"|"confirm"|"clarify"|"reference"|"delete", '
+    '"missing":["reading_value"|"reading_tag"|"meal_items"|"portion"], "reply":"<one short question in the '
+    'patient language or empty>", "reading": <number the patient wrote or null>, '
+    '"reading_tag":"fasting"|"postprandial"|"postbreakfast"|"postlunch"|"postdinner"|"pre"|"random"|null, '
+    '"items":["dish 1","dish 2"] (only what the patient mentioned, or []), '
+    '"portion":"s"|"m"|"l" (only when the patient stated it), '
+    '"readings":[{"value": <number>, "tag": <tag or null>}, ...] (ONLY when the message reports several '
+    'readings, e.g. "8am 130, 9am 145"; else []), '
+    '"is_reference": true|false, "is_delete": true|false, '
+    '"detected_language":"hi"|"ta"|"bn"|"te"|"pa"|"gu"|"kn"|"ml"|"or"|"ur"|"en"}'
 )
 
 
@@ -265,6 +304,117 @@ def _call_gemini_intake(text: str, patient_name: str, key: str) -> Optional[dict
     return None
 
 
+# ---- multilingual understanding --------------------------------------
+# Patient messages are understood in ANY language; replies are mirrored back in
+# the patient's language (deterministic script detection always, translation
+# through Gemini only when a key is present — never inventing clinical words).
+_LANG_NAMES = {
+    "hi": "Hindi", "ta": "Tamil", "bn": "Bengali", "te": "Telugu",
+    "pa": "Punjabi", "gu": "Gujarati", "kn": "Kannada", "ml": "Malayalam",
+    "or": "Odia", "ur": "Urdu", "en": "English",
+}
+_SCRIPT_RANGES = {
+    "hi": ((0x0900, 0x097F),),
+    "bn": ((0x0980, 0x09FF),),
+    "ta": ((0x0B80, 0x0BFF),),
+    "te": ((0x0C00, 0x0C7F),),
+    "kn": ((0x0C80, 0x0CFF),),
+    "ml": ((0x0D00, 0x0D7F),),
+    "gu": ((0x0A80, 0x0AFF),),
+    "pa": ((0x0A00, 0x0A7F),),
+    "or": ((0x0B00, 0x0B7F),),
+    "ur": ((0x0600, 0x06FF),),
+}
+_HINDI_LOAN_TOKENS = {"ji", "bataiye", "batao", "khana", "khaana", "theek",
+                      "thik", "sahi", "nahi", "nhi", "hai", "log", "karo",
+                      "karke", "bana", "pet", "roti", "dal", "sabzi", "subah",
+                      "shaam", "raat", "ki", "ke", "ka", "bahut", "badiya",
+                      "achha", "achchha", "kya", "kal", "aaj", "tha", "thi",
+                      "khaya", "khayi", "chole", "bhature",
+                      "biryani", "chawal", "paneer", "kadi", "phir", "aur",
+                      "maine", "tumne", "wo", "ye", "koi", "naya", "baad"}
+
+
+def detect_language(text: Optional[str]) -> str:
+    """Patient's reply language by script. Latin script that carries Hindi
+    loanwords is 'hi' (the default Hinglish UI), otherwise 'en'."""
+    low = str(text or "")
+    counts: dict[str, int] = {}
+    for ch in low:
+        cp = ord(ch)
+        for lang, ranges in _SCRIPT_RANGES.items():
+            for lo, hi in ranges:
+                if lo <= cp <= hi:
+                    counts[lang] = counts.get(lang, 0) + 1
+                    break
+    if not counts:
+        lat = re.sub(r"[^a-z\s]", " ", low.lower())
+        if set(lat.split()) & _HINDI_LOAN_TOKENS:
+            return "hi"
+        return "en"
+    return max(counts, key=counts.get)
+
+
+def _call_gemini_plain(prompt: str, key: str) -> Optional[str]:
+    """Bare Gemini completion returning the raw text (for translations).
+    Returns None on any failure so callers keep their safe default."""
+    model_list = list(_MODELS)
+    try:
+        from .ai import discover_models
+        model_list = discover_models(key) or list(_MODELS)
+    except Exception:
+        pass
+    for model in model_list:
+        try:
+            import httpx
+            url = (f"https://generativelanguage.googleapis.com/v1beta/models/{model}"
+                   f":generateContent?key={key}")
+            resp = httpx.post(
+                url,
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+                timeout=6.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                out = data["candidates"][0]["content"]["parts"][0]["text"]
+                return (out or "").strip() or None
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
+def localize_reply(reply: Optional[str], lang: Optional[str]) -> Optional[str]:
+    """Mirror a bot reply into the patient's language. Hinglish (hi/en/) is the
+    native reply language and is never touched; regional scripts are translated
+    only when Gemini is available, and the result is bounded + screened so we
+    never relay invented clinical wording."""
+    if not reply:
+        return reply
+    lng = (lang or "hi").strip()
+    if lng in ("", "hi", "en", "sa") or lng not in _LANG_NAMES:
+        return reply
+    key = os.environ.get("GEMINI_API_KEY") or ""
+    if not key:
+        return reply
+    prompt = (
+        f"You are a translation helper. Translate the following short healthcare "
+        f"log-message into {_LANG_NAMES[lng]}. Reply with ONLY the translation, "
+        f"keeping numbers, times and emoji exactly as they are. Do not add advice "
+        f"or instructions.\nMessage:\n{reply[:300]}"
+    )
+    out = _call_gemini_plain(prompt, key)
+    if not out:
+        return reply
+    cleaned = " ".join(str(out).split())
+    if len(cleaned) > 400:
+        return reply
+    forbidden = ("target", "dose", "insulin", "prescrib", "diagnos", "medicine",
+                 "medication", "consult", "suggest")
+    if any(w in cleaned.lower() for w in forbidden):
+        return reply
+    return cleaned
+
+
 def _local_notifier(text: str, patient_name: str, cfg: Settings,
                     msg_ts: Optional[str] = None) -> IntakeResult:
     raw = re.sub(r"\s+", " ", (text or "")).strip()
@@ -292,6 +442,19 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
                             reply="", should_reply=True, raw_text=raw,
                             confidence=0.92, analyzed_by="local-refiner",
                             reading_tag=neg_tag,
+                            meal_items=local_items, meal_portion=meal_portion)
+
+    # An explicit day/time correction ("kal 8 am wala galat tha, 140 tha")
+    # edits THAT past reading — checked before resolution/correction so the
+    # "wala" cue can never hijack a dated edit into a bare value answer.
+    dated_edit = _dated_edit_value(raw, msg_ts)
+    if dated_edit is not None:
+        value, ts_str = dated_edit
+        return IntakeResult(intent="correction", missing=[], reply="",
+                            should_reply=True, raw_text=raw, confidence=0.94,
+                            analyzed_by="local-refiner",
+                            reading_value=value, reading_status="resolved",
+                            reading_tag=ded.get("tag"), reading_ts=ts_str,
                             meal_items=local_items, meal_portion=meal_portion)
 
     res_ans = _resolution_cue_value(raw)
@@ -324,6 +487,55 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
         return IntakeResult(intent="dup_answer", missing=[], reply="",
                             should_reply=True, raw_text=raw, confidence=0.97,
                             analyzed_by="local-refiner",
+                            meal_items=local_items, meal_portion=meal_portion)
+
+    # ---- edit/delete existing log entries --------------------------------
+    if _is_meal_delete(raw):
+        return IntakeResult(intent="meal_delete", missing=[], reply="",
+                            should_reply=True, raw_text=raw, confidence=0.97,
+                            analyzed_by="local-refiner",
+                            meal_items=local_items, meal_portion=meal_portion,
+                            meal_ts=reading_timestamp(raw, msg_ts or iso_now())
+                            .strftime("%Y-%m-%dT%H:%M:%S"))
+    if _is_reading_delete(raw):
+        return IntakeResult(intent="reading_delete", missing=[], reply="",
+                            should_reply=True, raw_text=raw, confidence=0.97,
+                            analyzed_by="local-refiner",
+                            reading_ts=ded.get("ts_str"),
+                            meal_items=local_items, meal_portion=meal_portion)
+
+    # A meal REFERENCE/correction ("not the one i told", "the meal i told was
+    # wrong") with no new dish and no number — must never fabricate a dish.
+    if not local_items and _reference_correction(raw):
+        return IntakeResult(intent="meal_reference", missing=[], reply="",
+                            should_reply=True, raw_text=raw, confidence=0.93,
+                            analyzed_by="local-refiner",
+                            meal_items=local_items, meal_portion=meal_portion,
+                            meal_ts=reading_timestamp(raw, msg_ts or iso_now())
+                            .strftime("%Y-%m-%dT%H:%M:%S"))
+
+    # A bare portion-size answer ("100ml", "2 bowls", "was 200ml") finalizes
+    # the pending meal with the verbatim size — never a confused clarify.
+    sz = _is_size_answer(raw)
+    if sz:
+        letter = (_PORTION_MAP.get(str(sz).lower().split()[0])
+                  if str(sz).split() else None)
+        return IntakeResult(intent="meal_confirm", missing=[], reply="",
+                            should_reply=True, raw_text=raw, confidence=0.95,
+                            analyzed_by="local-refiner",
+                            meal_portion=letter, meal_portion_text=sz,
+                            meal_ts=reading_timestamp(raw, msg_ts or iso_now())
+                            .strftime("%Y-%m-%dT%H:%M:%S"))
+
+    # Several readings reported together ("8am 130, 9am 145") land separately.
+    # True ambiguity ("230 or 330") produces no split readings and still falls
+    # through to the single-question path below.
+    multi = _multi_readings(raw, msg_ts)
+    if multi:
+        return IntakeResult(intent="multi_reading", missing=[], reply="",
+                            should_reply=True, raw_text=raw, confidence=0.88,
+                            analyzed_by="local-refiner",
+                            multi_readings=multi,
                             meal_items=local_items, meal_portion=meal_portion)
 
     # ---- reading: ambiguous -> ask the true value, never guess -----------
@@ -399,6 +611,7 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
             should_reply=True, raw_text=raw, confidence=0.95,
             analyzed_by="local-refiner",
             meal_portion=parsed.portion_letter,
+            meal_portion_text=portion_text(low),
             meal_ts=reading_timestamp(raw, msg_ts or iso_now()).strftime(
                 "%Y-%m-%dT%H:%M:%S"))
 
@@ -465,6 +678,8 @@ def analyze_intake(text: str, patient_name: str = "Patient",
     cfg = cfg or Settings()
     raw = str(text or "").strip()
     local = _local_notifier(raw, patient_name, cfg, msg_ts)
+    # The patient's own script decides the reply language (deterministically).
+    local.language = detect_language(raw)
     key = os.environ.get("GEMINI_API_KEY") or getattr(cfg, "gemini_api_key", "")
     if not key:
         return local
@@ -478,23 +693,127 @@ def analyze_intake(text: str, patient_name: str = "Patient",
         _last_ai_status["last_model"] = str(parsed.get("_model", ""))
     except Exception:
         pass
+    g_intent = str(parsed.get("intent") or "").strip()
     gem_reply = str(parsed.get("reply") or "").strip()
+    noise = strip_reading_noise(raw)
+    known_nums = sorted({float(m) for m in re.findall(r"\d{2,3}(?:\.\d)?", noise)
+                         if 20 <= float(m) <= 600})
+
+    def _real(readable: Optional[object]) -> Optional[float]:
+        """A Gemini-reported reading is only real when it matches an actual
+        number the patient wrote (in range). Never invents a value."""
+        try:
+            f = float(readable)
+        except (TypeError, ValueError):
+            return None
+        if not (20 <= f <= 600):
+            return None
+        if any(abs(f - x) < 0.5 for x in known_nums):
+            return f
+        return None
+
+    def _tag_ok(tag: Optional[object]) -> Optional[str]:
+        t = str(tag or "").strip().lower().replace(" ", "")
+        if t in ("fasting", "postprandial", "random", "postbreakfast",
+                 "postlunch", "postdinner", "pre"):
+            return t
+        return None
+
+    def _meal_items_from(raw_items: object) -> list:
+        if isinstance(raw_items, str) and raw_items.strip():
+            return _meal_items(raw_items, cfg)
+        if isinstance(raw_items, list):
+            names = [str(x).strip() for x in raw_items if str(x).strip()]
+            if names:
+                return _meal_items(", ".join(names[:4]), cfg)
+        return []
+
+    now_iso = reading_timestamp(raw, msg_ts or iso_now()).strftime(
+        "%Y-%m-%dT%H:%M:%S")
+
+    # 1) A genuinely unclear message → Gemini words the ONE follow-up question
+    #    in the patient's language.
     if local.intent == "clarify" and gem_reply:
         local.reply = gem_reply
         local.analyzed_by = f"gemini:{parsed.get('_model', '')}"
         local.confidence = 0.98
-    if not local.meal_items:
-        raw_items = parsed.get("items") or []
-        g_items = []
-        if isinstance(raw_items, str) and raw_items.strip():
-            g_items = _meal_items(raw_items, cfg)
-        elif isinstance(raw_items, list):
-            names = [str(x).strip() for x in raw_items if str(x).strip()]
-            if names:
-                g_items = _meal_items(", ".join(names[:4]), cfg)
+
+    # 2) Reference / delete raises — only for cases the deterministic refiner
+    #    could not already see (never double-handles naya/mistake answers).
+    if parsed.get("is_reference") and local.intent == "clarify":
+        local.intent = "meal_reference"
+        local.missing = []
+        local.reply = ""
+        local.meal_ts = now_iso
+    if parsed.get("is_delete") and local.intent == "clarify":
+        low_ = raw.lower()
+        if any(mw in low_ for mw in ("khana", "khaana", "meal", "dish",
+                                     "food", "makan")):
+            local.intent = "meal_delete"
+        else:
+            local.intent = "reading_delete"
+            local.reading_ts = now_iso
+        local.missing = []
+        local.reply = ""
+        local.should_reply = True
+
+    # 3) Multiple readings ("8am 130, 9am 145") — every value must be real.
+    gem_readings = parsed.get("readings") if isinstance(
+        parsed.get("readings"), list) else []
+    validated = []
+    for mr in gem_readings:
+        if not isinstance(mr, dict):
+            continue
+        gv = _real(mr.get("value"))
+        if gv is None:
+            continue
+        validated.append({"value": gv,
+                          "tag": _tag_ok(mr.get("tag")) or "postprandial",
+                          "ts_str": now_iso})
+    if (g_intent == "reading" and local.intent != "multi_reading"
+            and len(validated) >= 2):
+        local.intent = "multi_reading"
+        local.missing = []
+        local.reply = ""
+        local.multi_readings = validated
+        local.meal_items = _meal_items_from(parsed.get("items"))
+
+    # 4) Single reading upgrade (never invents a number).
+    if (local.intent == "clarify" and g_intent in ("reading", "confirm")
+            and not validated):
+        gv = _real(parsed.get("reading"))
+        if gv is not None:
+            local.intent = "reading"
+            local.reading_value = gv
+            local.reading_status = "resolved"
+            local.reading_tag = _tag_ok(parsed.get("reading_tag")) or "postprandial"
+            local.reading_ts = now_iso
+            local.missing = []
+            local.reply = (f'✅ Logged sugar {gv:g} '
+                           f'({PATIENT_TAG_LABELS.get(local.reading_tag, local.reading_tag)}) — '
+                           f'{_hm(now_iso)}. Aur kuch log karna hai — sugar ya khana?')
+
+    # 5) Meal items — Gemini's dish extraction only fills a gap and only from
+    #    real words the patient wrote.
+    if local.intent == "meal" and not local.meal_items:
+        g_items = _meal_items_from(parsed.get("items"))
         if g_items:
             local.meal_items = g_items
             g_portion = str(parsed.get("portion") or "").strip().lower()[:1]
             if g_portion in ("s", "m", "l"):
                 local.meal_portion = g_portion
+                if "portion" in (local.missing or []):
+                    local.missing.remove("portion")
+            local.meal_ts = now_iso
+    elif local.intent == "clarify" and g_intent == "meal" and validated:
+        g_items = _meal_items_from(parsed.get("items"))
+        if g_items:
+            local.intent = "meal"
+            local.meal_items = g_items
+            g_portion = str(parsed.get("portion") or "").strip().lower()[:1]
+            local.meal_portion = g_portion if g_portion in ("s", "m", "l") else None
+            local.missing = [] if local.meal_portion else ["portion"]
+            local.meal_ts = now_iso
+            local.reply = (f"✅ Logged khana: {', '.join(local.meal_items)}. "
+                           f"Kya portion thi — small, medium ya large?")
     return local

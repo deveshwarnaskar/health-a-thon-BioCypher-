@@ -30,6 +30,7 @@ from .intake_ai import (
     IntakeResult,
     _portion_stated,
     analyze_intake,
+    localize_reply,
     portion_text,
 )
 from .parse import (PATIENT_TAG_LABELS, _is_dup_answer,
@@ -94,8 +95,10 @@ class IntakeWorker:
             if res.should_reply and res.reply and sender and should_send:
                 try:
                     from ..core.process import Outbound
+                    body = localize_reply(
+                        res.reply, getattr(res, "language", "hi"))
                     ok = bool(self.send(Outbound(route="patient", kind="text",
-                                                 body=res.reply, to_phone=sender)))
+                                                 body=body, to_phone=sender)))
                 except Exception as e:
                     print(f"[Aahaar] AI intake worker send error: {e}")
                     ok = False
@@ -154,7 +157,10 @@ class IntakeWorker:
             reading_ts=parsed.get("reading_ts"),
             meal_items=list(parsed.get("meal_items") or []),
             meal_portion=parsed.get("meal_portion"),
+            meal_portion_text=parsed.get("meal_portion_text"),
             meal_ts=parsed.get("meal_ts"),
+            multi_readings=list(parsed.get("multi_readings") or []),
+            language=parsed.get("language", "hi"),
         )
 
     def _save_refined(self, raw_id: int, res: IntakeResult,
@@ -188,7 +194,10 @@ class IntakeWorker:
             "reading_ts": res.reading_ts,
             "meal_items": list(res.meal_items or []),
             "meal_portion": res.meal_portion,
+            "meal_portion_text": res.meal_portion_text,
             "meal_ts": res.meal_ts,
+            "multi_readings": list(res.multi_readings or []),
+            "language": res.language,
             "registered": bool(prev_registered) or bool(registered),
             "meal_registered": bool(prev_meal_registered),
         }
@@ -247,6 +256,67 @@ class IntakeWorker:
                 pending, key=lambda r: r.get("ts") or "", reverse=True)[0]) or None
             target = latest_pend or latest_conf
 
+            if intent == "reading_delete":
+                # Delete the reading the message points at (its own day/time
+                # word wins), else the latest logged one.
+                del_target = None
+                if res.reading_ts:
+                    day = str(res.reading_ts)[:10]
+                    dated = [r for r in sender_rows
+                             if str(r.get("ts") or "")[:10] == day]
+                    if dated:
+                        del_target = sorted(
+                            dated, key=lambda r: r.get("ts") or "",
+                            reverse=True)[0]
+                if del_target is None:
+                    del_target = latest_conf or latest_pend
+                if del_target:
+                    dval = float(del_target["value"] or 0.0)
+                    self.store.delete_reading(del_target["id"])
+                    self.store.audit(
+                        "ai_intake", "reading_deleted",
+                        f"raw_id={raw_row['id']} reading={del_target['id']} "
+                        f"{dval:g} at {del_target.get('ts') or ''}")
+                    res.reply = (f"✅ Reading delete ho gaya ({dval:g}, "
+                                 f"{fmt_ts_log(str(del_target.get('ts') or ''))})."
+                                 f"{self._invite()}")
+                else:
+                    res.reply = (f"{name} ji, delete karne ko koi reading "
+                                 "nahi mili.")
+                res.should_reply = True
+                res.missing = []
+                self._mark_registered(raw_row["id"])
+                return
+
+            if intent == "multi_reading" and res.multi_readings:
+                # Register each reported value; skip same-day+same-hour+same
+                # value duplicates so re-scans never double-log.
+                parts = []
+                for mr in res.multi_readings:
+                    mv = float(mr.get("value") or 0.0)
+                    mtag = str(mr.get("tag") or "").strip() or "postprandial"
+                    mts = str(mr.get("ts_str") or self._now_iso())
+                    same = [r for r in sender_rows
+                            if str(r.get("ts") or "")[:10] == mts[:10]
+                            and str(r.get("ts") or "")[11:13] == mts[11:13]
+                            and abs(float(r.get("value") or 0.0) - mv) < 0.5]
+                    if same:
+                        parts.append(f"{mv:g} (already, same time)")
+                        continue
+                    self.store.add_reading(wid, sender, "patient", mtag, mv,
+                                           ts=mts)
+                    parts.append(
+                        f"{mv:g} ({PATIENT_TAG_LABELS.get(mtag, mtag)})")
+                self.store.audit(
+                    "ai_intake", "readings_registered",
+                    f"raw_id={raw_row['id']} count={len(res.multi_readings)}")
+                res.reply = ("✅ Sugar log ho gayi: "
+                             + ", ".join(parts) + "." + self._invite())
+                res.should_reply = True
+                res.missing = []
+                self._mark_registered(raw_row["id"])
+                return
+
             if intent == "tag_answer":
                 tag = _tag_from_text(res.raw_text) or "postprandial"
                 if tag == "pre":
@@ -302,14 +372,32 @@ class IntakeWorker:
 
             if intent == "correction" and res.reading_value is not None:
                 v = float(res.reading_value)
-                if target:
-                    old = float(target["value"] or 0.0)
-                    new_tag = res.reading_tag or target.get("tag") or "postprandial"
-                    new_ts = res.reading_ts or target.get("ts")
-                    self.store.update_reading(target["id"], value=v, tag=new_tag,
+                # A dated edit ("kal 8am wala galat tha, 140 tha") targets the
+                # reading on THAT day even when other reads came later.
+                tgt = None
+                if res.reading_ts:
+                    day = str(res.reading_ts)[:10]
+                    dated = [r for r in sender_rows
+                             if str(r.get("ts") or "")[:10] == day]
+                    dated_pend = [r for r in dated
+                                  if r.get("status") == "pending"]
+                    dated_conf = [r for r in dated
+                                  if r.get("status") == "confirmed"]
+                    tgt = (sorted(dated_pend, key=lambda r: r.get("ts") or "",
+                                  reverse=True)[0]
+                           if dated_pend else
+                           (sorted(dated_conf, key=lambda r: r.get("ts") or "",
+                                   reverse=True)[0] if dated_conf else None))
+                if tgt is None:
+                    tgt = latest_pend or latest_conf
+                if tgt:
+                    old = float(tgt["value"] or 0.0)
+                    new_tag = res.reading_tag or tgt.get("tag") or "postprandial"
+                    new_ts = res.reading_ts or tgt.get("ts")
+                    self.store.update_reading(tgt["id"], value=v, tag=new_tag,
                                               ts=new_ts, status="confirmed")
                     self.store.audit("ai_intake", "reading_corrected",
-                                     f"raw_id={raw_row['id']} reading={target['id']} "
+                                     f"raw_id={raw_row['id']} reading={tgt['id']} "
                                      f"{old:g}->{v:g}")
                     t = str(new_ts or "")
                     label = PATIENT_TAG_LABELS.get(new_tag, new_tag)
@@ -555,6 +643,84 @@ class IntakeWorker:
                 self._mark_flag(raw_row["id"], "meal_registered")
                 return
 
+            # The patient asks to delete a logged meal ("ye khana delete karo",
+            # "500ml khana was wrong khud delete karo").
+            if res.intent == "meal_delete":
+                del_meal = None
+                if res.meal_ts:
+                    day = str(res.meal_ts)[:10]
+                    dated = [m for m in self.store.meals_for_window(
+                                 wid, confirmed_only=False)
+                             if m.get("sender_phone") == sender
+                             and str(m.get("ts") or "")[:10] == day]
+                    if dated:
+                        del_meal = sorted(
+                            dated, key=lambda m: m.get("ts") or "",
+                            reverse=True)[0]
+                if del_meal is None:
+                    latest = (self.store.meals_for_window(
+                        wid, confirmed_only=False)) or []
+                    mine = [m for m in reversed(latest)
+                            if m.get("sender_phone") == sender
+                            and m.get("status") != "superseded"]
+                    del_meal = mine[0] if mine else None
+                if del_meal:
+                    self.store.delete_meal(del_meal["id"])
+                    self.store.audit(
+                        "ai_intake", "meal_deleted",
+                        f"raw_id={raw_row['id']} meal={del_meal['id']} "
+                        f"ts={del_meal.get('ts') or ''}")
+                    res.reply = ("✅ Khana delete ho gaya."
+                                 f"{self._invite()}")
+                else:
+                    res.reply = (f"{name} ji, delete karne ko koi khana "
+                                 "log nahi hua.")
+                res.should_reply = True
+                res.missing = []
+                self._mark_flag(raw_row["id"], "meal_registered")
+                return
+
+            # A reference/correction ("not the one i told", "the meal i told
+            # was wrong") with no new dish is answered from the pending/previous
+            # meal — never guessed into a fabricated dish.
+            if res.intent == "meal_reference":
+                pend = self.store.newest_pending(sender)
+                if pend:
+                    pname = ", ".join(
+                        str(x.get("item") or "")
+                        for x in json.loads(pend.get("items_json") or "[]"))
+                    res.reply = (f"Ji, {pname or 'wo khana'} sahi hai? "
+                                 "Agar aapne wo hi khaya hai to small, medium "
+                                 "ya large bata dijiye.")
+                    res.should_reply = True
+                    res.missing = ["portion"]
+                else:
+                    prev = None
+                    latest = (self.store.meals_for_window(
+                        wid, confirmed_only=False)) or []
+                    mine = [m for m in reversed(latest)
+                            if m.get("sender_phone") == sender]
+                    if mine:
+                        prev = next((m for m in mine
+                                     if m.get("status") != "superseded"), None)
+                    if prev and prev.get("items_json"):
+                        try:
+                            pname = ", ".join(
+                                str(x.get("item") or "")
+                                for x in json.loads(prev["items_json"]))
+                        except Exception:
+                            pname = ""
+                        res.reply = (f"Ji aapne {pname or 'wo khana'} khaya "
+                                     "tha — kya isme kuch change karna hai, "
+                                     "ya delete bataiye?")
+                    else:
+                        res.reply = (f"{name} ji, saaf kijiye — kaun sa "
+                                     "khana change/delete karna hai?")
+                    res.should_reply = True
+                    res.missing = []
+                self._mark_flag(raw_row["id"], "meal_registered")
+                return
+
             # The meal takes the same day/time the text refers to ("yesterday i
             # ate...", "14 july lunch"); if the message was also a reading, its
             # backdated reading_ts counts too ("...ate the same thing, reading
@@ -615,9 +781,12 @@ class IntakeWorker:
             portion_txt = portion_text(low) or None
             _STRONG_CHANGE = ("change", "changed", "replace", "replaced",
                               "galat", "wrong", "sudhar", "update",
-                              "badlo", "badal", "sahi karo")
+                              "badlo", "badal", "sahi karo",
+                              "not the one", "i told", "told",
+                              "pehle bola", "bola tha", "jo bola")
             is_change = (any(k in low for k in _STRONG_CHANGE)
                          or "actually" in low)
+
             meal_id = self.store.propose_meal(
                 wid, sender, "patient", "ai",
                 items, portion, self.cfg.katori(portion), carbs, gi,
@@ -630,17 +799,19 @@ class IntakeWorker:
                 made_portion = res.meal_portion or items[0].get("portion", "m") or "m"
                 self.store.finalize_meal(meal_id, "confirmed", made_portion,
                                          portion_text=portion_txt)
-            # A meal-change message ("actually ate dinner, not lunch" / "change
-            # the meal") keeps the previous row and marks it superseded, so both
-            # versions stay visible at the same time.
+            # A real change message supersedes the replaced meal; the "same
+            # dish, same time" webhook proposal above has already returned
+            # early, so a plain repeat never double-logs here.
             if is_change:
                 old = self.store.meal_at_time(wid, ts)
-                if not old and any(k in low for k in _STRONG_CHANGE):
-                    prior = [m for m in self.store.meals_for_window(
-                                 wid, confirmed_only=False)
-                             if m.get("sender_phone") == sender
-                             and m.get("status") != "superseded"
-                             and m.get("id") != meal_id]
+                if not old and any(k in low for k in _STRONG_CHANGE + ("actually",)):
+                    prior = [
+                        m for m in self.store.meals_for_window(
+                            wid, confirmed_only=False)
+                        if m.get("sender_phone") == sender
+                        and m.get("status") != "superseded"
+                        and m.get("id") != meal_id
+                        and str(m.get("ts") or "")[:10] == ts[:10]]
                     old = prior[-1] if prior else None
                 if old and old.get("id") != meal_id:
                     self.store.supersede_meal(old["id"], meal_id)
