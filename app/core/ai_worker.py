@@ -294,7 +294,7 @@ class IntakeWorker:
                 parts = []
                 for mr in res.multi_readings:
                     mv = float(mr.get("value") or 0.0)
-                    mtag = str(mr.get("tag") or "").strip() or "postprandial"
+                    mtag = str(mr.get("tag") or "").strip() or "random"
                     mts = str(mr.get("ts_str") or self._now_iso())
                     same = [r for r in sender_rows
                             if str(r.get("ts") or "")[:10] == mts[:10]
@@ -318,7 +318,7 @@ class IntakeWorker:
                 return
 
             if intent == "tag_answer":
-                tag = _tag_from_text(res.raw_text) or "postprandial"
+                tag = _tag_from_text(res.raw_text) or "random"
                 if tag == "pre":
                     # Before-meal pickings are discouraged, never logged.
                     res.reply = ("Ji, khane se pehle ka prick zaruri nahi hota. "
@@ -373,26 +373,45 @@ class IntakeWorker:
             if intent == "correction" and res.reading_value is not None:
                 v = float(res.reading_value)
                 # A dated edit ("kal 8am wala galat tha, 140 tha") targets the
-                # reading on THAT day even when other reads came later.
+                # reading on THAT day. When a specific time was given, prefer
+                # the reading closest to that hour/minute; fall back to the
+                # latest on the day. When sender-scoped rows miss the target
+                # (seeded data uses different sender) fall back to the whole
+                # window — the user said "change X reading", which implies the
+                # reading exists.
                 tgt = None
                 if res.reading_ts:
                     day = str(res.reading_ts)[:10]
+                    r_hour = str(res.reading_ts)[11:13]
+                    r_min  = str(res.reading_ts)[14:16]
+                    # First look among this sender's own rows.
                     dated = [r for r in sender_rows
                              if str(r.get("ts") or "")[:10] == day]
-                    dated_pend = [r for r in dated
-                                  if r.get("status") == "pending"]
-                    dated_conf = [r for r in dated
-                                  if r.get("status") == "confirmed"]
-                    tgt = (sorted(dated_pend, key=lambda r: r.get("ts") or "",
-                                  reverse=True)[0]
-                           if dated_pend else
-                           (sorted(dated_conf, key=lambda r: r.get("ts") or "",
-                                   reverse=True)[0] if dated_conf else None))
+                    if not dated:
+                        # Wider window: covers seeded data and cross-sender edits.
+                        dated = [r for r in self.store.readings_for_window(wid)
+                                 if str(r.get("ts") or "")[:10] == day]
+                    if dated and r_hour:
+                        same_hour = [r for r in dated
+                                     if str(r.get("ts") or "")[11:13] == r_hour]
+                    else:
+                        same_hour = []
+                    if same_hour and r_min:
+                        same_min = [r for r in same_hour
+                                    if str(r.get("ts") or "")[14:16] == r_min]
+                        if same_min:
+                            same_hour = same_min
+                    if same_hour:
+                        tgt = sorted(same_hour, key=lambda r: r.get("ts") or "",
+                                     reverse=True)[0]
+                    if tgt is None and dated:
+                        tgt = sorted(dated, key=lambda r: r.get("ts") or "",
+                                     reverse=True)[0]
                 if tgt is None:
                     tgt = latest_pend or latest_conf
                 if tgt:
                     old = float(tgt["value"] or 0.0)
-                    new_tag = res.reading_tag or tgt.get("tag") or "postprandial"
+                    new_tag = (res.reading_tag or tgt.get("tag") or "random")
                     new_ts = res.reading_ts or tgt.get("ts")
                     self.store.update_reading(tgt["id"], value=v, tag=new_tag,
                                               ts=new_ts, status="confirmed")
@@ -407,7 +426,7 @@ class IntakeWorker:
                     res.missing = []
                 else:
                     ts = res.reading_ts or self._now_iso()
-                    tag = (res.reading_tag or "").strip() or "postprandial"
+                    tag = (res.reading_tag or "").strip() or "random"
                     self.store.add_reading(wid, sender, "patient", tag, v, ts=ts)
                     self.store.audit("ai_intake", "reading_registered",
                                      f"raw_id={raw_row['id']} {tag} {v:g} at {ts}")
@@ -423,7 +442,7 @@ class IntakeWorker:
                 if ans == "new" and dup:
                     v = float(dup["value"])
                     ts = str(dup.get("ts") or self._now_iso())
-                    self.store.add_reading(wid, sender, "patient", "postprandial", v, ts=ts)
+                    self.store.add_reading(wid, sender, "patient", "random", v, ts=ts)
                     self.store.audit("ai_intake", "reading_registered",
                                      f"raw_id={raw_row['id']} confirmed-dup {v:g} at {ts}")
                     res.reply = self._confirm_reading(v, None, ts)
@@ -442,13 +461,13 @@ class IntakeWorker:
                 ts = res.reading_ts or self._now_iso()
                 pend = self.store.pending_reading_near(sender, wid)
                 if pend:
-                    self.store.resolve_reading(pend["id"], v, res.reading_tag or "postprandial")
+                    self.store.resolve_reading(pend["id"], v, res.reading_tag or "random")
                     self.store.audit("ai_intake", "reading_resolved",
                                      f"raw_id={raw_row['id']} reading={pend['id']} -> {v:g}")
                     res.reply = self._confirm_reading(
-                        v, res.reading_tag or "postprandial", ts)
+                        v, res.reading_tag or "random", ts)
                 else:
-                    tag = (res.reading_tag or "").strip() or "postprandial"
+                    tag = (res.reading_tag or "").strip() or "random"
                     self.store.add_reading(wid, sender, "patient", tag, v, ts=ts)
                     self.store.audit("ai_intake", "reading_registered",
                                      f"raw_id={raw_row['id']} {tag} {v:g} at {ts}")
@@ -470,7 +489,7 @@ class IntakeWorker:
                     except Exception:
                         pass
                 ts = res.reading_ts or self._now_iso()
-                self.store.add_reading(wid, sender, "patient", "postprandial",
+                self.store.add_reading(wid, sender, "patient", "random",
                                        cand[0] if cand else 0.0,
                                        ts=ts, status="pending",
                                        candidates_json=json.dumps(cand),
@@ -482,7 +501,7 @@ class IntakeWorker:
 
             if res.reading_status == "resolved" and res.reading_value is not None:
                 v = float(res.reading_value)
-                tag = (res.reading_tag or "").strip() or "postprandial"
+                tag = (res.reading_tag or "").strip() or "random"
                 ts = res.reading_ts or self._now_iso()
                 # If the very same single value is already pending (an earlier
                 # message that asked about a duplicate), this is its "naya hai"
@@ -525,7 +544,9 @@ class IntakeWorker:
             print(f"[Aahaar] AI intake register error: {e}")
 
     def _invite(self) -> str:
-        return " Aur kuch log karna hai — sugar ya khana?"
+        # "Is that all?" is the patient-side courtesy question; it replaces the
+        # old open invite so "that's all" / "bas" now reads as a normal answer.
+        return " Is that all — aur kuch log karna hai (sugar ya khana)?"
 
     def _tag_question(self) -> str:
         return ("Ye kab ka reading tha — fasting, khane ke 2 ghante baad, "
@@ -536,7 +557,8 @@ class IntakeWorker:
         if tag:
             label = PATIENT_TAG_LABELS.get(tag, tag)
             return f"✅ Logged sugar {value:g} ({label}) — {hm}.{self._invite()}"
-        return f"✅ Logged sugar {value:g} ({PATIENT_TAG_LABELS['postprandial']}) — {hm}.{self._invite()}"
+        return (f"✅ Logged sugar {value:g} "
+                f"({PATIENT_TAG_LABELS.get('random', 'random')}) — {hm}.{self._invite()}")
 
     def _store_dup_pending(self, raw_id: int, value: float, ts: Optional[str]) -> None:
         try:
@@ -771,6 +793,59 @@ class IntakeWorker:
                 self._mark_flag(raw_row["id"], "meal_registered")
                 return
             portion = res.meal_portion or items[0].get("portion", "m") or "m"
+            # A same-dish message that ALSO states a size ("the meal was large
+            # chocolates" after a pending "Two Chocolates", or "120 and the meal
+            # was large chocolates") COMPLETES the pending meal - the answer
+            # renames/clarifies THAT dish instead of starting a duplicate.
+            # Plain repeats ("2 roti dal sabzi" twice) never match: they carry
+            # no size/change word and keep the normal proposal+confirm loop.
+            _STRONG_CHANGE = ("change", "changed", "replace", "replaced",
+                              "galat", "wrong", "sudhar", "update",
+                              "badlo", "badal", "sahi karo",
+                              "not the one", "i told", "told",
+                              "pehle bola", "bola tha", "jo bola")
+            is_change = (any(k in low for k in _STRONG_CHANGE)
+                         or "actually" in low)
+            pend = self.store.newest_pending(sender)
+            if (pend and items and res.intent in ("meal", "reading")
+                    and (_portion_stated(low, res.meal_portion) or is_change)):
+                try:
+                    pend_items = json.loads(pend.get("items_json") or "[]")
+                except Exception:
+                    pend_items = []
+                my_names = {str(it.get("item") or "").lower().strip().strip(".")
+                            for it in items}
+                pend_names = {str(x.get("item") or "").lower().strip().strip(".")
+                              for x in pend_items}
+                if pend_names and my_names and not pend_names.isdisjoint(my_names):
+                    pend_portion = (res.meal_portion
+                                    or items[0].get("portion")
+                                    or pend.get("portion") or "m")
+                    pend_txt = res.meal_portion_text or portion_text(low) or None
+                    self.store.finalize_meal(pend["id"], "confirmed",
+                                             pend_portion,
+                                             portion_text=pend_txt)
+                    if items and pend_items:
+                        have = {(str(x.get("item") or "").lower(),
+                                 x.get("genus")) for x in pend_items}
+                        for it in items:
+                            key = (str(it.get("item") or "").lower(), it.get("genus"))
+                            if key not in have:
+                                pend_items.append(it)
+                        self.store.update_meal(
+                            pend["id"], items_json=json.dumps(
+                                pend_items, ensure_ascii=False))
+                    self.store.audit(
+                        "ai_intake", "meal_completed",
+                        f"raw_id={raw_row['id']} meal={pend['id']} "
+                        f"portion={pend_portion} ts={ts}")
+                    plabel = KATORI_LABELS.get(pend_portion or "m", "Medium")
+                    res.reply = (f"✅ Khana {plabel} log ho gaya."
+                                 f"{self._invite()}")
+                    res.should_reply = True
+                    res.missing = []
+                    self._mark_flag(raw_row["id"], "meal_registered")
+                    return
             # Carb/GI numbers are deliberately NOT written anymore — the record
             # keeps only what the patient said (food + size).
             carbs = (sum(float(it.get("carbs") or 0.0) for it in items)
@@ -779,13 +854,6 @@ class IntakeWorker:
             # The patient-stated size verbatim ("200ml", "2 bowls"). Never
             # invented: only stored when the message actually names it.
             portion_txt = portion_text(low) or None
-            _STRONG_CHANGE = ("change", "changed", "replace", "replaced",
-                              "galat", "wrong", "sudhar", "update",
-                              "badlo", "badal", "sahi karo",
-                              "not the one", "i told", "told",
-                              "pehle bola", "bola tha", "jo bola")
-            is_change = (any(k in low for k in _STRONG_CHANGE)
-                         or "actually" in low)
 
             meal_id = self.store.propose_meal(
                 wid, sender, "patient", "ai",

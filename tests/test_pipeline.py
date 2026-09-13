@@ -461,11 +461,11 @@ def test_intake_local_notifier_confirms_and_asks(cfg):
     r = analyze_intake("fasting 128", "Ramesh", cfg=cfg)
     assert r.intent == "reading" and r.missing == [] and r.should_reply is True
     assert "Logged sugar 128" in r.reply and "fasting" in r.reply.lower()
-    # Reading without context tag -> logged immediately as after-eating;
-    # no extra question, no pending state.
+    # Reading without context tag -> logged immediately as Random Blood Glucose
+    # (RBG) by default; no extra question, no pending state.
     r = analyze_intake("sugar 130", "Ramesh", cfg=cfg)
     assert r.intent == "reading" and r.missing == [] and r.should_reply is True
-    assert r.reading_tag == "postprandial" and "Khane ke baad" in r.reply
+    assert r.reading_tag == "random" and "Random" in r.reply
     # Meal without portion -> the confirmation also asks the portion.
     r = analyze_intake("roti dal sabzi", "Ramesh", cfg=cfg)
     assert r.intent == "meal" and r.missing == ["portion"] and r.should_reply is True
@@ -508,12 +508,12 @@ def test_intake_worker_picks_stored_rows_and_routes_reply(store, cfg):
     import json as _json
     refined = _json.loads(tag["refined_json"])
     assert refined["intent"] == "reading" and refined["missing"] == []
-    assert refined["reading_tag"] == "postprandial"
+    assert refined["reading_tag"] == "random"
     assert refined["followup_sent"] is False
     # Phase 2: dashboard-driven send releases exactly one follow-up.
     s2 = w.run_once(limit=10, should_send=True, send_gap=0.0)
     assert s2["analyzed"] == 0 and s2["sent"] == 1
-    assert len(sent) == 1 and "Khane ke baad" in sent[0].body
+    assert len(sent) == 1 and "Random" in sent[0].body
     tag = [r for r in store.raw_inbound_all(limit=10)
            if r["message_id"] == "WAMID-WORK-1"][0]
     assert _json.loads(tag["refined_json"])["followup_sent"] is True
@@ -830,11 +830,11 @@ def test_intake_asks_already_logged_and_honors_dup_answer(seeded, store, cfg, in
     _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
                               "text": "sugar 200"})
     intake(store, cfg)
-    # A bare reading logs immediately as after-eating (post-prandial) by default.
+    # A bare reading logs immediately as Random Blood Glucose (RBG) by default.
     logged = [r for r in store.readings_for_window(wid)
               if r["status"] == "confirmed" and abs(r["value"] - 200) < 0.5]
     assert len(logged) == 1
-    assert logged[0]["tag"] == "postprandial" and logged[0]["reading_type"] == "postprandial"
+    assert logged[0]["tag"] == "random" and logged[0]["reading_type"] == "random"
     # 'fasting' re-tags the latest reading as fasting.
     sent = []
     store.record_raw_received("+919000000001", "fasting", message_id="TAG-A-1")
@@ -1130,27 +1130,27 @@ def test_webhook_events_persisted_across_restarts(tmp_path):
 
 # ---- 3-type reading taxonomy + after-eating default -------------------------
 def test_morning_is_not_fasting(store, cfg, intake):
-    """'morning'/'subah' are timing, never fasting — a morning reading logs
-    as post-prandial by default."""
+    """'morning'/'subah' are timing, never fasting — a morning reading WITHOUT
+    an explicit after/baad context logs as Random Blood Glucose (RBG)."""
     pid = store.add_patient("Morning", "M-1", "+919123456781")
     wid = store.open_window(pid, "2026-09-01", "2026-09-14")
     store.record_raw_received("+919123456781", "sugar 168 subah", message_id="AM-1")
     intake(store, cfg)
     rows = store.readings_for_window(wid)
     assert len(rows) == 1
-    assert rows[0]["tag"] == "postprandial"
-    assert rows[0]["reading_type"] == "postprandial"
+    assert rows[0]["tag"] == "random"
+    assert rows[0]["reading_type"] == "random"
     assert rows[0]["status"] == "confirmed"
 
 
-def test_bare_reading_defaults_to_after_eating(store, cfg, intake):
+def test_bare_reading_defaults_to_random(store, cfg, intake):
     pid = store.add_patient("Bare", "B-1", "+919123456782")
     wid = store.open_window(pid, "2026-09-01", "2026-09-14")
     store.record_raw_received("+919123456782", "200", message_id="BARE-1")
     intake(store, cfg)
     rows = store.readings_for_window(wid)
     assert len(rows) == 1
-    assert rows[0]["reading_type"] == "postprandial"
+    assert rows[0]["reading_type"] == "random"
     assert rows[0]["status"] == "confirmed"  # logged immediately, no pending
 
 
@@ -1265,7 +1265,8 @@ def test_pre_meal_answer_guides_not_logs(store, cfg, intake):
     store.record_raw_received("+919123456790", "khane se pehle", message_id="PRE-1")
     intake(store, cfg, send=True)
     rows = store.readings_for_window(wid)
-    assert rows[0]["reading_type"] == "postprandial"  # stays after-eating
+    # "pre" pricks are not tracked -> the bare reading stays random (RBG).
+    assert rows[0]["reading_type"] == "random"
     assert rows[0]["tag"] != "pre" and rows[0]["tag"] != "fasting"
 
 
@@ -1733,3 +1734,154 @@ def test_regional_script_message_logs_reading(store, cfg, intake):
     intake(store, cfg, send=True)
     rows = store.readings_for_window(wid)
     assert len(rows) == 1 and abs(rows[0]["value"] - 140) < 0.5
+
+
+# ---- independent logging, RBG default, timing, dedupe -----------------------
+def test_count_meal_plus_reading_same_timestamp(store, cfg, intake):
+    """'3 strawberries at 3pm yesterday ... reading 111' logs BOTH at the same
+    backdated time — the count (3) IS the size, the reading is Random by
+    default, and there is no forced S/M/L question."""
+    pid = store.add_patient("Cnt", "CN-1", "+919123456709")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received(
+        "+919123456709",
+        "can u log 3 strawberries at 3pm yesterday and the sugar reading was 111",
+        message_id="CNT-1")
+    intake(store, cfg)
+    rows = store.readings_for_window(wid)
+    assert len(rows) == 1 and abs(rows[0]["value"] - 111) < 0.5
+    assert rows[0]["tag"] == "random"
+    assert (rows[0]["ts"] or "")[:16] == "2026-09-12T15:00"
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 1
+    assert meals[0]["status"] == "confirmed"        # size already stated
+    assert meals[0]["portion_text"] == "3"          # verbatim count
+    assert (meals[0]["ts"] or "")[:16] == "2026-09-12T15:00"
+    assert "strawberr" in meals[0]["items_json"].lower()
+
+
+def test_meal_only_no_prick_required(store, cfg, intake):
+    """An independent meal logs with no sugar prick anywhere — the count is the
+    stated size and no reading row is created."""
+    pid = store.add_patient("Ml", "ML-1", "+919123456711")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received(
+        "+919123456711", "can u log 3 strawberries at 3pm yesterday",
+        message_id="ML-1")
+    intake(store, cfg)
+    assert store.readings_for_window(wid) == []
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 1 and meals[0]["portion_text"] == "3"
+    assert (meals[0]["ts"] or "")[:16] == "2026-09-12T15:00"
+
+
+def test_pending_meal_same_dish_size_completes_not_duplicates(store, cfg):
+    """A size re-stated on the SAME dish completes the pending meal instead of
+    opening a second 'Two Chocolates' / 'Large Chocolates' pair."""
+    pid = store.add_patient("Pd", "PD-1", "+919123456712")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    _handle(store, cfg, pid, {"sender_phone": "+919123456712", "kind": "text",
+                              "text": "the meal was two chocolates"})
+    pend = store.newest_pending("+919123456712")
+    assert pend is not None
+    out = _handle(store, cfg, pid, {"sender_phone": "+919123456712",
+                                    "kind": "text",
+                                    "text": "the meal was large chocolates"})
+    assert out and "Detected" in out[0].body and "Large" in out[0].body
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 1                                   # never two rows
+    assert meals[0]["status"] == "confirmed"
+    assert meals[0]["portion"] == "l"
+    assert "chocolate" in meals[0]["items_json"].lower()     # patient words kept
+
+
+def test_change_reading_edits_not_appends(store, cfg, intake):
+    """'change a reading yesterday 7:15 it was actually 200' EDITs that row —
+    never adds a second 07:15 reading (the 'two logs once' rule)."""
+    pid = store.add_patient("Ed", "ED-1", "+919123456713")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.add_reading(wid, "+919123456713", "patient", "fasting", 220,
+                      ts="2026-09-12T07:15:00")
+    store.record_raw_received(
+        "+919123456713",
+        "i want to change a reading yesterday at 7:15am it was actually 200",
+        message_id="ED-1")
+    intake(store, cfg, send=True)
+    rows = store.readings_for_window(wid)
+    dated = [r for r in rows if (r["ts"] or "")[:10] == "2026-09-12"]
+    assert len(dated) == 1
+    assert abs(dated[0]["value"] - 200) < 0.5
+    assert (dated[0]["ts"] or "")[:16] == "2026-09-12T07:15"
+
+
+def test_done_answer_logs_nothing_and_acks(store, cfg, intake):
+    """'that's all' is a courtesy end-of-logging cue: nothing is logged and the
+    patient gets a gentle ack."""
+    pid = store.add_patient("Da", "DA-1", "+919123456714")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456714", "that's all", message_id="DA-1")
+    sent = []
+    from app.core.ai_worker import IntakeWorker
+    IntakeWorker(store, cfg, send_func=lambda o: (sent.append(o), True)[1]).run_once(
+        limit=10, should_send=True, send_gap=0)
+    assert store.readings_for_window(wid) == []
+    assert store.meals_for_window(wid, confirmed_only=False) == []
+    assert len(sent) == 1 and "log ho gaya" in sent[0].body
+
+
+def test_polite_trailing_done_cue_and_data_safe(store, cfg):
+    """'sukoon se log kar lena' is the same courtesy cue, but a trailing 'kar
+    lena' next to real data ('140 kar dena') must stay a normal answer."""
+    from app.core.parse import _is_done
+    from app.core.intake_ai import analyze_intake
+    assert _is_done("sukoon se log kar lena")
+    assert _is_done("apne time se log kar lena")
+    assert not _is_done("140 kar dena")
+    pid = store.add_patient("Su", "SU-1", "+919123456714")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456714", "sukoon se log kar lena",
+                              message_id="SU-1")
+    sent = []
+    from app.core.ai_worker import IntakeWorker
+    IntakeWorker(store, cfg, send_func=lambda o: (sent.append(o), True)[1]).run_once(
+        limit=10, should_send=True, send_gap=0)
+    assert store.readings_for_window(wid) == []
+    assert store.meals_for_window(wid, confirmed_only=False) == []
+    assert len(sent) == 1 and "log ho gaya" in sent[0].body
+    assert analyze_intake("140 kar dena", "Ramesh", cfg=cfg).intent == "reading"
+
+
+def test_webhook_quiet_when_ai_intake_on(store, tmp_path):
+    """With AI intake enabled the webhook is the silent store-first layer: chat,
+    meal and reading messages ALL return no outbound — the dashboard worker is
+    the single responder."""
+    from app.config import Settings
+    cfg = Settings(db_path=str(tmp_path / "q.db"), whatsapp="simulator",
+                   ai_intake=True)
+    pid = store.add_patient("Qi", "QI-1", "+919123456715")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    for text in ("hi", "sugar 130", "the meal was two chocolates",
+                 "butti that's all"):
+        out = _handle(store, cfg, pid, {"sender_phone": "+919123456715",
+                                        "kind": "text", "text": text})
+        assert out == [], f"webhook must stay quiet for {text!r}"
+
+
+def test_independent_log_time_confirm_line(store, cfg):
+    from app.core.intake_ai import analyze_intake
+    # No explicit time -> the confirm says the time and asks once about it.
+    r = analyze_intake("sugar 130", "Ramesh", cfg=cfg)
+    assert "Samay sahi hai?" in r.reply and "Aur kuch" in r.reply
+    # Explicit time backdate -> logged at that time, no timing question.
+    r2 = analyze_intake("300 at 3pm yesterday", "Ramesh", cfg=cfg)
+    assert "Samay sahi hai?" not in r2.reply
+    assert "15:00" in r2.reply and r2.reading_ts[:16] == "2026-09-12T15:00"
+
+
+def test_meal_association_prompt_when_portion_stated(cfg):
+    from app.core.intake_ai import analyze_intake
+    r = analyze_intake("2 roti dal sabzi", "Ramesh", cfg=cfg)
+    assert "Is ke saath sugar reading bhi log karein?" in r.reply
+    r2 = analyze_intake("large biryani small", "Ramesh", cfg=cfg)
+    if r2.intent == "meal":
+        assert "Logged khana" in r2.reply

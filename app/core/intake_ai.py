@@ -35,6 +35,7 @@ from .parse import (
     _PORTION_MAP,
     _correction_value,
     _dated_edit_value,
+    _is_done,
     _is_dup_answer,
     _is_meal_delete,
     _is_reading_delete,
@@ -415,6 +416,18 @@ def localize_reply(reply: Optional[str], lang: Optional[str]) -> Optional[str]:
     return cleaned
 
 
+_EXPLICIT_TIME_RE = re.compile(
+    r"\b(?:yesterday|kal|aaj|today|subah|shaam|raat|dopahar|morning|afternoon|"
+    r"evening|night|am|pm|baje|o'?clock|abhi|just now|rn|now)\b|"
+    r"\d{1,2}:\d{2}")
+
+
+def _has_explicit_time(text: str) -> bool:
+    """True when the message names a day-part, clock time, or temporal word —
+    so an independent log is NOT stamped blindly at the received time."""
+    return bool(_EXPLICIT_TIME_RE.search(str(text or "").lower()))
+
+
 def _local_notifier(text: str, patient_name: str, cfg: Settings,
                     msg_ts: Optional[str] = None) -> IntakeResult:
     raw = re.sub(r"\s+", " ", (text or "")).strip()
@@ -553,17 +566,28 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
             meal_items=local_items, meal_portion=meal_portion)
 
     # ---- reading: one clear value -> confirm it (single message) ---------
-    # Default type is "after eating" (post-prandial) — the patient logs fasting
-    # only when they say so; "morning"/"subah" are never fasting.
+    # Default type is Random Blood Glucose (RBG). Fasting is only ever logged
+    # when the patient says "fasting"; "postprandial" only when they say
+    # after/baad/post-2hr; "morning"/"subah" are never fasting.
     if ded["status"] == "resolved":
         v = float(ded["value"])
-        tag = ded.get("tag") or "postprandial"
+        tag = ded.get("tag") or "random"
         hm = _hm(ded.get("ts_str"))
         label = PATIENT_TAG_LABELS.get(tag, tag)
-        reply = (f"✅ Logged sugar {v:g} ({label}) — {hm}. "
+        # An independent log with no stated time (meal or reading) gets ONE
+        # courteous timing line — the log lands at the received time.
+        if not local_items and not _has_explicit_time(raw):
+            time_note = (" Samay sahi hai? Alag tha to bataiye "
+                         "(jaise 'kal subah 8').")
+        else:
+            time_note = ""
+        reply = (f"✅ Logged sugar {v:g} ({label}) — {hm}.{time_note} "
                  "Aur kuch log karna hai — sugar ya khana?")
         # A reading whose message ALSO named food asks for the meal size in the
         # same single reply (the meal stays pending until the size is answered).
+        # When the size IS already stated (letter or verbatim count like "3
+        # strawberries") the meal is registered right away in the same message.
+        pt = portion_text(low)
         if local_items and not _portion_stated(low, parsed.portion_letter):
             names = list(dict.fromkeys(
                 str(it.get("item") or "") for it in local_items if it.get("item")))
@@ -571,6 +595,17 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
             reply = (f"✅ Logged sugar {v:g} ({label}) — {hm}. "
                      f"Khana ({dishes}) ka size kya tha — "
                      "small, medium ya large?")
+        elif local_items:
+            names = list(dict.fromkeys(
+                str(it.get("item") or "") for it in local_items if it.get("item")))
+            dishes = ", ".join(names) or "khana"
+            pl = (_PORTION_LABEL.get(meal_portion or
+                  local_items[0].get("portion") or "m", "medium")
+                  if not pt else "")
+            disp = f" ({pt.strip()}) " if pt else f" ({pl}) "
+            reply = (f"✅ Logged sugar {v:g} ({label}) — {hm}. "
+                     f"Khana ({dishes}){disp}ke saath bhi log ho gaya."
+                     " Aur kuch log karna hai — sugar ya khana?")
         return IntakeResult(
             intent="reading",
             missing=[],
@@ -579,7 +614,8 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
             analyzed_by="local-refiner",
             reading_value=v, reading_tag=tag, reading_status="resolved",
             reading_ts=ded.get("ts_str"),
-            meal_items=local_items, meal_portion=meal_portion)
+            meal_items=local_items, meal_portion=meal_portion,
+            meal_portion_text=pt)
 
     # Reading hinted but the number is missing.
     reading_hint = any(k in low for k in _READING_HINTS)
@@ -626,23 +662,32 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
         dishes = ", ".join(names) or "khana"
         has_portion = _portion_stated(low, parsed.portion_letter)
         portion_label = _PORTION_LABEL.get(meal_portion or "m", "medium")
+        # A verbatim count IS the stated size ("3 strawberries").
+        pt = portion_text(low)
+        disp = pt if pt else portion_label
         # Meals honour the same explicit day/time the text refers to
         # ("yesterday i ate...", "14 july lunch") so backdated meals land on the
         # right date instead of the message's own receive date.
         meal_ts = reading_timestamp(raw, msg_ts or iso_now()).strftime(
             "%Y-%m-%dT%H:%M:%S")
+        # Independent logs get ONE timing line and a friendly pairing courtesy.
+        time_note = (" Samay sahi hai? Alag tha to bataiye "
+                     "(jaise 'kal subah 8')." if not _has_explicit_time(raw)
+                     else "")
         if not has_portion:
             reply = (f"✅ Logged khana: {dishes}. "
-                     "Kya portion thi — small, medium ya large?")
+                     f"Kya portion thi — small, medium ya large?{time_note}")
             missing = ["portion"]
         else:
-            reply = f"✅ Logged khana: {dishes} ({portion_label})."
+            assoc = " Is ke saath sugar reading bhi log karein?"
+            reply = (f"✅ Logged khana: {dishes} ({disp}).{assoc}{time_note}")
             missing = []
         return IntakeResult(
             intent="meal", missing=missing, reply=reply,
             should_reply=True, raw_text=raw, confidence=0.88,
             analyzed_by="local-refiner",
-            meal_items=local_items, meal_portion=meal_portion, meal_ts=meal_ts)
+            meal_items=local_items, meal_portion=meal_portion,
+            meal_portion_text=pt if has_portion else None, meal_ts=meal_ts)
 
     # Confirmations / corrections are fully handled by the deterministic path.
     if parsed.kind in ("confirm", "correct"):
@@ -655,6 +700,14 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
         return IntakeResult(intent="refusal", missing=[], reply="",
                             should_reply=False, raw_text=raw, confidence=0.9,
                             analyzed_by="local-refiner")
+
+    # "that's all" / "bas" / "ho gaya" — polite ack, nothing is logged.
+    if _is_done(raw):
+        return IntakeResult(
+            intent="done", missing=[], should_reply=True, raw_text=raw,
+            confidence=0.96, analyzed_by="local-refiner",
+            reply=(f"{name} ji, sab log ho gaya! Koi naya khana ya sugar ho to "
+                   "bataiye, main log kar dungi."))
 
     # Anything else: ask a single friendly clarifying input-collection question.
     return IntakeResult(
@@ -768,7 +821,7 @@ def analyze_intake(text: str, patient_name: str = "Patient",
         if gv is None:
             continue
         validated.append({"value": gv,
-                          "tag": _tag_ok(mr.get("tag")) or "postprandial",
+                          "tag": _tag_ok(mr.get("tag")) or "random",
                           "ts_str": now_iso})
     if (g_intent == "reading" and local.intent != "multi_reading"
             and len(validated) >= 2):
@@ -786,7 +839,7 @@ def analyze_intake(text: str, patient_name: str = "Patient",
             local.intent = "reading"
             local.reading_value = gv
             local.reading_status = "resolved"
-            local.reading_tag = _tag_ok(parsed.get("reading_tag")) or "postprandial"
+            local.reading_tag = _tag_ok(parsed.get("reading_tag")) or "random"
             local.reading_ts = now_iso
             local.missing = []
             local.reply = (f'✅ Logged sugar {gv:g} '

@@ -38,6 +38,10 @@ def _type_from_tag(tag: Optional[str]) -> Optional[str]:
         return "fasting"
     if t == "pre":
         return "random"
+    if t in ("postbreakfast", "postlunch", "postdinner"):
+        return "postprandial"
+    if t == "random":
+        return "random"
     return "postprandial"
 
 SCHEMA = """

@@ -46,11 +46,12 @@ _READING_TYPE_BY_TAG = {
 def _reading_type(r: dict) -> str:
     """Collapse every reading to the 3-type taxonomy: fasting | postprandial |
     random. Prefers the dedicated reading_type column; old rows and any unpaid
-    tag values fall back through the tag mapping."""
+    tag values fall back through the tag mapping (default: random — a bare or
+    uncontextualised reading is a random check, never an assumed 2-hour value)."""
     rt = str(r.get("reading_type") or "").strip()
     if rt in ("fasting", "postprandial", "random"):
         return rt
-    return _READING_TYPE_BY_TAG.get(str(r.get("tag") or ""), "postprandial")
+    return _READING_TYPE_BY_TAG.get(str(r.get("tag") or ""), "random")
 
 
 def _hour_of(ts: str) -> Optional[int]:

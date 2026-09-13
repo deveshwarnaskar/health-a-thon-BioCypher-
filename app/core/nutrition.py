@@ -212,8 +212,15 @@ def classify_text(text: Optional[str]) -> list[FoodDict]:
             continue
         # Whole-word / whole-phrase matching only, tolerant of plurals, so a
         # substring hit like "bhat" inside "bhature" must never turn a bhatura
-        # into "white rice" while "chocolates" still hits its catalog row.
-        m = re.search(r"(?<![a-z0-9])" + re.escape(token) + r"(?:s|es)?(?![a-z0-9])", cleaned)
+        # into "white rice" while "chocolates" / "strawberries" still hit their
+        # catalog rows (the -y -> -ies plural is spelled out explicitly).
+        if token.endswith("y"):
+            pat = r"(?<![a-z0-9])(?:" + re.escape(token) + "|" \
+                + re.escape(token[:-1] + "ies") + r")(?![a-z0-9])"
+        else:
+            pat = (r"(?<![a-z0-9])" + re.escape(token)
+                   + r"(?:s|es)?(?![a-z0-9])")
+        m = re.search(pat, cleaned)
         if not m:
             continue
         # Once "chole bhature" matches as a phrase, "chole" and "bhature" must

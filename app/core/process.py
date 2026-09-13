@@ -12,6 +12,7 @@ detected and asks for a yes/correct. It never numbers the carb/GI for patients.
 """
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -21,7 +22,7 @@ from ..config import Settings
 from .datamodel import Store
 from .nutrition import KATORI_LABELS, gi_bucket_index
 from .parse import (READING_TAG_LABELS, ParsedInput, ambiguous_reading_values,
-                    describe_items, parse_inbound, reading_timestamp)
+                    describe_items, parse_inbound, reading_timestamp, _is_done)
 
 
 @dataclass
@@ -117,11 +118,24 @@ class IngestService:
         ref_only = (bool(_reference_correction(raw_text))
                     and not parsed.items)
         del_ans = (_is_reading_delete(raw_text) or _is_meal_delete(raw_text))
-        if (tag_ans or dup_ans or res_ans or size_ans or ref_only or del_ans):
+        # "that's all" / "bas" / "ho gaya" is a polite end-of-logging cue — the
+        # dashboard AI answers it; the webhook never misreads it as an input.
+        done_ans = _is_done(raw_text)
+        if (tag_ans or dup_ans or res_ans or size_ans or ref_only or del_ans or done_ans):
             self.store.audit(role, "answer_received",
                              f"{raw_text[:40]!r} tag={tag_ans or ''} "
                              f"dup={dup_ans or ''} res={res_ans or ''} "
-                             f"size={size_ans or ''} ref={ref_only} del={del_ans}")
+                             f"size={size_ans or ''} ref={ref_only} del={del_ans} "
+                             f"done={done_ans}")
+            return []
+
+        # In AI-intake mode the dashboard worker is the SINGLE responder: meal
+        # proposals, pure chat, off-range refusals and confirmations are all
+        # quiet here (readings are store-only anyway), so a patient receives
+        # exactly ONE coherent follow-up per message.
+        if self.cfg.ai_intake:
+            self.store.audit(role, "ai_intake_quiet",
+                             f"{raw_text[:40]!r} kind={parsed.kind}")
             return []
 
         if parsed.kind == "refusal":
@@ -199,7 +213,7 @@ class IngestService:
         Returns no outbound — the dashboard confirms what it logs.
         """
         ts = parsed.ts.strftime("%Y-%m-%dT%H:%M:%S")
-        tag = parsed.reading_tag or "postprandial"
+        tag = parsed.reading_tag or "random"
         self.store.audit(role, "reading_received",
                          f"{tag} {parsed.reading:g} at {ts}")
         return []
@@ -230,6 +244,52 @@ class IngestService:
                               body="I couldn't recognise dishes in that yet. "
                                    "Please describe it in text, e.g. '2 roti, dal, sabzi'.")]
         # proposal stage
+        low = str(raw.get("text") or "").lower()
+        # A same-dish message that also states a size/change ("the meal was
+        # large chocolates" after a pending "Two Chocolates") COMPLETES the
+        # pending meal instead of starting a duplicate row.
+        my_names = {str(it.get("item") or "").lower().strip().strip(".")
+                    for it in parsed.items}
+        _SIZE_MARK = ("small", "medium", "large", "chota", "chhota", "chhoti",
+                      "kam", "bada", "badi", "bara", "zyada", "jyada", "big",
+                      "full", "half", "katori", "katora", "bowl", "plate",
+                      "glass", "cup", "ml", "do roti", "2 roti",
+                      "change", "changed", "wrong", "galat", "actually")
+        _size_or_change = any(k in low for k in _SIZE_MARK)
+        pend = self.store.newest_pending(raw.get("sender_phone"))
+        if (pend and my_names and _size_or_change):
+            try:
+                pend_items = json.loads(pend.get("items_json") or "[]")
+            except Exception:
+                pend_items = []
+            pend_names = {str(x.get("item") or "").lower().strip().strip(".")
+                          for x in pend_items}
+            if pend_names and not pend_names.isdisjoint(my_names):
+                portion = (parsed.items[0].get("portion")
+                           or pend.get("portion") or "m")
+                pt = getattr(parsed, "portion_text", None)
+                self.store.finalize_meal(pend["id"], "confirmed", portion,
+                                         portion_text=pt,
+                                         correction_note="size stated again")
+                merged = list(pend_items)
+                have = {(str(x.get("item") or "").lower(), x.get("genus"))
+                        for x in merged}
+                for it in parsed.items:
+                    key = (str(it.get("item") or "").lower(), it.get("genus"))
+                    if key not in have:
+                        merged.append(it)
+                carbs = (sum(float(x.get("carbs") or 0.0) for x in merged) or None)
+                gi = (self._split_gi(merged)
+                      if any(x.get("gi") for x in merged) else None)
+                self.store.update_meal(pend["id"], items_json=json.dumps(
+                    merged, ensure_ascii=False), carbs=carbs, gi=gi)
+                self.store.audit(role, "meal_completed",
+                                 f"meal_id={pend['id']} portion={portion}")
+                echo = describe_items(merged)
+                body = (f"Detected: {echo} Confirmed "
+                        f"({KATORI_LABELS.get(portion)}). It's in the report.")
+                return [self._out(route=role, kind="text",
+                                  to=raw.get("sender_phone"), body=body)]
         portion = parsed.items[0].get("portion", "m")
         confidence = 0.9 if parsed.kind == "text" else 0.82
         carbs = (sum(float(it.get("carbs") or 0.0) for it in parsed.items)

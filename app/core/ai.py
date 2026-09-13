@@ -280,11 +280,16 @@ def analyze_patient_input(text: str, patient_name: str = "Patient",
             has_sugar_hint = any(h in low for h in sugar_hints)
             # If explicit sugar hint, or text is mostly just the number
             if has_sugar_hint or len(low.split()) <= 3:
-                tag = "postprandial"
+                # Default is Random Blood Glucose (RBG). postprandial is ONLY
+                # logged when the patient actually says after/baad/post-2hr; a
+                # bare or uncontextualised reading is a random check.
+                tag = "random"
                 if any(k in low for k in ("fasting", "fast", "fbs", "khali", "roza", "empty stomach")):
                     tag = "fasting"
                 elif any(k in low for k in ("random", "rdn", "rbg")):
                     tag = "random"
+                elif any(k in low for k in ("post", "after", "baad", "pp", "ppbg")):
+                    tag = "postprandial"
                 elif any(k in low for k in ("breakfast", "nashta", "pb")):
                     tag = "postbreakfast"
                 elif any(k in low for k in ("lunch", "dopahar", "pl")):

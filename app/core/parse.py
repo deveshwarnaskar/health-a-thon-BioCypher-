@@ -111,7 +111,13 @@ r"(\d+(?:\.\d+)?\s*(?:ml|g|l|kg|glass|bowl|katori|katora|plate|cup)"
     # A bare food count is itself the stated size: "3 strawberries",
     # "two chocolates", "5 roti". Clock minutes never match — the token after
     # the number must be a real word (see _COUNT_FILLERS) and the count must be
-    # small (single digit or a word).
+    # small (single digit or a word). An EXPLICIT size word elsewhere in the
+    # message ("2 roti dal small") wins over the count — the count is returned
+    # only when it is the ONLY size the patient stated.
+    if re.search(r"\b(?:small|medium|large|chota|chhota|chhoti|chote|medium|"
+                 r"bada|badi|bara|big|zyada|jyada|full|half|normal|theek)\b",
+                 low):
+        return None
     m = re.search(
         r"\b(\d|[2-9]|do|teen|char|paanch|ek|one|two|three|four|five|six|"
         r"seven|eight|nine|ten)\s+([a-z]{2,})\b", low)
@@ -329,6 +335,14 @@ _DONE_PHRASES = {
     "dono ho gaya", "sab ho gaya", "sab logged", "ok thanks", "thanks ji",
 }
 
+# Polite trailing "log kar lena" style cues ("sukoon se log kar lena").
+# Only when the line carries NO digits or other data — otherwise "1 aur log
+# kar lena" must stay a normal answer.
+_DONE_SUFFIXES = (
+    "log kar lena", "log kar dena", "log karna", "kar dena",
+    "kar lena", "kar do", "bata dena", "bata lena",
+)
+
 
 def _is_done(text: Optional[str]) -> bool:
     """'that's all' / 'bas' / 'ho gaya' — the patient says logging is over for
@@ -339,7 +353,9 @@ def _is_done(text: Optional[str]) -> bool:
         return False
     if low in _DONE_PHRASES:
         return True
-    return False
+    if re.search(r"\d", low):
+        return False
+    return any(p in low for p in _DONE_SUFFIXES)
 
 
 def _tag_from_text(prefix: str) -> str:
@@ -354,8 +370,9 @@ def _tag_from_text(prefix: str) -> str:
     if re.search(r"\b(dinner|raat|pd)\b", cleaned):
         return "postdinner"
     # Fasting only when the patient says so (empty-stomach cues). "morning"/
-    # "subah" are timing, NOT fasting — a morning reading is after eating by
-    # default. Random is its own explicit type.
+    # "subah" are timing, NOT fasting. Random is its own explicit type. A bare
+    # or uncontextualised reading is a random check, never an assumed 2-hour
+    # post-meal value.
     if re.search(r"\b(random|randomly|rdn|rbg|random blood glucose)\b", cleaned):
         return "random"
     if re.search(r"\b(fasting|fast|fbs|khali\s*pet|khali\s*pet\b|roza|rozey|empty\s*stomach)\b", cleaned):
