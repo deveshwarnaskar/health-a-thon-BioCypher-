@@ -134,7 +134,8 @@ def build_report_context(store: Store, cfg: Settings, window_id: int) -> dict:
             "pd": pd_d, "pd_values": pd_v,
             "corridor_low": cfg.glucose_low,
             "corridor_high": cfg.glucose_high,
-            "high_gi_share_daily": [s["high_gi_share"] for s in series],
+            "high_gi_share_daily": [s["high_gi_share"] if s["high_gi_share"] is not None else 0
+                                   for s in series],
             "weekends": [s["weekend"] for s in series],
             "correlation": m["correlation"],
         },

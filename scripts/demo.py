@@ -113,6 +113,13 @@ def main() -> None:
         day += timedelta(days=1)
         i += 1
 
+    # Readings are the job of the dashboard AI intake (the single logger), so
+    # simulate that step too: the worker registers the resolved sugar readings
+    # the webhook captured store-only above.
+    from app.core.ai_worker import IntakeWorker
+    IntakeWorker(store, cfg, send_func=lambda out: True).run_once(
+        limit=1000, should_send=False)
+
     store.audit("system", "demo_windows_" + ("closed" if args.close else "open"),
                 "demo log finished")
     if args.close:
