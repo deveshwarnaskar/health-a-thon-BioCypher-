@@ -24,6 +24,8 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from typing import Iterator, Optional
 
+from .clock import iso_now, now_local
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS patients(
     id INTEGER PRIMARY KEY, name TEXT, uh_id TEXT UNIQUE, phone TEXT,
@@ -175,7 +177,7 @@ class Store:
             c.execute("UPDATE caregivers SET active=0 WHERE patient_id=?", (patient_id,))
             cur = c.execute(
                 "INSERT INTO caregivers(patient_id, phone, name, ts, active) VALUES(?,?,?,?,1)",
-                (patient_id, phone, name, iso(datetime.now())))
+                (patient_id, phone, name, iso_now()))
             return cur.lastrowid
 
     def get_caregiver(self, patient_id: int) -> Optional[dict]:
@@ -207,7 +209,7 @@ class Store:
             c.execute("DELETE FROM avoid_items WHERE patient_id=?", (patient_id,))
             for it in items:
                 c.execute("INSERT INTO avoid_items(patient_id, set_by, item, ts) VALUES(?,?,?,?)",
-                          (patient_id, set_by, it.strip(), iso(datetime.now())))
+                          (patient_id, set_by, it.strip(), iso_now()))
 
     def get_avoid_items(self, patient_id: int) -> list[str]:
         rows = self.conn.execute("SELECT item FROM avoid_items WHERE patient_id=?",
@@ -221,7 +223,7 @@ class Store:
             cur = c.execute(
                 "INSERT INTO windows(patient_id, start_date, end_date, status, caregiver_phone, created_at)"
                 " VALUES(?,?,?, 'open', ?, ?)",
-                (patient_id, start_date, end_date, caregiver_phone, iso(datetime.now())))
+                (patient_id, start_date, end_date, caregiver_phone, iso_now()))
             return cur.lastrowid
 
     def close_window(self, window_id: int) -> None:
@@ -265,7 +267,7 @@ class Store:
                 "INSERT INTO meals(window_id, ts, sender_phone, role, source, status, items_json,"
                 " portion, portion_ml, carbs, gi, confidence)"
                 " VALUES(?,?,?,?,?, 'pending', ?,?,?,?,?,?)",
-                (window_id, ts or iso(datetime.now()), sender_phone, role, source,
+                (window_id, ts or iso_now(), sender_phone, role, source,
                  json.dumps(items, ensure_ascii=False), portion, portion_ml, carbs, gi, confidence))
             return cur.lastrowid
 
@@ -317,6 +319,51 @@ class Store:
              + "ORDER BY ts")
         return [dict(r) for r in self.conn.execute(q, (window_id,)).fetchall()]
 
+    def update_meal(self, meal_id: int, portion: Optional[str] = None,
+                    items_json: Optional[str] = None, ts: Optional[str] = None,
+                    status: Optional[str] = None, carbs: Optional[float] = None,
+                    gi: Optional[str] = None) -> None:
+        """Edit a logged meal (operator edit or AI correction)."""
+        sets: list[str] = []
+        args: list = []
+        for col, val in (("portion", portion), ("items_json", items_json),
+                         ("ts", ts), ("status", status), ("carbs", carbs),
+                         ("gi", gi)):
+            if val is not None:
+                sets.append(f"{col}=?")
+                args.append(val)
+        if not sets:
+            return
+        args.append(int(meal_id))
+        with self.tx() as c:
+            c.execute(f"UPDATE meals SET {', '.join(sets)} WHERE id=?",
+                      tuple(args))
+
+    def delete_meal(self, meal_id: int) -> bool:
+        with self.tx() as c:
+            cur = c.execute("DELETE FROM meals WHERE id=?", (int(meal_id),))
+            return cur.rowcount > 0
+
+    def reset_demo_data(self, window_id: Optional[int] = None) -> None:
+        """Wipe all demo log data (readings, meals, raw/outbound, audit,
+        webhook events, avoid list). Patients, caregivers and windows survive
+        so the demo restarts logging fresh on the same patient.
+
+        When a window_id is given only that window's rows are removed.
+        """
+        with self.tx() as c:
+            if window_id:
+                for t in ("meals", "readings", "raw_inbound", "outbound"):
+                    c.execute(f"DELETE FROM {t} WHERE window_id=?", (window_id,))
+                # audit / webhook_events / avoid_items are global (no window_id).
+                c.execute("DELETE FROM webhook_events")
+                c.execute("DELETE FROM avoid_items")
+                c.execute("DELETE FROM audit")
+                return
+            for t in ("meals", "readings", "raw_inbound", "outbound", "audit",
+                      "webhook_events", "avoid_items"):
+                c.execute(f"DELETE FROM {t}")
+
     # ---- readings ------------------------------------------------------
     def add_reading(self, window_id: int, sender_phone: str, role: str,
                     tag: str, value: float, ts: Optional[str] = None,
@@ -328,7 +375,7 @@ class Store:
                 "INSERT INTO readings(window_id, ts, sender_phone, role, tag, value,"
                 " status, candidates_json, raw_id)"
                 " VALUES(?,?,?,?,?,?,?,?,?)",
-                (window_id, ts or iso(datetime.now()), sender_phone, role, tag, value,
+                (window_id, ts or iso_now(), sender_phone, role, tag, value,
                  status, candidates_json, raw_id))
             return cur.lastrowid
 
@@ -343,10 +390,10 @@ class Store:
                        since_min: float = 45) -> Optional[dict]:
         """Most recent reading from a sender (default: logged within ~45 min)."""
         try:
-            since = (datetime.now() - timedelta(minutes=since_min)).strftime(
+            since = (now_local() - timedelta(minutes=since_min)).strftime(
                 "%Y-%m-%dT%H:%M:%S")
         except Exception:
-            since = iso(datetime.now())
+            since = iso_now()
         q = ("SELECT * FROM readings WHERE sender_phone=? AND ts>=? "
              + ("AND window_id=? " if window_id else "")
              + "ORDER BY ts DESC LIMIT 1")
@@ -386,6 +433,30 @@ class Store:
                           " candidates_json=NULL WHERE id=?",
                           (float(value), int(reading_id)))
 
+    def update_reading(self, reading_id: int, value: Optional[float] = None,
+                       tag: Optional[str] = None, ts: Optional[str] = None,
+                       status: Optional[str] = None) -> bool:
+        """Edit a logged reading (operator/doctor edit or AI correction)."""
+        sets: list[str] = []
+        args: list = []
+        for col, val in (("value", value), ("tag", tag), ("ts", ts),
+                         ("status", status)):
+            if val is not None:
+                sets.append(f"{col}=?")
+                args.append(val)
+        if not sets:
+            return False
+        args.append(int(reading_id))
+        with self.tx() as c:
+            cur = c.execute(f"UPDATE readings SET {', '.join(sets)} WHERE id=?",
+                            tuple(args))
+            return cur.rowcount > 0
+
+    def delete_reading(self, reading_id: int) -> bool:
+        with self.tx() as c:
+            cur = c.execute("DELETE FROM readings WHERE id=?", (int(reading_id),))
+            return cur.rowcount > 0
+
     # ---- outbound (what we said; nudge idempotency) --------------------
     def record_outbound(self, window_id: Optional[int], route: str, kind: str,
                         body: str, unique_key: Optional[str] = None) -> None:
@@ -393,7 +464,7 @@ class Store:
             c.execute(
                 "INSERT INTO outbound(window_id, ts, route, kind, body, unique_key)"
                 " VALUES(?,?,?,?,?,?)",
-                (window_id, iso(datetime.now()), route, kind, body, unique_key))
+                (window_id, iso_now(), route, kind, body, unique_key))
 
     def has_outbound_key(self, unique_key: str) -> bool:
         r = self.conn.execute("SELECT id FROM outbound WHERE unique_key=?", (unique_key,)).fetchone()
@@ -412,7 +483,7 @@ class Store:
     def audit(self, actor: str, action: str, detail: str = "") -> None:
         with self.tx() as c:
             c.execute("INSERT INTO audit(ts, actor, action, detail) VALUES(?,?,?,?)",
-                      (iso(datetime.now()), actor, action, detail))
+                      (iso_now(), actor, action, detail))
 
     def audit_log(self) -> list[dict]:
         rows = self.conn.execute("SELECT * FROM audit ORDER BY ts DESC LIMIT 200").fetchall()
@@ -429,7 +500,7 @@ class Store:
             cur = c.execute(
                 "INSERT INTO webhook_events(ts, event_type, client_ip, status, detail)"
                 " VALUES(?,?,?,?,?)",
-                (iso(datetime.now()), event_type or "", client_ip or "",
+                (iso_now(), event_type or "", client_ip or "",
                  status or "", _json.dumps(detail or {}, ensure_ascii=False)))
             return cur.lastrowid
 
@@ -451,12 +522,13 @@ class Store:
             cur = c.execute(
                 "INSERT INTO raw_inbound(window_id, ts, sender_phone, role, raw_text, refined_json, status)"
                 " VALUES(?,?,?,?,?,?,?)",
-                (window_id, ts or iso(datetime.now()), sender_phone or "", role or "patient",
+                (window_id, ts or iso_now(), sender_phone or "", role or "patient",
                  raw_text or "", refined_json or "", status))
             return cur.lastrowid
 
     def record_raw_received(self, sender_phone: str, raw_text: str,
-                            message_id: str = "", role: str = "patient") -> tuple[int, bool]:
+                            message_id: str = "", role: str = "patient",
+                            ts: Optional[str] = None) -> tuple[int, bool]:
         """Persist a webhook message BEFORE any processing (store-first, durable).
 
         Returns (raw_inbound.id, is_duplicate). A non-empty Meta message id is used
@@ -472,7 +544,7 @@ class Store:
             cur = c.execute(
                 "INSERT INTO raw_inbound(window_id, ts, sender_phone, role, raw_text, refined_json, status, message_id)"
                 " VALUES(NULL,?,?,?,?,?,?,?)",
-                (iso(datetime.now()), sender_phone or "", role or "patient",
+                (ts or iso_now(), sender_phone or "", role or "patient",
                  raw_text or "", "", "received", mid))
             return cur.lastrowid, False
 

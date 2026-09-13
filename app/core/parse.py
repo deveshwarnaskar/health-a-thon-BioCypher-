@@ -22,10 +22,11 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from ..config import Settings
+from .clock import now_local
 
 _READING_FULL = re.compile(
     r"^\s*([a-z][a-z ]*?)\??\s*[:=]?\s*(\d{2,3}(?:\.\d)?)\s*(mg/dl)?\s*$", re.I)
@@ -52,11 +53,11 @@ READING_TAG_LABELS = {
 
 # Patient-facing (Hinglish) names for the same tags in confirmations.
 PATIENT_TAG_LABELS = {
-    "fasting": "fasting", "pre": "khane se pehle",
-    "postprandial": "khane ke baad",
-    "postbreakfast": "breakfast ke baad",
-    "postlunch": "lunch ke baad",
-    "postdinner": "dinner ke baad",
+    "fasting": "Fasting", "pre": "Khane se pehle",
+    "postprandial": "Khane ke baad",
+    "postbreakfast": "Breakfast ke baad",
+    "postlunch": "Lunch ke baad",
+    "postdinner": "Dinner ke baad",
 }
 
 _CONFIRM = {"yes", "y", "ok", "okay", "confirm", "hmm", "ha", "haan", "correct",
@@ -78,7 +79,7 @@ class ParsedInput:
     reading: Optional[float] = None
     reading_tag: Optional[str] = None
     portion_letter: Optional[str] = None
-    ts: datetime = field(default_factory=datetime.now)
+    ts: datetime = field(default_factory=now_local)
     raw: str = ""
 
     @property
@@ -209,6 +210,9 @@ _TAG_CUES = ("fasting", "fast", "fbs", "khali", "morning", "subah",
 _TAG_DENY = ("roti", "sabzi", "sabji", "paneer", "chana", "dahi", "chawal",
              "rice", "paratha", "dosa", "idli", "khana", "khaana", "mithai",
              "photo", "picture")
+# Words that mark a tag as NEGATED: "wo fasting nhi thi" does NOT set fasting.
+_TAG_NEGATION = ("nhi", "nahi", "not", "no ", "nop", "never",
+                 "nope", "nah", "ni")
 
 _RESOLUTION_CUES = ("hai", "theek", "thik", "sahi", "sachi", "correct",
                     "confirm", "pakka", "wala", "2nd", "second", "1st",
@@ -216,14 +220,56 @@ _RESOLUTION_CUES = ("hai", "theek", "thik", "sahi", "sachi", "correct",
                     "definitely", "exact", "exactly", "choose ", "select ",
                     " wali")
 
+# Words that signal a CHANGE/correction ("change 120 to 130", "update karo").
+_CORRECTION_WORDS = ("change", "changed", "update", "correct", "correction",
+                     "sudhar", "badlo", "badal", "kar do", "karne", "edit",
+                     "replace", "sudhara")
+
+
+def _has_negation(low: str) -> bool:
+    """Word-boundary negation check for short tag answers."""
+    return any(re.search(rf"\b{re.escape(w)}\b", low) for w in _TAG_NEGATION)
+
+
+def _is_tag_negation(text: Optional[str]) -> Optional[str]:
+    """'wo fasting nhi thi' / 'not fasting' -> the DENIED tag (never applied).
+
+    The patient is telling us the reading is NOT that context, so the denied
+    tag must never be written to the log. We return it so the worker can keep
+    the correct existing tag (or ask again) instead of mis-tagging.
+    """
+    low = _strip_time(text)
+    if not low or len(low) > 26:
+        return None
+    if re.search(r"\d", low):
+        return None
+    if any(w in low for w in _TAG_DENY):
+        return None
+    if not any(c in low for c in _TAG_CUES):
+        return None
+    if not _has_negation(low):
+        return None
+    return _tag_from_text(low)
+
+
+def _strip_time(text: Optional[str]) -> str:
+    """'khane ke pehle 07:06 am' -> 'khane ke pehle'. Removes the clutter
+    patients append after answering the before/after question."""
+    low = str(text or "").strip().lower()
+    low = re.sub(r"\b\d{1,2}:\d{2}\s*(?:am|pm|a|p|o[ ']?clock)?\b", " ", low)
+    low = re.sub(r"\b\d{1,2}\s*(?:am|pm|baje|o[ ']?clock)\b", " ", low)
+    low = re.sub(r"\b(07|7|08|8|09|9|1[0-9]|2[0-3]):\d{2}\b", " ", low)
+    return re.sub(r"\s+", " ", low).strip()
+
 
 def _is_tag_answer(text: Optional[str]) -> Optional[str]:
     """'khane ke baad' / 'fasting' / 'post lunch' -> the reading-context tag.
 
     Returns the tag when the message is a short answer to the tag question the
-    AI asked, otherwise None. Purely deterministic.
+    AI asked, otherwise None. Purely deterministic. A NEGATION ('fasting nhi
+    thi') is a different intent — never read as a tag.
     """
-    low = str(text or "").strip().lower()
+    low = _strip_time(text)
     if not low or len(low) > 22:
         return None
     if re.search(r"\d", low):
@@ -232,7 +278,58 @@ def _is_tag_answer(text: Optional[str]) -> Optional[str]:
         return None
     if not any(c in low for c in _TAG_CUES):
         return None
+    if _has_negation(low):
+        return None
     return _tag_from_text(low)
+
+
+def _is_correction(text: Optional[str]) -> bool:
+    low = str(text or "").lower()
+    return any(re.search(rf"\b{re.escape(w)}\b", low) for w in _CORRECTION_WORDS)
+
+
+def _correction_value(text: Optional[str]) -> Optional[float]:
+    """The corrected VALUE the patient wants ("130 not 120", "change 120 to
+    130", "wo 130 tha 120 nahi"). Returns None when it cannot be decided.
+
+    - change words: value after the converter word (to/par/pe -> 130).
+    - two numbers + a negation: the number that ISN'T negated is the truth.
+    """
+    low = str(text or "").lower()
+    nums = [(float(m.group()), m.start())
+            for m in re.finditer(r"\b\d{2,3}(?:\.\d)?\b", low)
+            if 20 <= float(m.group()) <= 600]
+    vals = [v for v, _ in nums]
+    if not vals:
+        return None
+
+    converter = re.search(r"\b(to|par|pe|mein|me)\b", low)
+    if _is_correction(low):
+        if converter:
+            tail = low[converter.end():]
+            m = re.search(r"\b(\d{2,3}(?:\.\d)?)\b", tail)
+            if m and 20 <= float(m.group(1)) <= 600:
+                return float(m.group(1))
+        # 'change 120 to 130' without a converter -> assume the LAST value
+        return vals[-1]
+
+    # Two sugar-lookalike numbers + a negation ("130 not 120", "wo 130 tha
+    # 120 nahi", "not 120, 130 hai"): pick the number that is NOT the denied
+    # one. The denied number sits right next to the negation word.
+    if len(vals) == 2 and _has_negation(low):
+        neg_pos = min((m.start() for m in re.finditer(
+            r"\b(nhi|nahi|not)\b", low)), default=None)
+        if neg_pos is not None:
+            after = [v for v, pos in nums if neg_pos < pos < neg_pos + 8]
+            before = [v for v, pos in nums if neg_pos - 9 < pos < neg_pos]
+            denied = None
+            if len(after) == 1:
+                denied = after[0]
+            elif len(before) == 1:
+                denied = before[0]
+            if denied is not None:
+                return vals[1] if vals[0] == denied else vals[0]
+    return None
 
 
 def _resolution_cue_value(text: Optional[str]) -> Optional[float]:
@@ -287,6 +384,65 @@ _PART_DEFAULTS = (
     (("raat", "night", "rathri", "midnight"), 21),
 )
 
+_MONTHS = {
+    "jan": 1, "january": 1, "janvari": 1,
+    "feb": 2, "february": 2, "farvari": 2,
+    "mar": 3, "march": 3,
+    "apr": 4, "april": 4,
+    "may": 5, "mai": 5,
+    "jun": 6, "june": 6,
+    "jul": 7, "july": 7, "julai": 7,
+    "aug": 8, "august": 8,
+    "sep": 9, "sept": 9, "september": 9,
+    "oct": 10, "october": 10,
+    "nov": 11, "november": 11,
+    "dec": 12, "december": 12,
+}
+_MONTH_RE = ("jan(?:uary|vari)?|feb(?:ruary|vari)?|mar(?:ch)?|apr(?:il)?"
+             "|may|mai|jun(?:e)?|jul(?:y|ai)?|aug(?:ust)?|sep(?:t|tember)?"
+             "|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?")
+
+
+def _explicit_date(text: Optional[str], base: date) -> Optional[date]:
+    """True calendar date the patient said ('14 july', 'july 14',
+    '14th of july', '14/07', '14-07' [+ year]). Returns None when absent.
+
+    No year -> assume the message year, pulled back one year when the result
+    would be in the future (patients back-log past dates).
+    """
+    low = str(text or "").lower()
+    found: Optional[tuple[int, int, int]] = None
+    # '14 july' / '14th of july' / '14 july 2026'
+    m = re.search(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+of\s+({_MONTH_RE})\b", low)
+    if not m:
+        m = re.search(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MONTH_RE})\b", low)
+    if m:
+        found = (int(m.group(1)), _MONTHS[re.sub(r"\W", "", m.group(2))], None)
+    else:
+        # 'july 14' / 'july 14th' / 'july 14 2026'
+        m = re.search(rf"\b({_MONTH_RE})\s+(\d{{1,2}})(?:st|nd|rd|th)?\b", low)
+        if m:
+            found = (int(m.group(2)), _MONTHS[re.sub(r"\W", "", m.group(1))], None)
+    if not found:
+        # numeric '14/07' or '14-07' (day/month), not a clock '07:05'
+        m = re.search(r"\b(\d{1,2})[/-](\d{1,2})\b", low)
+        if m:
+            found = (int(m.group(1)), int(m.group(2)), None)
+    if not found:
+        return None
+    day, mon, _y = found
+    yr = base.year
+    ym = re.search(r"\b(20\d{2}|19\d{2})\b", low)
+    if ym:
+        yr = int(ym.group(1))
+    try:
+        d = date(yr, mon, day)
+    except ValueError:
+        return None
+    if d > base:
+        d = date(yr - 1, mon, day)  # past back-logging beats a future date
+    return d
+
 
 def time_reference(text: Optional[str]) -> tuple[int, Optional[int]]:
     """(day_shift, minute_of_day|None) from explicit words in the message."""
@@ -322,14 +478,15 @@ def time_reference(text: Optional[str]) -> tuple[int, Optional[int]]:
 def reading_timestamp(text: Optional[str], msg_ts: str) -> datetime:
     """Timestamp for this reading: the message time by default, overridden
     only when the patient explicitly mentions another day/time
-    ("yesterday evening near 3pm", ...)."""
+    ("yesterday evening near 3pm", "14 july shaam 3 baje", ...)."""
     try:
         base = datetime.fromisoformat(str(msg_ts).replace("Z", "")[:19])
     except (ValueError, TypeError):
-        base = datetime.now()
+        base = now_local()
     shift, minute = time_reference(text)
-    if shift == 0 and minute is None:
-        return base
+    explicit = _explicit_date(text, base.date())
+    if explicit is not None:
+        shift = (explicit - base.date()).days
     if minute is None:
         minute = base.hour * 60 + base.minute
     day = base.date() + timedelta(days=shift)
@@ -341,7 +498,7 @@ def _ts(raw: dict) -> datetime:
     try:
         return datetime.fromisoformat(raw["ts"].replace("Z", ""))
     except (KeyError, ValueError, AttributeError):
-        return datetime.now()
+        return now_local()
 
 
 def _as_reading(raw: dict, value) -> ParsedInput:
@@ -358,7 +515,7 @@ def _as_reading(raw: dict, value) -> ParsedInput:
 
 
 def _reading_from_text(text: str, raw: Optional[dict] = None) -> Optional[ParsedInput]:
-    ts = _ts(raw) if raw else datetime.now()
+    ts = _ts(raw) if raw else now_local()
     m = _READING_SHORT.match(text.strip())
     if m:
         val = float(m.group(1))
@@ -421,12 +578,13 @@ def _items(text: str, cfg: Settings) -> list[dict]:
 
 def _mock_photo(raw: dict, cfg: Settings, mock_vision) -> list[dict]:
     from .nutrition import estimate_carbs_g, detect_photo, KATORI_LABELS
+    now = now_local()
     if mock_vision is not None and callable(mock_vision):
-        rows = mock_vision(raw.get("photo_path") or "", datetime.now().hour, 0)
+        rows = mock_vision(raw.get("photo_path") or "", now.hour, 0)
     else:
         ts = raw.get("ts", "")
-        day = int(ts[:10].replace("-", "")) if len(ts) >= 10 else int(datetime.now().strftime("%Y%m%d"))
-        rows = detect_photo(datetime.now().hour, day, cfg)
+        day = int(ts[:10].replace("-", "")) if len(ts) >= 10 else int(now.strftime("%Y%m%d"))
+        rows = detect_photo(now.hour, day, cfg)
     out = []
     for r in rows:
         out.append({

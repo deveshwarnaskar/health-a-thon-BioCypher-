@@ -21,13 +21,14 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import datetime
 from typing import Callable, Optional
 
 from ..config import Settings
+from .clock import fmt_ts_log, iso_now
 from .datamodel import Store
 from .intake_ai import IntakeResult, analyze_intake
-from .parse import PATIENT_TAG_LABELS, _is_dup_answer, _tag_from_text
+from .parse import (PATIENT_TAG_LABELS, _is_dup_answer,
+                    _is_tag_negation, _tag_from_text)
 
 
 class IntakeWorker:
@@ -104,7 +105,7 @@ class IntakeWorker:
                 else:
                     summary["skipped"] += 1
 
-        self.last_run = datetime.now().isoformat()
+        self.last_run = iso_now()
         self.last_summary = summary
         return summary
 
@@ -193,12 +194,17 @@ class IntakeWorker:
         """Write the AI-decided reading into the readings table (window-scoped).
 
         Off-webhook and dashboard-driven. Handles:
-          * tag answers   -> apply the reading-context tag in place;
-          * dup answers   -> "new" registers the earlier blocked value, otherwise skip;
-          * resolutions   -> confirm an ambiguous (pending) reading to its true value;
+          * tag answers   -> apply the reading-context tag in place, CONFIRM it;
+          * tag negations -> "fasting nhi thi" never logs the denied tag;
+          * corrections   -> "130 not 120" updates the latest reading + confirms;
+          * dup answers   -> "new" registers the earlier blocked value, else skip;
+          * resolutions   -> confirm an ambiguous (pending) reading to its value;
           * ambiguous     -> keep a status='pending' row (never guess a number);
-          * single value  -> confirm it (same-day duplicates ask instead of re-logging).
-        Never duplicated — guarded by the row marker and by an existing-reading check.
+          * single value  -> confirm it; WITHOUT before/after context it stays
+                            'needs confirmation' (pending) until the patient
+                            tells the context (duplicates then ask instead).
+        Every action that changes the log sends a short confirmation to the
+        patient. Never duplicated — guarded by row markers + existing reads.
         """
         try:
             if not sender:
@@ -211,6 +217,7 @@ class IntakeWorker:
             if not window or not window.get("id"):
                 return
             wid = window["id"]
+            name = (patient.get("name") or "ji").strip() or "ji"
             intent = res.intent
 
             # same-row idempotency
@@ -222,19 +229,93 @@ class IntakeWorker:
                 except Exception:
                     pass
 
+            sender_rows = [r for r in self.store.readings_for_window(wid)
+                           if r.get("sender_phone") == sender]
+            confirmed = [r for r in sender_rows if r.get("status") == "confirmed"]
+            pending = [r for r in sender_rows if r.get("status") == "pending"]
+            latest_conf = (confirmed and sorted(
+                confirmed, key=lambda r: r.get("ts") or "", reverse=True)[0]) or None
+            latest_pend = (pending and sorted(
+                pending, key=lambda r: r.get("ts") or "", reverse=True)[0]) or None
+            target = latest_pend or latest_conf
+
             if intent == "tag_answer":
                 tag = _tag_from_text(res.raw_text) or "postprandial"
-                pend = self.store.pending_reading_near(sender, wid)
-                rows = sorted((r for r in self.store.readings_for_window(wid)
-                               if r.get("sender_phone") == sender
-                               and r.get("status") == "confirmed"),
-                              key=lambda r: r.get("ts") or "", reverse=True)
-                target = pend or (rows[0] if rows else None)
                 if target:
                     self.store.set_reading_tag(target["id"], tag)
+                    if target.get("status") == "pending":
+                        self.store.resolve_reading(
+                            target["id"], float(target["value"]), tag)
                     self.store.audit("ai_intake", "reading_tagged",
                                      f"raw_id={raw_row['id']} reading={target['id']} "
-                                     f"({'pending ' if pend else ''}{tag})")
+                                     f"({'pending ' if latest_pend else ''}{tag})")
+                    label = PATIENT_TAG_LABELS.get(tag, tag)
+                    res.reply = self._confirm_reading(
+                        float(target["value"]), tag, str(target.get("ts") or ""))
+                    res.should_reply = True
+                    res.missing = []
+                else:
+                    res.reply = (f"{name} ji, abhi koi sugar logged nahi hai — "
+                                 "pehle sugar value bataiye.")
+                    res.should_reply = True
+                self._mark_registered(raw_row["id"])
+                return
+
+            if intent == "tag_negation":
+                denied = _is_tag_negation(res.raw_text)
+                kept = target and target.get("tag") and target["tag"] != denied
+                if kept:
+                    label = PATIENT_TAG_LABELS.get(target["tag"], target["tag"])
+                    res.reply = f"✅ Theek hai — {label} hi logged hai."
+                    res.should_reply = True
+                else:
+                    if target and target.get("tag") == denied:
+                        self.store.set_reading_tag(target["id"], "")
+                    denied_label = PATIENT_TAG_LABELS.get(denied, denied or "wo")
+                    res.reply = (f"{name} ji, theek hai — {denied_label} nahi. "
+                                 "Phir ye kab ka tha — khane se pehle ya khane ke baad?")
+                    res.should_reply = True
+                    res.missing = ["reading_tag"]
+                self.store.audit("ai_intake", "tag_negated",
+                                 f"raw_id={raw_row['id']} denied={denied or ''} "
+                                 f"kept={target.get('tag') if kept else ''}")
+                self._mark_registered(raw_row["id"])
+                return
+
+            if intent == "correction" and res.reading_value is not None:
+                v = float(res.reading_value)
+                if target:
+                    old = float(target["value"] or 0.0)
+                    new_tag = res.reading_tag or target.get("tag") or "postprandial"
+                    new_ts = res.reading_ts or target.get("ts")
+                    self.store.update_reading(target["id"], value=v, tag=new_tag,
+                                              ts=new_ts, status="confirmed")
+                    self.store.audit("ai_intake", "reading_corrected",
+                                     f"raw_id={raw_row['id']} reading={target['id']} "
+                                     f"{old:g}->{v:g}")
+                    t = str(new_ts or "")
+                    label = PATIENT_TAG_LABELS.get(new_tag, new_tag)
+                    res.reply = (f"✅ Update ho gaya — {fmt_ts_log(t)}: {label} "
+                                 f"{v:g} (pehle {old:g} tha).{self._invite()}")
+                    res.should_reply = True
+                    res.missing = []
+                else:
+                    ts = res.reading_ts or self._now_iso()
+                    tag = (res.reading_tag or "").strip() or None
+                    if tag:
+                        self.store.add_reading(wid, sender, "patient", tag, v, ts=ts)
+                        self.store.audit("ai_intake", "reading_registered",
+                                         f"raw_id={raw_row['id']} {tag} {v:g} at {ts}")
+                        res.reply = self._confirm_reading(v, tag, ts)
+                    else:
+                        self.store.add_reading(wid, sender, "patient", "", v, ts=ts,
+                                               status="pending")
+                        self.store.audit("ai_intake", "reading_registered",
+                                         f"raw_id={raw_row['id']} pending-no-tag {v:g} at {ts}")
+                        res.reply = (f"✅ Sugar {v:g} add kiya — {fmt_ts_log(ts)}. "
+                                     f"{self._tag_question()}")
+                    res.should_reply = True
+                    res.missing = []
                 self._mark_registered(raw_row["id"])
                 return
 
@@ -263,15 +344,25 @@ class IntakeWorker:
                 ts = res.reading_ts or self._now_iso()
                 pend = self.store.pending_reading_near(sender, wid)
                 if pend:
-                    self.store.resolve_reading(pend["id"], v)
+                    self.store.resolve_reading(pend["id"], v, res.reading_tag or None)
                     self.store.audit("ai_intake", "reading_resolved",
                                      f"raw_id={raw_row['id']} reading={pend['id']} -> {v:g}")
-                    res.reply = self._confirm_reading(v, pend.get("tag"), ts)
+                    res.reply = self._confirm_reading(
+                        v, res.reading_tag or pend.get("tag") or None, ts)
                 else:
-                    self.store.add_reading(wid, sender, "patient", "postprandial", v, ts=ts)
-                    self.store.audit("ai_intake", "reading_registered",
-                                     f"raw_id={raw_row['id']} {v:g} at {ts}")
-                    res.reply = self._confirm_reading(v, None, ts)
+                    tag = (res.reading_tag or "").strip() or None
+                    if tag:
+                        self.store.add_reading(wid, sender, "patient", tag, v, ts=ts)
+                        self.store.audit("ai_intake", "reading_registered",
+                                         f"raw_id={raw_row['id']} {tag} {v:g} at {ts}")
+                        res.reply = self._confirm_reading(v, tag, ts)
+                    else:
+                        self.store.add_reading(wid, sender, "patient", "", v, ts=ts,
+                                               status="pending")
+                        self.store.audit("ai_intake", "reading_registered",
+                                         f"raw_id={raw_row['id']} pending-no-tag {v:g} at {ts}")
+                        res.reply = (f"✅ Sugar {v:g} add kiya — {fmt_ts_log(ts)}. "
+                                     f"{self._tag_question()}")
                 res.should_reply = True
                 res.missing = []
                 self._mark_registered(raw_row["id"])
@@ -301,14 +392,44 @@ class IntakeWorker:
 
             if res.reading_status == "resolved" and res.reading_value is not None:
                 v = float(res.reading_value)
-                tag = res.reading_tag or "postprandial"
+                tag = (res.reading_tag or "").strip() or None
                 ts = res.reading_ts or self._now_iso()
+                if not tag:
+                    # Before/after context unknown -> 'needs confirmation' until
+                    # the patient tells us fasting/khane se pehle/khane ke baad.
+                    target_day = (ts or "")[:10]
+                    for rd in confirmed:
+                        if (str(rd.get("ts") or "")[:10] == target_day
+                                and abs(float(rd.get("value") or 0.0) - v) < 0.5):
+                            # Same value already logged today -> ask, don't re-log.
+                            self.store.audit("ai_intake", "duplicate_asked",
+                                             f"raw_id={raw_row['id']} value={v:g} "
+                                             f"matches reading {rd['id']}")
+                            res.reply = (f"{name} ji, sugar {v:g} is already logged for "
+                                         f"{fmt_ts_log(ts)} — naya hai ya mistake? "
+                                         "('naya' / 'mistake')")
+                            res.should_reply = True
+                            res.missing = ["duplicate"]
+                            self._store_dup_pending(raw_row["id"], v, ts)
+                            self._mark_registered(raw_row["id"])
+                            return
+                    for pd in pending:
+                        if (not pd.get("candidates_json")
+                                and abs(float(pd.get("value") or 0.0) - v) < 0.5):
+                            res.reply = ""
+                            res.should_reply = False
+                            self._mark_registered(raw_row["id"])
+                            return
+                    self.store.add_reading(wid, sender, "patient", "", v, ts=ts,
+                                           status="pending")
+                    self.store.audit("ai_intake", "reading_registered",
+                                     f"raw_id={raw_row['id']} pending-no-tag {v:g} at {ts}")
+                    self._mark_registered(raw_row["id"])
+                    return
                 target_day = (ts or "")[:10]
                 dup = None
-                for rd in self.store.readings_for_window(wid):
-                    if (rd.get("sender_phone") == sender
-                            and rd.get("status") == "confirmed"
-                            and str(rd.get("ts") or "")[:10] == target_day):
+                for rd in confirmed:
+                    if str(rd.get("ts") or "")[:10] == target_day:
                         try:
                             if abs(float(rd.get("value") or 0.0) - v) < 0.5:
                                 dup = rd
@@ -319,9 +440,9 @@ class IntakeWorker:
                     self.store.audit("ai_intake", "duplicate_asked",
                                      f"raw_id={raw_row['id']} value={v:g} "
                                      f"matches reading {dup['id']}")
-                    name = (patient.get("name") or "ji").strip() or "ji"
                     res.reply = (f"{name} ji, sugar {v:g} is already logged for "
-                                 f"{self._hm(ts)} — naya hai ya mistake? ('naya' / 'mistake')")
+                                 f"{fmt_ts_log(ts)} — naya hai ya mistake? "
+                                 "('naya' / 'mistake')")
                     res.should_reply = True
                     res.missing = ["duplicate"]
                     self._store_dup_pending(raw_row["id"], v, ts)
@@ -335,17 +456,18 @@ class IntakeWorker:
         except Exception as e:
             print(f"[Aahaar] AI intake register error: {e}")
 
-    @staticmethod
-    def _hm(ts_s: Optional[str]) -> str:
-        s = str(ts_s or "")
-        return s[11:16] if len(s) >= 16 else s
+    def _invite(self) -> str:
+        return " Aur kuch log karna hai — sugar ya khana?"
+
+    def _tag_question(self) -> str:
+        return "Ye kab ka reading tha — fasting, khane se pehle, ya khane ke baad?"
 
     def _confirm_reading(self, value: float, tag: Optional[str], ts_s: Optional[str]) -> str:
-        hm = self._hm(ts_s)
+        hm = fmt_ts_log(str(ts_s or ""))
         if tag:
             label = PATIENT_TAG_LABELS.get(tag, tag)
-            return f"✅ Logged sugar {value:g} ({label}) — {hm}."
-        return f"✅ Logged sugar {value:g} — {hm}. Ye fasting thi ya khane ke baad?"
+            return f"✅ Logged sugar {value:g} ({label}) — {hm}.{self._invite()}"
+        return f"✅ Logged sugar {value:g} — {hm}. {self._tag_question()}"
 
     def _store_dup_pending(self, raw_id: int, value: float, ts: Optional[str]) -> None:
         try:
@@ -462,7 +584,7 @@ class IntakeWorker:
 
     @staticmethod
     def _now_iso() -> str:
-        return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        return iso_now()
 
     @staticmethod
     def _same_dish_set(items_json: Optional[str], want: set) -> bool:

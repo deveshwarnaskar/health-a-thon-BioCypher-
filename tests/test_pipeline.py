@@ -778,9 +778,20 @@ def test_intake_asks_already_logged_and_honors_dup_answer(seeded, store, cfg, in
     _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
                               "text": "sugar 200"})
     intake(store, cfg)
+    # No before/after context yet -> the reading is 'needs confirmation'.
+    pending = [r for r in store.readings_for_window(wid)
+               if r["status"] == "pending" and abs(r["value"] - 200) < 0.5]
+    assert len(pending) == 1
+    # 'fasting' resolves it to confirmed (with the before/after tag).
+    sent = []
+    store.record_raw_received("+919000000001", "fasting", message_id="TAG-A-1")
+    IntakeWorker(store, cfg, send_func=lambda o: (sent.append(o), True)[1]).run_once(
+        limit=10, should_send=True, send_gap=0)
+    assert any("Logged sugar 200" in o.body and "Fasting" in o.body for o in sent)
     confirmed = [r for r in store.readings_for_window(wid)
                  if r["status"] == "confirmed" and abs(r["value"] - 200) < 0.5]
     assert len(confirmed) == 1
+    assert confirmed[0]["tag"] == "fasting"
     # Same value again the same day -> ask "already logged — naya ya mistake?"
     sent = []
     store.record_raw_received("+919000000001", "200", message_id="DUP-Q-1")
@@ -859,6 +870,132 @@ def test_daily_log_endpoint_groups_by_day_and_slot(tmp_path):
     assert any(r["status"] == "pending" and r["candidates"] == [170, 180]
                for r in day["readings"])
     assert len(day["meals"]) == 1 and day["meals"][0]["items"][0]["item"] == "roti"
+
+
+def test_intake_tag_negation_never_applies_denied_tag(seeded, store, cfg):
+    from app.core.ai_worker import IntakeWorker
+    pid, wid = seeded
+    _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                              "text": "sugar 150"})
+    IntakeWorker(store, cfg, send_func=lambda o: True).run_once(
+        limit=10, should_send=True, send_gap=0)
+    # Patient claims fasting, then corrects it: the denied tag must never apply.
+    _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                              "text": "fasting"})
+    _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                              "text": "wo fasting nhi thi"})
+    sent = []
+    IntakeWorker(store, cfg, send_func=lambda o: (sent.append(o), True)[1]).run_once(
+        limit=10, should_send=True, send_gap=0)
+    rows = [r for r in store.readings_for_window(wid)
+            if r["status"] == "confirmed" and abs(r["value"] - 150) < 0.5]
+    assert len(rows) == 1
+    assert rows[0]["tag"] != "fasting"
+    assert any("khane se pehle" in o.body or "fasting" in o.body
+               for o in sent)  # asked again, never mis-tagged
+
+
+def test_intake_correction_updates_latest_reading_and_confirms(seeded, store, cfg):
+    from app.core.ai_worker import IntakeWorker
+    pid, wid = seeded
+    _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                              "text": "sugar 180"})
+    IntakeWorker(store, cfg, send_func=lambda o: True).run_once(
+        limit=10, should_send=True, send_gap=0)
+    _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                              "text": "fasting"})
+    IntakeWorker(store, cfg, send_func=lambda o: True).run_once(
+        limit=10, should_send=True, send_gap=0)
+    # "130 not 120" must edit the last reading from 180 to 130.
+    _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                              "text": "130 not 120"})
+    sent = []
+    IntakeWorker(store, cfg, send_func=lambda o: (sent.append(o), True)[1]).run_once(
+        limit=10, should_send=True, send_gap=0)
+    rows = [r for r in store.readings_for_window(wid)
+            if r["status"] == "confirmed"]
+    assert len(rows) == 1 and abs(rows[0]["value"] - 130) < 0.5
+    assert rows[0]["tag"] == "fasting"
+    assert any("Update ho gaya" in o.body and "130" in o.body for o in sent)
+    assert any("180" in o.body for o in sent)  # old value echoed
+
+
+def test_intake_backdates_reading_to_explicit_date(seeded, store, cfg):
+    from app.core.ai_worker import IntakeWorker
+    pid, wid = seeded
+    _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                              "text": "14 july 3 baje post eating sugar 300"})
+    IntakeWorker(store, cfg, send_func=lambda o: True).run_once(
+        limit=10, should_send=False)
+    rows = [r for r in store.readings_for_window(wid)
+            if r["status"] == "confirmed" and abs(r["value"] - 300) < 0.5]
+    assert len(rows) == 1
+    assert rows[0]["ts"].startswith("2026-07-14T03:00")
+    assert rows[0]["tag"] == "postprandial"
+
+
+def test_daylog_crud_endpoints(tmp_path):
+    from fastapi.testclient import TestClient
+    from app.config import Settings
+    from app.core.datamodel import Store
+    from app.server.main import create_app
+    db = str(tmp_path / "crud.db")
+    store = Store(db)
+    pid = store.add_patient("CRUD", "CRUD-1", "+919876543210")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.close()
+    c = TestClient(create_app(cfg=Settings(db_path=db, whatsapp="simulator")))
+    h = {"X-Aahaar-Key": "aahaar-2026"}
+    # add a reading
+    r = c.post(f"/api/v1/patients/{pid}/readings", headers=h,
+               json={"value": 128, "tag": "fasting", "ts": "2026-09-12T07:05:00"})
+    assert r.status_code == 200
+    rid = r.json()["id"]
+    # edit it
+    r = c.put(f"/api/v1/patients/{pid}/readings/{rid}", headers=h,
+              json={"value": 132, "tag": "pre"})
+    assert r.status_code == 200
+    # wrong key is rejected
+    assert c.put(f"/api/v1/patients/{pid}/readings/{rid}",
+                 json={"value": 5}).status_code == 403
+    # add + delete a meal
+    r = c.post(f"/api/v1/patients/{pid}/meals", headers=h,
+               json={"items": [{"item": "dal"}], "ts": "2026-09-12T13:00:00"})
+    mid = r.json()["id"]
+    # delete the reading + meal
+    assert c.delete(f"/api/v1/patients/{pid}/readings/{rid}", headers=h).status_code == 200
+    assert c.delete(f"/api/v1/patients/{pid}/meals/{mid}", headers=h).status_code == 200
+    store = Store(db)
+    assert len(store.readings_for_window(wid)) == 0
+    assert len(store.meals_for_window(wid)) == 0
+
+
+def test_demo_reset_endpoint(tmp_path):
+    from fastapi.testclient import TestClient
+    from app.config import Settings
+    from app.core.datamodel import Store
+    from app.server.main import create_app
+    db = str(tmp_path / "reset.db")
+    store = Store(db)
+    pid = store.add_patient("Reset", "RST-1", "+919876543210")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.add_reading(wid, "+919876543210", "patient", "fasting", 120,
+                      ts="2026-09-10T08:00:00")
+    store.propose_meal(wid, "+919876543210", "patient", "text",
+                       [{"item": "roti"}], "m", 220, 24, "med", 0.9,
+                       ts="2026-09-10T09:00:00")
+    store.record_raw_received("+919876543210", "sugar 120", ts="2026-09-10T08:00:00")
+    store.close()
+    c = TestClient(create_app(cfg=Settings(db_path=db, whatsapp="simulator")))
+    assert c.post(f"/api/v1/patients/{pid}/demo-reset").status_code == 403
+    r = c.post(f"/api/v1/patients/{pid}/demo-reset",
+               headers={"X-Aahaar-Key": "aahaar-2026"})
+    assert r.status_code == 200
+    store = Store(db)
+    assert len(store.readings_for_window(wid)) == 0
+    assert len(store.meals_for_window(wid)) == 0
+    assert len(store.raw_inbound_log(wid)) == 0
+    assert store.get_patient(pid) is not None  # patient survives
 
 
 def test_webhook_never_runs_intake_llm(monkeypatch, tmp_path):

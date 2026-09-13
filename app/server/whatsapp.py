@@ -61,7 +61,7 @@ class _Base:
                     kind = msg.get("type")
                     unit = {"sender_phone": str(from_).strip(),
                             "message_id": str(msg.get("id") or ""),
-                            "ts": datetime.now().isoformat()}
+                            "ts": iso_now()}
                     if kind == "text":
                         unit["kind"] = "text"
                         unit["text"] = msg.get("text", {}).get("body", "")
@@ -89,6 +89,8 @@ class _Base:
         return out
 
 
+from ..core.clock import iso_now
+
 class SimulatorBackend(_Base):
     name = "simulator"
     last_dispatch_status: dict = {"status": "simulator_ready", "ts": None}
@@ -99,7 +101,7 @@ class SimulatorBackend(_Base):
         print(f"[Aahaar -> {out.to_phone}] ({out.kind}) {out.body}")
         self.last_dispatch_status = {
             "status": "success",
-            "ts": datetime.now().isoformat(),
+            "ts": iso_now(),
             "http_code": 200,
             "error": None,
             "to": out.to_phone,
@@ -180,7 +182,7 @@ class CloudBackend(_Base):
                     data = body
                 self.last_dispatch_status = {
                     "status": "success",
-                    "ts": datetime.now().isoformat(),
+                    "ts": iso_now(),
                     "http_code": r.status,
                     "error": None,
                     "to": clean_to,
@@ -203,7 +205,7 @@ class CloudBackend(_Base):
                 err_json = err_msg or str(e)
             self.last_dispatch_status = {
                 "status": "error",
-                "ts": datetime.now().isoformat(),
+                "ts": iso_now(),
                 "http_code": e.code,
                 "error": err_json,
                 "to": clean_to,
@@ -217,7 +219,7 @@ class CloudBackend(_Base):
         except Exception as e:
             self.last_dispatch_status = {
                 "status": "exception",
-                "ts": datetime.now().isoformat(),
+                "ts": iso_now(),
                 "http_code": None,
                 "error": str(e),
                 "to": clean_to,
@@ -397,7 +399,7 @@ class CloudBackend(_Base):
             print("[Aahaar] cloud backend not configured — message dropped from Meta dispatch:", out.body[:60])
             self.last_dispatch_status = {
                 "status": "dropped_not_ready",
-                "ts": datetime.now().isoformat(),
+                "ts": iso_now(),
                 "error": "CloudBackend not configured (missing phone_id or token)",
                 "to": clean_to,
             }
@@ -444,7 +446,7 @@ class CloudBackend(_Base):
                 success = (r.status == 200)
                 self.last_dispatch_status = {
                     "status": "success" if success else "error",
-                    "ts": datetime.now().isoformat(),
+                    "ts": iso_now(),
                     "http_code": r.status,
                     "error": None,
                     "to": to,
@@ -459,7 +461,7 @@ class CloudBackend(_Base):
             print(f"[Aahaar] cloud send HTTP {e.code} failed: {err_msg or e}")
             self.last_dispatch_status = {
                 "status": "error",
-                "ts": datetime.now().isoformat(),
+                "ts": iso_now(),
                 "http_code": e.code,
                 "error": err_msg or str(e),
                 "to": to,
@@ -469,7 +471,7 @@ class CloudBackend(_Base):
             print("[Aahaar] cloud send failed:", e)
             self.last_dispatch_status = {
                 "status": "exception",
-                "ts": datetime.now().isoformat(),
+                "ts": iso_now(),
                 "http_code": None,
                 "error": str(e),
                 "to": to,

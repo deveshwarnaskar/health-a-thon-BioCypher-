@@ -25,14 +25,16 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Optional
 
 from ..config import Settings
+from .clock import fmt_ts_log, iso_now
 from .parse import (
     PATIENT_TAG_LABELS,
+    _correction_value,
     _is_dup_answer,
     _is_tag_answer,
+    _is_tag_negation,
     _resolution_cue_value,
     _tag_from_text,
     ambiguous_reading_values,
@@ -103,7 +105,7 @@ def _reading_deduction(text: str, msg_ts: Optional[str] = None) -> dict:
         tag = None
         if any(k in low.lower() for k in _TAG_KEYWORDS):
             tag = _tag_from_text(low)
-        ts_dt = reading_timestamp(low, msg_ts or datetime.now().isoformat())
+        ts_dt = reading_timestamp(low, msg_ts or iso_now())
         return {"value": nums[0], "tag": tag, "candidates": [],
                 "status": "resolved",
                 "ts_str": ts_dt.strftime("%Y-%m-%dT%H:%M:%S")}
@@ -199,13 +201,41 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
     ref_text = refine_text_local(raw)
 
     parsed = parse_inbound({"kind": "text", "text": raw,
-                            "ts": msg_ts or datetime.now().isoformat()}, cfg)
+                            "ts": msg_ts or iso_now()}, cfg)
 
     local_items = _meal_items(ref_text, cfg)
     meal_portion = parsed.portion_letter or None
     ded = _reading_deduction(ref_text, msg_ts)
 
     # ---- follow-up ANSWERS first (never misread as food/sugar) -----------
+    # A negation ("wo fasting nhi thi") is its own intent — NEVER a tag.
+    neg_tag = _is_tag_negation(raw)
+    if neg_tag:
+        return IntakeResult(intent="tag_negation", missing=["reading_tag"],
+                            reply="", should_reply=True, raw_text=raw,
+                            confidence=0.92, analyzed_by="local-refiner",
+                            reading_tag=neg_tag,
+                            meal_items=local_items, meal_portion=meal_portion)
+
+    res_ans = _resolution_cue_value(raw)
+    if res_ans is not None:
+        return IntakeResult(intent="resolution", missing=[], reply="",
+                            should_reply=True, raw_text=raw, confidence=0.9,
+                            analyzed_by="local-refiner",
+                            reading_value=res_ans, reading_status="resolved",
+                            reading_ts=ded.get("ts_str"),
+                            meal_items=local_items, meal_portion=meal_portion)
+
+    # A correction ("130 not 120", "change 120 to 130") edits the last reading.
+    corr = _correction_value(raw)
+    if corr is not None:
+        return IntakeResult(intent="correction", missing=[], reply="",
+                            should_reply=True, raw_text=raw, confidence=0.9,
+                            analyzed_by="local-refiner",
+                            reading_value=corr, reading_status="resolved",
+                            reading_tag=ded.get("tag"), reading_ts=ded.get("ts_str"),
+                            meal_items=local_items, meal_portion=meal_portion)
+
     tag_ans = _is_tag_answer(raw)
     if tag_ans:
         return IntakeResult(intent="tag_answer", missing=[], reply="",
@@ -217,15 +247,6 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
         return IntakeResult(intent="dup_answer", missing=[], reply="",
                             should_reply=True, raw_text=raw, confidence=0.97,
                             analyzed_by="local-refiner",
-                            meal_items=local_items, meal_portion=meal_portion)
-
-    res = _resolution_cue_value(raw)
-    if res is not None:
-        return IntakeResult(intent="resolution", missing=[], reply="",
-                            should_reply=True, raw_text=raw, confidence=0.9,
-                            analyzed_by="local-refiner",
-                            reading_value=res, reading_status="resolved",
-                            reading_ts=ded.get("ts_str"),
                             meal_items=local_items, meal_portion=meal_portion)
 
     # ---- reading: ambiguous -> ask the true value, never guess -----------
@@ -249,9 +270,12 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
         hm = _hm(ded.get("ts_str"))
         if tag:
             label = PATIENT_TAG_LABELS.get(tag, tag)
-            reply = f"✅ Logged sugar {v:g} ({label}) — {hm}."
+            reply = (f"✅ Logged sugar {v:g} ({label}) — {hm}. "
+                     "Aur kuch log karna hai — sugar ya khana?")
         else:
-            reply = f"✅ Logged sugar {v:g} — {hm}. Ye fasting thi ya khane ke baad?"
+            reply = (f"✅ Sugar {v:g} add kiya — {hm}. "
+                     "Ye kab ka reading tha — fasting, khane se pehle, "
+                     "ya khane ke baad?")
         return IntakeResult(
             intent="reading",
             missing=[] if tag else ["reading_tag"],
@@ -341,7 +365,7 @@ def analyze_intake(text: str, patient_name: str = "Patient",
     try:
         from .ai import _last_ai_status
         _last_ai_status["last_status"] = "intake_success"
-        _last_ai_status["last_call_ts"] = datetime.now().isoformat()
+        _last_ai_status["last_call_ts"] = iso_now()
         _last_ai_status["last_model"] = str(parsed.get("_model", ""))
     except Exception:
         pass

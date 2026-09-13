@@ -93,7 +93,11 @@
       <div class="card">
         <div class="card-head">
           <h3>Daily Log &mdash; every reading &amp; meal, arranged by day and time</h3>
-          <span id="daylog-note" class="muted">loading&hellip;</span>
+          <span style="display:flex;align-items:center;gap:8px;">
+            <button id="daylog-reset" class="btn ghost" style="font-size:12px;" title="Wipe all logged readings/meals/messages for this patient and start fresh">Clear demo data</button>
+            <button id="daylog-refresh" class="btn ghost" style="font-size:12px;">Refresh</button>
+            <span id="daylog-note" class="muted">loading&hellip;</span>
+          </span>
         </div>
         <div id="daylog-body"><div class="empty">loading&hellip;</div></div>
       </div>
@@ -230,6 +234,6 @@
   </main>
 </div>
 
-<script src="/app.js?v=2.5"></script>
+<script src="/app.js?v=2.6"></script>
 </body>
 </html>

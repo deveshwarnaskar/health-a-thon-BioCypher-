@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import os
 
-from fastapi import BackgroundTasks, FastAPI, Header, Query, Request, Response
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..config import Settings, get_settings
+from ..core.clock import iso_now
 from ..core.datamodel import Store
 from ..core.escalation import due_escalations
 from ..core.metrics import latest_metrics
@@ -538,6 +539,7 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
                 candidates = []
             g["readings"].append({
                 "id": r["id"], "ts": r.get("ts"), "tag": r.get("tag"),
+                "tag_label": slot_label.get(r.get("tag") or "", "Other") if r.get("tag") else "",
                 "value": r.get("value"),
                 "status": r.get("status", "confirmed"),
                 "candidates": candidates,
@@ -563,6 +565,94 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         days = [{"date": d, "readings": g["readings"], "meals": g["meals"]}
                 for d, g in sorted(groups.items(), reverse=True)]
         return {"patient_id": pid, "window_id": w["id"], "days": days}
+
+    def _require_op(x_aahaar_key):
+        if (x_aahaar_key or "") != settings.operator_key:
+            raise HTTPException(status_code=403, detail="invalid operator key")
+
+    def _window_for_patient(pid: int) -> dict:
+        w = store.last_window_for(pid)
+        if not w:
+            raise HTTPException(status_code=404, detail="no window")
+        return w
+
+    @app.post("/api/v1/patients/{pid}/readings")
+    def add_reading(pid: int, payload: dict, x_aahaar_key: str | None = Header(default=None)):
+        """Doctor adds a sugar reading directly into the patient's day log."""
+        _require_op(x_aahaar_key)
+        w = _window_for_patient(pid)
+        value = float(payload.get("value"))
+        tag = str(payload.get("tag") or "postprandial").strip() or "postprandial"
+        ts = str(payload.get("ts") or iso_now())
+        status = "confirmed" if payload.get("status") in (None, "confirmed") else "pending"
+        rid = store.add_reading(w["id"], None, "doctor", tag, value, ts=ts, status=status)
+        store.audit("doctor", "reading_added", f"reading {rid} {tag} {value:g} at {ts}")
+        return {"ok": True, "id": rid}
+
+    @app.put("/api/v1/patients/{pid}/readings/{rid}")
+    def update_reading(pid: int, rid: int, payload: dict,
+                       x_aahaar_key: str | None = Header(default=None)):
+        """Doctor edits a logged reading (value / before-after tag / time)."""
+        _require_op(x_aahaar_key)
+        _window_for_patient(pid)
+        value = float(payload["value"]) if "value" in payload else None
+        tag = payload.get("tag")
+        ts = payload.get("ts")
+        status = payload.get("status")
+        updated = store.update_reading(
+            rid, value=value, tag=tag, ts=str(ts) if ts is not None else None,
+            status=status or None)
+        if not updated:
+            raise HTTPException(status_code=404, detail="reading not found")
+        store.audit("doctor", "reading_updated", f"reading {rid}")
+        return {"ok": True}
+
+    @app.delete("/api/v1/patients/{pid}/readings/{rid}")
+    def delete_reading(pid: int, rid: int, x_aahaar_key: str | None = Header(default=None)):
+        """Doctor deletes a logged reading."""
+        _require_op(x_aahaar_key)
+        _window_for_patient(pid)
+        if not store.delete_reading(rid):
+            raise HTTPException(status_code=404, detail="reading not found")
+        store.audit("doctor", "reading_deleted", f"reading {rid}")
+        return {"ok": True}
+
+    @app.post("/api/v1/patients/{pid}/meals")
+    def add_meal(pid: int, payload: dict, x_aahaar_key: str | None = Header(default=None)):
+        """Doctor adds a meal entry directly into the patient's day log."""
+        _require_op(x_aahaar_key)
+        w = _window_for_patient(pid)
+        items = list(payload.get("items") or [])
+        ts = str(payload.get("ts") or iso_now())
+        from ..core.parse import _items
+        parsed_items = _items(", ".join(str(i.get("item") or "") for i in items), settings)
+        carbs = sum(float(i.get("carbs") or 0.0) for i in parsed_items) or None
+        mid = store.propose_meal(w["id"], None, "doctor", "webhook",
+                                 parsed_items or items,
+                                 payload.get("portion") or "m",
+                                 None, carbs, "med", 0.99, ts=ts)
+        store.audit("doctor", "meal_added", f"meal {mid} at {ts}")
+        return {"ok": True, "id": mid}
+
+    @app.delete("/api/v1/patients/{pid}/meals/{mid}")
+    def delete_meal(pid: int, mid: int, x_aahaar_key: str | None = Header(default=None)):
+        """Doctor deletes a logged meal."""
+        _require_op(x_aahaar_key)
+        _window_for_patient(pid)
+        if not store.delete_meal(mid):
+            raise HTTPException(status_code=404, detail="meal not found")
+        store.audit("doctor", "meal_deleted", f"meal {mid}")
+        return {"ok": True}
+
+    @app.post("/api/v1/patients/{pid}/demo-reset")
+    def demo_reset(pid: int, x_aahaar_key: str | None = Header(default=None)):
+        """Wipe all AI-logged and demo data for a patient; keep the patient,
+        caregivers and windows. Used by the demo refresh button to start fresh."""
+        _require_op(x_aahaar_key)
+        w = _window_for_patient(pid)
+        store.reset_demo_data(w["id"])
+        store.audit("doctor", "demo_reset", f"patient {pid} window {w['id']} cleared")
+        return {"ok": True}
 
     @app.post("/api/v1/patients/{pid}/clear-chat")
     def clear_patient_chat(pid: int):

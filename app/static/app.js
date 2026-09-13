@@ -31,6 +31,7 @@ async function boot() {
   if (h.ok === true) ch.classList.add("ok");
 
   setupTabs();
+  setupDayLogButtons();
   setupAddPatient();
   const q = await j("GET", "/api/v1/patients");
   if (q.ok && q.data.length) {
@@ -421,6 +422,11 @@ const SLOT_LABELS = {
   Morning: "Morning", Afternoon: "Afternoon", Evening: "Evening",
   Fasting: "Fasting", "Pre-meal": "Pre-meal", Other: "Other",
 };
+const TAG_CHOICES = [
+  ["fasting", "Fasting"], ["pre", "Pre-meal"],
+  ["postbreakfast", "Post-breakfast"], ["postlunch", "Post-lunch"],
+  ["postdinner", "Post-dinner"], ["postprandial", "Other"],
+];
 
 async function loadDayLog() {
   const body = $("daylog-body");
@@ -437,7 +443,7 @@ async function loadDayLog() {
   const days = r.data.days || [];
   note.textContent = `${days.length} day${days.length === 1 ? "" : "s"}`;
   if (!days.length) {
-    body.innerHTML = '<div class="empty">no readings or meals logged yet.</div>';
+    body.innerHTML = '<div class="empty">no readings or meals logged yet — add one below or ask the patient.</div><div style="margin-top:.8rem">' + addButtonsDay(new Date().toISOString().slice(0, 10)) + "</div>";
     return;
   }
   body.innerHTML = days.map((d) => {
@@ -446,8 +452,15 @@ async function loadDayLog() {
         ? `<span class="badge warn" title="value not confirmed by the patient yet">needs confirmation${g.candidates && g.candidates.length ? " · " + esc(g.candidates.join(" v/s ")) : ""}</span>`
         : "";
       const sl = (g.slot_label && SLOT_LABELS[g.slot_label]) ? SLOT_LABELS[g.slot_label] : (TAG_LABELS[g.tag] || g.tag || "");
-      return `<tr><td>${hhmm(g.ts)}</td><td><span class="slot-chip">${esc(sl)}</span></td>`
-        + `<td class="num"><b>${fmt(g.value)}</b> mg/dL</td><td>${badge}</td></tr>`;
+      return `<tr>`
+        + `<td>${hhmm(g.ts)}</td>`
+        + `<td><span class="slot-chip">${esc(sl)}</span></td>`
+        + `<td class="num"><b>${fmt(g.value)}</b> mg/dL</td>`
+        + `<td>${badge}</td>`
+        + `<td class="row-actions">`
+        + `  <button class="mini" data-r="${g.id}" data-d="${d.date}" data-kind="edit-reading" title="Edit value/tag/time">\u270E</button>`
+        + `  <button class="mini danger" data-r="${g.id}" data-kind="del-reading" title="Delete reading">\u2715</button>`
+        + `</td></tr>`;
     }).join("");
     const mealRows = (d.meals || []).map((m) => {
       const items = (m.items || []).map((i) => esc(i.item || "")).join(", ");
@@ -455,14 +468,106 @@ async function loadDayLog() {
       return `<div class="meal-line"><span>${hhmm(m.ts)}</span>`
         + `${m.portion ? `<span class="slot-chip">${esc((m.portion || "").toUpperCase())}</span>` : ""}`
         + `<span class="meal-items">${items}</span>`
-        + `<span class="muted">${fmt(m.carbs)}g carbs · GI ${fmt(m.gi)}${src}</span></div>`;
+        + `<span class="muted">${fmt(m.carbs)}g carbs · GI ${fmt(m.gi)}${src}</span>`
+        + `<button class="mini danger" style="margin-left:.4rem" data-m="${m.id}" data-kind="del-meal" title="Delete meal">\u2715</button></div>`;
     }).join("");
-    return `<div class="card daylog-card"><h3>${esc(d.date)}</h3>`
-      + (rows ? `<table class="daylog-table"><thead><tr><th>time</th><th>slot</th><th>sugar</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : `<p class="muted">no readings</p>`)
+    return `<div class="card daylog-card"><div class="daylog-card-head">`
+      + `<h3>${esc(d.date)}</h3>${addButtonsDay(d.date)}</div>`
+      + (rows ? `<table class="daylog-table"><thead><tr><th>time</th><th>slot</th><th>sugar</th><th></th><th></th></tr></thead><tbody>${rows}</tbody></table>` : `<p class="muted">no readings</p>`)
       + (mealRows ? `<h4 style="margin:0.7rem 0 0.3rem;font-size:0.85rem;">Meals</h4>${mealRows}` : "")
       + `</div>`;
   }).join("");
+  body.querySelectorAll("button[data-kind]").forEach((b) => {
+    b.onclick = (ev) => {
+      ev.stopPropagation();
+      const k = b.dataset.kind;
+      if (k === "add-reading") daylogAddReading(b.dataset.d);
+      else if (k === "add-meal") daylogAddMeal(b.dataset.d);
+      else if (k === "edit-reading") daylogEditReading(Number(b.dataset.r), b.dataset.d);
+      else if (k === "del-reading") daylogDeleteReading(Number(b.dataset.r));
+      else if (k === "del-meal") daylogDeleteMeal(Number(b.dataset.m));
+    };
+  });
 }
+
+function addButtonsDay(dateStr) {
+  return `<span style="white-space:nowrap">`
+    + `<button class="mini" data-kind="add-reading" data-d="${dateStr}" title="Add a sugar reading for this day">+ Reading</button> `
+    + `<button class="mini" data-kind="add-meal" data-d="${dateStr}" title="Add a meal for this day">+ Meal</button></span>`;
+}
+
+function _dayTs(dateStr, hm) {
+  const m = String(hm || "").trim().match(/^(\d{1,2})[:.](\d{2})$/);
+  const hh = m ? String((parseInt(m[1], 10) % 24)).padStart(2, "0") : "12";
+  const mm = m ? m[2] : "00";
+  return `${dateStr}T${hh}:${mm}:00`;
+}
+
+async function daylogAddReading(dateStr) {
+  const v = prompt(`Add sugar reading for ${dateStr}\nValue (mg/dL):`);
+  if (v === null || !Number.isFinite(Number(v))) return;
+  const tagK = prompt("Tag (before/after meal):\n1 = Fasting\n2 = Pre-meal (khane se pehle)\n3 = Post-breakfast\n4 = Post-lunch\n5 = Post-dinner\n6 = Other", "1");
+  if (tagK === null) return;
+  const t = prompt("Time (24h, HH:MM):", "12:00");
+  if (t === null) return;
+  const idx = Math.max(0, Math.min(5, parseInt(tagK, 10) - 1));
+  const r = await j("POST", `/api/v1/patients/${state.active}/readings`, {
+    value: Number(v), tag: TAG_CHOICES[idx][0], ts: _dayTs(dateStr, t),
+  });
+  if (r.ok) loadDayLog(); else alert("Failed: " + (r.data ? r.data.error : ""));
+}
+
+async function daylogAddMeal(dateStr) {
+  const items = prompt(`Add meal for ${dateStr}\nItems (comma separated, e.g. 2 roti, dal):`);
+  if (!items) return;
+  const t = prompt("Time (24h, HH:MM):", "12:00");
+  if (t === null) return;
+  const list = items.split(",").map((s) => s.trim()).filter(Boolean).map((item) => ({ item }));
+  const r = await j("POST", `/api/v1/patients/${state.active}/meals`, {
+    items: list, ts: _dayTs(dateStr, t),
+  });
+  if (r.ok) loadDayLog(); else alert("Failed: " + (r.data ? r.data.error : ""));
+}
+
+async function daylogEditReading(id, dateStr) {
+  const v = prompt("Sugar value (mg/dL):");
+  if (v === null || !Number.isFinite(Number(v))) return;
+  const tagK = prompt("Tag:\n1 = Fasting\n2 = Pre-meal\n3 = Post-breakfast\n4 = Post-lunch\n5 = Post-dinner\n6 = Other", "1");
+  if (tagK === null) return;
+  const t = prompt("Time (24h, HH:MM):", "12:00");
+  if (t === null) return;
+  const idx = Math.max(0, Math.min(5, parseInt(tagK, 10) - 1));
+  const r = await j("PUT", `/api/v1/patients/${state.active}/readings/${id}`, {
+    value: Number(v), tag: TAG_CHOICES[idx][0],
+    ts: _dayTs(dateStr, t), status: "confirmed",
+  });
+  if (r.ok) loadDayLog(); else alert("Failed: " + (r.data ? r.data.error : ""));
+}
+
+async function daylogDeleteReading(id) {
+  if (!confirm("Delete this reading?")) return;
+  const r = await j("DELETE", `/api/v1/patients/${state.active}/readings/${id}`);
+  if (r.ok) loadDayLog(); else alert("Failed: " + (r.data ? r.data.error : ""));
+}
+
+async function daylogDeleteMeal(id) {
+  if (!confirm("Delete this meal?")) return;
+  const r = await j("DELETE", `/api/v1/patients/${state.active}/meals/${id}`);
+  if (r.ok) loadDayLog(); else alert("Failed: " + (r.data ? r.data.error : ""));
+}
+
+function setupDayLogButtons() {
+  const reset = $("daylog-reset");
+  const fresh = $("daylog-refresh");
+  if (reset) reset.onclick = async () => {
+    if (!confirm("Wipe ALL logged data for this patient (readings, meals, messages, audit) and start fresh? The patient and linked numbers stay.")) return;
+    const r = await j("POST", `/api/v1/patients/${state.active}/demo-reset`);
+    if (r.ok) { await refreshThreadAndContext(false); loadDayLog(); loadAudit(); }
+    else alert("Failed: " + (r.data ? r.data.error : ""));
+  };
+  if (fresh) fresh.onclick = () => loadDayLog();
+}
+
 function setupTabs() {
   document.querySelectorAll("#tabs button").forEach((b) => {
     b.onclick = () => {
@@ -663,17 +768,15 @@ window.linkActivePhone = async function(phone) {
 
 function hhmm(iso) {
   if (!iso) return "";
-  try {
-    let s = String(iso).trim();
-    if (!s.endsWith("Z") && !s.includes("+") && !s.includes("-", 10)) {
-      s += "Z";
-    }
-    const d = new Date(s);
-    if (isNaN(d.getTime())) return String(iso).slice(11, 16);
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true });
-  } catch (e) {
-    return String(iso).slice(11, 16);
+  const s = String(iso).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (m) {
+    const h = parseInt(m[4], 10) % 24;
+    const ampm = h >= 12 ? "pm" : "am";
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${String(h12).padStart(2, "0")}:${m[5]} ${ampm}`;
   }
+  return s.slice(11, 16);
 }
 
 function scrollThread() {
