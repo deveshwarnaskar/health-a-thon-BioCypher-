@@ -1,4 +1,5 @@
-"""AI adapters boundary (Gemini intake/refinement).
+"""AI infrastructure package (Gate 05)."""
 
-Gate 02B implements nothing; the prototype AI lives in ``app/core/ai.py``.
-"""
+from .adapter import ProviderNeutralAIAdapter
+
+__all__ = ["ProviderNeutralAIAdapter"]

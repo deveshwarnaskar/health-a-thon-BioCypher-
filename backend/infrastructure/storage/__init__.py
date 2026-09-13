@@ -1,4 +1,5 @@
-"""Object storage adapters boundary (S3-compatible).
+"""Storage infrastructure package (Gate 05)."""
 
-Gate 02B implements no storage backend.
-"""
+from .s3_storage import S3ObjectStorage
+
+__all__ = ["S3ObjectStorage"]

@@ -1,4 +1,9 @@
-"""Identity adapters boundary (Keycloak, OAuth2/OIDC/JWT).
+"""Identity infrastructure package (Gate 05)."""
 
-No authentication is implemented at Gate 02B.
-"""
+from .keycloak_client import KeycloakConfig, KeycloakTokenValidator, KeycloakUserClaims
+
+__all__ = [
+    "KeycloakConfig",
+    "KeycloakTokenValidator",
+    "KeycloakUserClaims",
+]

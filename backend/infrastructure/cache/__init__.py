@@ -1,4 +1,5 @@
-"""Cache adapters boundary (Redis).
+"""Cache infrastructure package (Gate 05)."""
 
-Gate 02B implements no caching layer.
-"""
+from .redis_client import RedisCacheAdapter
+
+__all__ = ["RedisCacheAdapter"]
