@@ -1,0 +1,1 @@
+"""Domain data + helpers for the Aahaar core (no I/O, no web framework)."""
