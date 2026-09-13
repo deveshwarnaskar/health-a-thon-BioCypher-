@@ -253,6 +253,14 @@ _INTAKE_PROMPT = (
     "what you logged by ECHOING the exact number/food you extracted (e.g. 'sugar 140 fasting log kar diya' ); "
     "when something is missing, ask for only that one thing. Never use checkmarks or emoji spam.\n"
     "- Only report a reading number that the patient ACTUALLY wrote. Never invent one.\n"
+    "- A number far outside a plausible blood-sugar range (e.g. 999 or 12) is NOT a logging number: "
+    "reply asking the patient to recheck and restate the value in their language. Never treat it as "
+    "valid, never explain what it means.\n"
+    "- A 'Context:' section lists readings the patient already has logged. If the message's value "
+    "matches one already confirmed today and this is NOT a correction or an explicit repeat, do NOT "
+    "claim it was logged again: reply asking 'naya hai ya mistake?' in a natural way. When the message "
+    "corrects a logged value ('wo galat tha, 140 tha') or deletes one, refer to it naturally using the "
+    "context.\n"
     "- When the message changes/corrects a meal said earlier ('not the one i told', 'the meal i told was "
     "wrong') but names no new dish and no number, set is_reference=true and items=[].\n"
     "- When the message asks to delete a reading or a meal, set is_delete=true and reply=''.\n"
@@ -269,9 +277,51 @@ _INTAKE_PROMPT = (
 )
 
 
-def _call_gemini_intake(text: str, patient_name: str, key: str) -> Optional[dict]:
+def _build_context_block(ctx: Optional[dict]) -> str:
+    """Compact recent-log context so Gemini can write state-accurate replies."""
+    if not ctx:
+        return ""
+    lines = []
+    rec = ctx.get("recent_readings") or []
+    if rec:
+        parts = [f"{float(r.get('value') or 0):g} "
+                 f"{str(r.get('tag') or 'random').strip()} "
+                 f"at {str(r.get('ts') or '?')[:16]}"
+                 for r in rec]
+        lines.append(f"- Confirmed recent readings: {'; '.join(parts)}")
+    pen = ctx.get("pending_readings") or []
+    if pen:
+        parts = [f"{float(r.get('value') or 0):g} (pending)"
+                 for r in pen]
+        lines.append(f"- Pending readings: {'; '.join(parts)}")
+    dup = ctx.get("dup_pending") or {}
+    if dup.get("value") is not None:
+        lines.append(f"- A duplicate check is pending for value "
+                     f"{float(dup['value']):g} — the patient answered it "
+                     "earlier and we are waiting to act.")
+    meals = ctx.get("recent_meals") or []
+    if meals:
+        items = []
+        for m in meals:
+            try:
+                names = [str(x.get("item") or "") for x in
+                         json.loads(str(m.get("items_json") or "[]"))]
+                items.append(", ".join(n for n in names if n)[:60])
+            except Exception:
+                pass
+        if items:
+            lines.append(f"- Last logged meals: {'; '.join(items)}")
+    return "\n".join(lines)
+
+
+def _call_gemini_intake(text: str, patient_name: str, key: str,
+                        context: Optional[dict] = None) -> Optional[dict]:
     """Direct Gemini call for intake decisions. Never runs in the webhook path."""
-    prompt = f"{_INTAKE_PROMPT}\nPatient: {patient_name}\nMessage: '{str(text)[:200]}'"
+    ctx_block = _build_context_block(context)
+    prompt = f"{_INTAKE_PROMPT}\nPatient: {patient_name}"
+    if ctx_block:
+        prompt += (f"\nContext for this patient's recent log:\n{ctx_block}")
+    prompt += f"\nMessage: '{str(text)[:200]}'"
     last_err = None
     try:
         from .ai import discover_models
@@ -725,14 +775,17 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
 def analyze_intake(text: str, patient_name: str = "Patient",
                    cfg: Optional[Settings] = None,
                    msg_ts: Optional[str] = None,
-                   use_llm: bool = False) -> IntakeResult:
+                   use_llm: bool = False,
+                   context: Optional[dict] = None) -> IntakeResult:
     """Analyze a STORED patient message and produce an intake-notifier result.
 
     This is only ever called off the live webhook path (dashboard trigger or the
     background worker). When Gemini is available (key present and use_llm=True)
-    it is the primary reader and reply-writer — still never in the webhook
-    request.  When Gemini is unavailable the deterministic local notifier takes
-    over so the whole flow never breaks.
+    it is the single reader AND reply-writer for EVERY patient-facing message —
+    still never in the webhook request. `context` (recent readings/meals and
+    pending duplicate state) lets it write state-accurate replies. When Gemini
+    is unavailable the deterministic local notifier takes over so the whole
+    flow never breaks.
     """
     cfg = cfg or Settings()
     raw = str(text or "").strip()
@@ -742,7 +795,7 @@ def analyze_intake(text: str, patient_name: str = "Patient",
     key = os.environ.get("GEMINI_API_KEY") or getattr(cfg, "gemini_api_key", "")
     if not key or not use_llm:
         return local
-    parsed = _call_gemini_intake(raw, patient_name, key)
+    parsed = _call_gemini_intake(raw, patient_name, key, context=context)
     if not parsed:
         return local
     try:
@@ -753,34 +806,41 @@ def analyze_intake(text: str, patient_name: str = "Patient",
     except Exception:
         pass
 
+    g_intent = str(parsed.get("intent") or "").strip()
+    gem_reply = str(parsed.get("reply") or "").strip()
+    model = str(parsed.get("_model", ""))
+
+    # Safety refusals (out-of-range values) NEVER touch the database; Gemini
+    # writes the natural refusal wording, the local text is only a fallback.
+    if local.intent == "refusal":
+        return IntakeResult(
+            intent="refusal", missing=[], raw_text=raw, confidence=0.94,
+            analyzed_by=f"gemini:{model}" if gem_reply else "local-refiner",
+            language=detect_language(raw),
+            reply=(gem_reply or
+                   f"{patient_name} ji, ye value thodi ajeeb lag rahi hai — "
+                   "ek baar dobara check karke bataiye (jaise 'sugar 130')."),
+            should_reply=True)
+
     # State-machine messages (corrections, dup/tag/size answers, deletes,
-    # references) MUST keep the deterministic intent so the worker can apply
-    # the exact DB action; Gemini only replaces the reply wording.
+    # references, multi) MUST keep the deterministic intent so the worker can
+    # apply the exact DB action — but Gemini writes the reply text for them too.
     _STATE_ONLY = ("correction", "resolution", "tag_answer", "tag_negation",
                    "dup_answer", "meal_confirm", "meal_delete",
                    "reading_delete", "meal_reference", "multi_reading",
                    "done", "confirm")
     if local.intent in _STATE_ONLY:
-        gem_reply = str(parsed.get("reply") or "").strip()
-        if gem_reply and not gem_reply.startswith("✅"):
+        if gem_reply:
             local.reply = gem_reply
             local.should_reply = True
-        local.analyzed_by = f"gemini:{parsed.get('_model', '')}"
+        local.analyzed_by = f"gemini:{model}"
         local.language = detect_language(raw)
-        return local
-
-    # Safety refusals stay untouched — no reframing.
-    if local.intent == "refusal":
         return local
 
     # ---- Gemini is the PRIMARY responder for new intake. It decides the
     # intent, extracts the reading/meal from the patient's own words, and
     # writes the NATURAL reply that goes to the patient. The guards below only
     # pin the LOGGING to real values so the database is never fed a guess. ----
-    g_intent = str(parsed.get("intent") or "").strip()
-    gem_reply = str(parsed.get("reply") or "").strip()
-    model = str(parsed.get("_model", ""))
-
     noise = strip_reading_noise(raw)
     known_nums = sorted({float(m) for m in re.findall(r"\d{2,3}(?:\.\d)?", noise)
                          if 20 <= float(m) <= 600})

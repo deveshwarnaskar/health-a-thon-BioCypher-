@@ -85,14 +85,17 @@ class IntakeWorker:
                 else:
                     patient = self.store.get_patient_by_phone(sender) if sender else None
                     # This executes after database capture, never in the Meta
-                    # webhook request. Gemini failures return None internally
-                    # and analyze_intake safely retains the local result.
+                    # webhook request. Gemini (when permitted) reads the stored
+                    # message plus this patient's recent-log context and writes
+                    # the reply; Gemini failures return None internally and
+                    # analyze_intake safely retains the local result.
                     res = analyze_intake(
                         r["raw_text"],
                         patient_name=patient["name"] if patient else "Patient",
                         cfg=self.cfg,
                         msg_ts=str(r.get("ts") or ""),
                         use_llm=bool(getattr(self.cfg, "ai_intake_use_gemini", True)),
+                        context=self._build_context(sender, patient),
                     )
                     self._save_refined(r["id"], res, followup_sent=False)
                     summary["analyzed"] += 1
@@ -101,8 +104,19 @@ class IntakeWorker:
                 summary["skipped"] += 1
                 continue
 
+            gem_text = res.reply
+            gem_replied = bool(str(res.analyzed_by or "").startswith("gemini:")
+                               and (res.reply or "").strip())
             self._maybe_register(r, res, sender)
             self._maybe_register_meal(r, res, sender)
+
+            # Gemini wrote the reply — the deterministic DB ops above may have
+            # overwritten res.reply with their own confirms; Gemini's wording
+            # is what the patient gets. Without Gemini the worker's confirm is
+            # the safe fallback.
+            if gem_replied:
+                res.reply = gem_text
+                res.should_reply = True
 
             if res.should_reply and not res.reply:
                 self._save_refined(r["id"], res, followup_sent=True)
@@ -177,6 +191,45 @@ class IntakeWorker:
             language=parsed.get("language", "hi"),
         )
 
+    def _build_context(self, sender: str, patient: Optional[dict]) -> dict:
+        """Recent-log context given to Gemini so its reply is state-accurate."""
+        ctx: dict = {}
+        try:
+            if not patient:
+                return ctx
+            window = (self.store.active_window_for(patient["id"])
+                      or self.store.last_window_for(patient["id"]))
+            if not window or not window.get("id"):
+                return ctx
+            wid = window["id"]
+            try:
+                mine = [r for r in self.store.readings_for_window(wid)
+                        if r.get("sender_phone") == sender]
+            except Exception:
+                mine = []
+            confirmed = sorted(
+                [r for r in mine if r.get("status") == "confirmed"],
+                key=lambda r: r.get("ts") or "", reverse=True)
+            ctx["recent_readings"] = [
+                {"value": r.get("value"), "tag": r.get("tag"),
+                 "ts": r.get("ts")} for r in confirmed[:4]]
+            ctx["pending_readings"] = [
+                {"value": r.get("value"), "ts": r.get("ts")}
+                for r in mine if r.get("status") == "pending"]
+            try:
+                meals = self.store.meals_for_window(wid, confirmed_only=True)
+                ctx["recent_meals"] = [
+                    {"items_json": m.get("items_json"), "ts": m.get("ts")}
+                    for m in meals[-3:]]
+            except Exception:
+                pass
+            dup = self._find_dup_pending(sender)
+            if dup:
+                ctx["dup_pending"] = {"value": dup.get("value"), "ts": dup.get("ts")}
+        except Exception as e:
+            print(f"[Aahaar] AI intake context error: {e}")
+        return ctx
+
     def _save_refined(self, raw_id: int, res: IntakeResult,
                       followup_sent: bool = False,
                       registered: bool = False) -> None:
@@ -220,6 +273,22 @@ class IntakeWorker:
         with self.store.tx() as c:
             c.execute("UPDATE raw_inbound SET refined_json=? WHERE id=?",
                       (json.dumps(payload, ensure_ascii=False), int(raw_id)))
+
+    def _strengthen_reply(self, res: IntakeResult, text: str,
+                          silent: bool = False) -> None:
+        """Deterministic wording fills a gap ONLY when Gemini left it open.
+
+        When Gemini (res.analyzed_by = 'gemini:...') already wrote the reply,
+        its natural sentence is the patient-facing truth and is never replaced
+        by the deterministic confirm below; DB actions are still applied.
+        """
+        if res.reply and str(res.reply or "").strip():
+            return
+        if silent:
+            res.reply = ""
+            res.should_reply = False
+        else:
+            res.reply = text
 
     def _maybe_register(self, raw_row: dict, res: IntakeResult, sender: str) -> None:
         """Write the AI-decided reading into the readings table (window-scoped).
