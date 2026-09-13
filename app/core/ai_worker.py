@@ -148,6 +148,7 @@ class IntakeWorker:
             reading_ts=parsed.get("reading_ts"),
             meal_items=list(parsed.get("meal_items") or []),
             meal_portion=parsed.get("meal_portion"),
+            meal_ts=parsed.get("meal_ts"),
         )
 
     def _save_refined(self, raw_id: int, res: IntakeResult,
@@ -181,6 +182,7 @@ class IntakeWorker:
             "reading_ts": res.reading_ts,
             "meal_items": list(res.meal_items or []),
             "meal_portion": res.meal_portion,
+            "meal_ts": res.meal_ts,
             "registered": bool(prev_registered) or bool(registered),
             "meal_registered": bool(prev_meal_registered),
         }
@@ -509,15 +511,17 @@ class IntakeWorker:
         Off-webhook and dashboard-driven, like the reading registration.
         Only registers when dishes were actually recognized. Never duplicated:
         guarded by the row marker AND by dedup against a meal the deterministic
-        webhook already proposed for the same dish set (ordinary meal messages
-        keep their normal proposal+confirm loop; for ambiguous-reading messages
-        the deterministic confirm is suppressed, so this becomes the only
-        logger). The message's own timestamp is kept.
+        webhook already proposed for the same dish set on the SAME DAY (ordinary
+        meal messages keep their normal proposal+confirm loop; for ambiguous-
+        reading messages the deterministic confirm is suppressed, so this becomes
+        the only logger). The meal's timestamp honours the day/time the text
+        refers to ("yesterday i ate...", "14 july lunch") via res.meal_ts,
+        falling back to the message's own receive time. A "same thing / wahi /
+        dono / phirse" message with no dish names inherits the dish set of the
+        patient's latest logged meal so repeats backdate cleanly.
         """
         try:
             items = list(res.meal_items or [])
-            if not items:
-                return
             fj = raw_row.get("refined_json") or ""
             if fj:
                 try:
@@ -534,12 +538,52 @@ class IntakeWorker:
                       or self.store.last_window_for(patient["id"]))
             if not window or not window.get("id"):
                 return
-            ts = str(raw_row.get("ts") or self._now_iso())
+            wid = window["id"]
+            # The meal takes the same day/time the text refers to ("yesterday i
+            # ate...", "14 july lunch"); if the message was also a reading, its
+            # backdated reading_ts counts too ("...ate the same thing, reading
+            # was 220" -> both go to yesterday).
+            ts = (res.meal_ts or res.reading_ts
+                  or str(raw_row.get("ts") or self._now_iso()))
+            low = str(res.raw_text or "").lower()
+
+            # "same thing / wahi khana / do the same / phirse" inheritance: the
+            # message repeats a previously-logged meal, so reuse its dish set
+            # (carbs/GI included) at the backdated time. Applied when no dishes
+            # were named OR when the only "dish" is the text-classifier's long
+            # sentence fallback (e.g. "yea yesterday i forgot to tell...").
+            _SAME_REF = ("same thing", "same khana", "same khaana", "same food",
+                         "same dishes", "same meal", "same", "wahi", "wohi",
+                         "dono", "phirse", "phir se", "again", "repeat")
+            inherited: list = []
+            if any(k in low for k in _SAME_REF):
+                try:
+                    latest = self.store.meals_for_window(
+                        wid, confirmed_only=False) or []
+                    prev = next((m for m in reversed(latest)
+                                 if m.get("items_json")
+                                 and json.loads(m["items_json"])), None)
+                    if prev:
+                        inherited = json.loads(prev["items_json"])
+                except Exception:
+                    inherited = []
+            if not items:
+                items = list(inherited)
+            elif inherited and all(
+                    str(it.get("genus")) == "mixed meal"
+                    and len(str(it.get("item") or "")) > 20
+                    for it in items):
+                items = list(inherited)
+            if not items:
+                return
             want = {(str(it.get("item") or "").lower(), it.get("genus"),
                      it.get("portion") or "m") for it in items}
+            # Dedup against meals on the SAME DAY as the target ts only, so a
+            # backdated "same thing yesterday" copy is logged while today's row
+            # stays untouched.
             if any(self._same_dish_set(m.get("items_json"), want)
-                   for m in self.store.meals_for_window(window["id"],
-                                                        confirmed_only=False)):
+                   for m in self.store.meals_for_window(wid, confirmed_only=False)
+                   if str(m.get("ts") or "")[:10] == ts[:10]):
                 if res.intent == "meal":
                     res.reply = ""
                     res.should_reply = False
@@ -549,7 +593,7 @@ class IntakeWorker:
             carbs = sum(float(it.get("carbs", 0.0)) for it in items)
             gi = self._split_gi(items)
             meal_id = self.store.propose_meal(
-                window["id"], sender, "patient", "ai",
+                wid, sender, "patient", "ai",
                 items, portion, self.cfg.katori(portion), carbs, gi,
                 float(res.confidence), ts=ts)
             names = ", ".join(str(it.get("item") or it) for it in items)

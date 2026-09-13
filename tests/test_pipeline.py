@@ -732,6 +732,56 @@ def test_intake_worker_does_not_duplicate_deterministic_meal(seeded, store, cfg)
     assert _json.loads(tag["refined_json"])["meal_registered"] is True
 
 
+def test_intake_worker_backdates_meal_to_referred_day(seeded, store, cfg):
+    # "yesterday i ate 2 roti and dal" must land on the day the text refers to,
+    # not on the message's own receive date.
+    from app.core.ai_worker import IntakeWorker
+    pid, wid = seeded
+    store.record_raw_received("+919000000001",
+                              "yesterday i ate 2 roti and dal",
+                              message_id="WAMID-MEAL-BD-1",
+                              ts="2026-09-13T08:00:00")
+    IntakeWorker(store, cfg, send_func=lambda out: True).run_once(
+        limit=10, should_send=False)
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    roti_rows = [m for m in meals
+                 if {it["item"] for it in json.loads(m["items_json"])} >= {"roti", "dal"}]
+    assert len(roti_rows) == 1
+    assert roti_rows[0]["ts"].startswith("2026-09-12T08:00")
+
+
+def test_intake_worker_same_thing_meal_inherits_and_backdates(seeded, store, cfg):
+    # Patient forgot to log yesterday's meal (registered on an earlier day),
+    # then says "i ate the same thing and the reading was 220" WITH a day
+    # reference: the reading AND the inherited meal must both go to yesterday.
+    from app.core.ai_worker import IntakeWorker
+    pid, wid = seeded
+    store.record_raw_received("+919000000001", "2 roti dal",
+                              message_id="WAMID-MEAL-BASE-1",
+                              ts="2026-09-11T13:00:00")
+    IntakeWorker(store, cfg, send_func=lambda out: True).run_once(
+        limit=10, should_send=False)
+    store.record_raw_received(
+        "+919000000001",
+        "yea yesterday i forgot to tell but i ate the same thing and the reading was 220",
+        message_id="WAMID-MEAL-SAME-1", ts="2026-09-13T07:52:00")
+    IntakeWorker(store, cfg, send_func=lambda out: True).run_once(
+        limit=10, should_send=False)
+
+    readings = store.readings_for_window(wid)
+    ri = [r for r in readings if abs(r["value"] - 220) < 0.5]
+    assert len(ri) == 1 and ri[0]["ts"].startswith("2026-09-12")
+
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    by_day = {m["ts"][:10]: {it["item"] for it in json.loads(m["items_json"])}
+              for m in meals}
+    assert by_day.get("2026-09-11") == {"roti", "dal"}      # original
+    assert by_day.get("2026-09-12") == {"roti", "dal"}      # inherited copy
+    assert "2026-09-13" not in by_day                        # NOT today
+    assert not any("forgot to tell" in it.get("item", "")
+                   for m in meals for it in json.loads(m["items_json"]))
+
+
 def test_intake_worker_applies_tag_answer_to_latest_reading(seeded, store, cfg, intake):
     from app.core.ai_worker import IntakeWorker
     pid, wid = seeded

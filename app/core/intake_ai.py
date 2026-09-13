@@ -129,6 +129,7 @@ class IntakeResult:
     reading_ts: Optional[str] = None
     meal_items: list = field(default_factory=list)
     meal_portion: Optional[str] = None
+    meal_ts: Optional[str] = None
 
 
 _INTAKE_PROMPT = (
@@ -309,6 +310,11 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
         has_portion = (any(k in low for k in _PORTION_WORDS)
                        or bool(parsed.portion_letter))
         portion_label = _PORTION_LABEL.get(meal_portion or "m", "medium")
+        # Meals honour the same explicit day/time the text refers to
+        # ("yesterday i ate...", "14 july lunch") so backdated meals land on the
+        # right date instead of the message's own receive date.
+        meal_ts = reading_timestamp(raw, msg_ts or iso_now()).strftime(
+            "%Y-%m-%dT%H:%M:%S")
         if not has_portion:
             reply = (f"✅ Logged khana: {dishes}. "
                      "Kya portion thi — small, medium ya large?")
@@ -320,7 +326,7 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
             intent="meal", missing=missing, reply=reply,
             should_reply=True, raw_text=raw, confidence=0.88,
             analyzed_by="local-refiner",
-            meal_items=local_items, meal_portion=meal_portion)
+            meal_items=local_items, meal_portion=meal_portion, meal_ts=meal_ts)
 
     # Confirmations / corrections are fully handled by the deterministic path.
     if parsed.kind in ("confirm", "correct"):
