@@ -1,0 +1,1 @@
+"""Domain value objects (Gate 02B placeholders)."""

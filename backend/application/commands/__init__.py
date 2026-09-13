@@ -1,0 +1,1 @@
+"""Command contracts (Gate 02B placeholders)."""

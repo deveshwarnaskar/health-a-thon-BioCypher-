@@ -1,0 +1,1 @@
+"""Domain entities (Gate 02B placeholders)."""

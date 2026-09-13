@@ -1,0 +1,1 @@
+"""Query contracts (Gate 02B placeholders)."""

@@ -1,0 +1,1 @@
+"""Port contracts (Gate 02B placeholders)."""

@@ -1,0 +1,1 @@
+"""Domain events (Gate 02B placeholders)."""
