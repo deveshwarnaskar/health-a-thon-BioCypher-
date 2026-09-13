@@ -28,6 +28,7 @@ from .clock import fmt_ts_log, iso_now
 from .datamodel import Store
 from .intake_ai import (
     IntakeResult,
+    _portion_stated,
     analyze_intake,
     portion_text,
 )
@@ -540,8 +541,10 @@ class IntakeWorker:
                         key = (str(it.get("item") or "").lower(), it.get("genus"))
                         if key not in have:
                             cur.append(it)
-                    new_carbs = sum(float(x.get("carbs", 0.0)) for x in cur)
-                    new_gi = self._split_gi(cur)
+                    new_carbs = (sum(float(x.get("carbs") or 0.0) for x in cur)
+                                 or None)
+                    new_gi = (self._split_gi(cur)
+                              if any(x.get("gi") for x in cur) else None)
                     self.store.update_meal(pend["id"], items_json=json.dumps(
                         cur, ensure_ascii=False), carbs=new_carbs, gi=new_gi)
                 plabel = KATORI_LABELS.get(res.meal_portion or "m", "Medium")
@@ -567,7 +570,7 @@ class IntakeWorker:
             # sentence fallback (e.g. "yea yesterday i forgot to tell...").
             _SAME_REF = ("same thing", "same khana", "same khaana", "same food",
                          "same dishes", "same meal", "same", "wahi", "wohi",
-                         "dono", "phirse", "phir se", "again", "repeat")
+                         "dono", "phirse", "phir se")
             inherited: list = []
             if any(k in low for k in _SAME_REF):
                 try:
@@ -602,8 +605,11 @@ class IntakeWorker:
                 self._mark_flag(raw_row["id"], "meal_registered")
                 return
             portion = res.meal_portion or items[0].get("portion", "m") or "m"
-            carbs = sum(float(it.get("carbs", 0.0)) for it in items)
-            gi = self._split_gi(items)
+            # Carb/GI numbers are deliberately NOT written anymore — the record
+            # keeps only what the patient said (food + size).
+            carbs = (sum(float(it.get("carbs") or 0.0) for it in items)
+                     or None)
+            gi = self._split_gi(items) if any(it.get("gi") for it in items) else None
             # The patient-stated size verbatim ("200ml", "2 bowls"). Never
             # invented: only stored when the message actually names it.
             portion_txt = portion_text(low) or None
@@ -616,6 +622,14 @@ class IntakeWorker:
                 wid, sender, "patient", "ai",
                 items, portion, self.cfg.katori(portion), carbs, gi,
                 float(res.confidence), ts=ts, portion_text=portion_txt)
+            # The patient already named a size in this same message ("2 katori
+            # rice", "small choco + sugar 200") -> complete now: confirm the row
+            # so it shows in the Day Log immediately (size-word, any letter or
+            # verbatim text all count).
+            if (_portion_stated(low, res.meal_portion)):
+                made_portion = res.meal_portion or items[0].get("portion", "m") or "m"
+                self.store.finalize_meal(meal_id, "confirmed", made_portion,
+                                         portion_text=portion_txt)
             # A meal-change message ("actually ate dinner, not lunch" / "change
             # the meal") keeps the previous row and marks it superseded, so both
             # versions stay visible at the same time.

@@ -220,8 +220,10 @@ class IngestService:
         # proposal stage
         portion = parsed.items[0].get("portion", "m")
         confidence = 0.9 if parsed.kind == "text" else 0.82
-        carbs = sum(float(it.get("carbs", 0.0)) for it in parsed.items)
-        gi = self._split_gi(parsed.items)
+        carbs = (sum(float(it.get("carbs") or 0.0) for it in parsed.items)
+                     or None)
+        gi = (self._split_gi(parsed.items)
+              if any(it.get("gi") for it in parsed.items) else None)
         ts = parsed.ts.strftime("%Y-%m-%dT%H:%M:%S")
         meal_id = self.store.propose_meal(
             window["id"], raw.get("sender_phone"), role, parsed.kind,
@@ -252,7 +254,7 @@ class IngestService:
                           body=f"Thanks, that one is confirmed ({lb}). It's in the report.")]
 
     def _split_gi(self, items: list[dict]) -> str:
-        buckets = {it["gi"] for it in items}
+        buckets = {it.get("gi") for it in items}
         ranked = sorted(buckets, key=gi_bucket_index, reverse=True)
         return ranked[0] if ranked else "med"
 

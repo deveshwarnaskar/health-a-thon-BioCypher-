@@ -72,7 +72,17 @@ _READING_HINTS = ("sugar", "glucose", "fasting", "fast", "khali", "prick",
 
 # Portion words that make the meal input complete.
 _PORTION_WORDS = ("small", "medium", "large", "chota", "chhota", "chhoti",
-                  "kam", "badi", "bara", "bada", "do roti", "2 roti")
+                  "kam", "badi", "bara", "bada", "do roti", "2 roti",
+                  "katori", "katora", "bowl", "bowls", "plate", "plates",
+                  "glass", "cup", "ml", "full", "half")
+
+
+def _portion_stated(low: str, parsed_letter: Optional[str]) -> bool:
+    """True when the patient actually named a size (word, portion letter or
+    verbatim text like "do katori" / "200ml"). Never invented otherwise."""
+    return (any(k in low for k in _PORTION_WORDS)
+            or bool(parsed_letter)
+            or bool(portion_text(low)))
 
 _PORTION_LABEL = {"s": "small", "m": "medium", "l": "large"}
 
@@ -340,6 +350,15 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
         label = PATIENT_TAG_LABELS.get(tag, tag)
         reply = (f"✅ Logged sugar {v:g} ({label}) — {hm}. "
                  "Aur kuch log karna hai — sugar ya khana?")
+        # A reading whose message ALSO named food asks for the meal size in the
+        # same single reply (the meal stays pending until the size is answered).
+        if local_items and not _portion_stated(low, parsed.portion_letter):
+            names = list(dict.fromkeys(
+                str(it.get("item") or "") for it in local_items if it.get("item")))
+            dishes = ", ".join(names) or "khana"
+            reply = (f"✅ Logged sugar {v:g} ({label}) — {hm}. "
+                     f"Khana ({dishes}) ka size kya tha — "
+                     "small, medium ya large?")
         return IntakeResult(
             intent="reading",
             missing=[],
@@ -392,8 +411,7 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
                 names_set.append(nm)
                 names.append(nm)
         dishes = ", ".join(names) or "khana"
-        has_portion = (any(k in low for k in _PORTION_WORDS)
-                       or bool(parsed.portion_letter))
+        has_portion = _portion_stated(low, parsed.portion_letter)
         portion_label = _PORTION_LABEL.get(meal_portion or "m", "medium")
         # Meals honour the same explicit day/time the text refers to
         # ("yesterday i ate...", "14 july lunch") so backdated meals land on the

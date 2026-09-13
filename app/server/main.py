@@ -660,7 +660,7 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         mid = store.propose_meal(w["id"], None, "doctor", "webhook",
                                  parsed_items or items,
                                  payload.get("portion") or "m",
-                                 None, carbs, "med", 0.99, ts=ts,
+                                 None, carbs, None, 0.99, ts=ts,
                                  portion_text=payload.get("portion_text") or None)
         store.audit("doctor", "meal_added", f"meal {mid} at {ts}")
         return {"ok": True, "id": mid}
@@ -681,7 +681,7 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
             parsed_items = _items(", ".join(str(i.get("item") or "") for i in items), settings)
             items_json = _json.dumps(parsed_items or items, ensure_ascii=False)
             carbs = sum(float(i.get("carbs") or 0.0) for i in parsed_items) or None
-            gi = "med"
+            gi = None
         store.update_meal(
             mid, portion=payload.get("portion"), items_json=items_json,
             ts=str(payload.get("ts")) if payload.get("ts") is not None else None,

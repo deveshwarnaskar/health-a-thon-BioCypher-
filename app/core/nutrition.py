@@ -53,6 +53,26 @@ FOODS: list[tuple[str, str, float, str, str]] = [
     ("sweet juice", "beverage", 12.0, "high", "m"),
     ("soft drink", "beverage", 11.0, "high", "m"),
     ("salad", "vegetable", 6.0, "low", "s"),
+    ("bhature", "fried bread", 34.0, "high", "m"),
+    ("chole bhature", "street food", 30.0, "med", "m"),
+    ("pani puri", "street food", 27.0, "med", "m"),
+    ("pav bhaji", "street food", 28.0, "med", "m"),
+    ("vada pav", "street food", 30.0, "high", "m"),
+    ("maggi", "instant noodles", 34.0, "high", "m"),
+    ("noodles", "instant noodles", 34.0, "high", "m"),
+    ("sandwich", "bread snack", 24.0, "med", "m"),
+    ("toast", "bread snack", 24.0, "med", "m"),
+    ("burger", "fast food", 28.0, "high", "m"),
+    ("pizza", "fast food", 22.0, "med", "m"),
+    ("apple", "fruit", 13.0, "low", "s"),
+    ("banana", "fruit", 21.0, "med", "s"),
+    ("chocolate", "dessert", 55.0, "high", "s"),
+    ("omelette", "egg", 3.0, "low", "m"),
+    ("kadi", "curry", 12.0, "low", "m"),
+    ("mutton", "meat", 3.0, "low", "m"),
+    ("egg curry", "egg", 4.0, "low", "m"),
+    ("rasgulla", "dessert", 30.0, "high", "m"),
+    ("jalebi", "dessert", 32.0, "high", "m"),
 ]
 
 FoodDict = dict[str, object]
@@ -73,9 +93,26 @@ _ALIASES: dict[str, str] = {
     "paratha": "paratha",
     "parantha": "paratha",
     "naan": "roti",
-    "puri": "roti",
-    "poori": "roti",
-    "bhatura": "roti",
+    "puri": "puri",
+    "poori": "puri",
+    "bhatura": "bhature",
+    "bhature": "bhature",
+    "chole bhature": "chole bhature",
+    "chana masala": "chole",
+    "chana": "chole",
+    "chole": "chole",
+    "panipuri": "pani puri",
+    "pani puri": "pani puri",
+    "vadapav": "vada pav",
+    "vada pav": "vada pav",
+    "pavbhaji": "pav bhaji",
+    "pav bhaji": "pav bhaji",
+    "maggie": "maggi",
+    "bread": "toast",
+    "seb": "apple",
+    "kadhi": "kadi",
+    "keema": "mutton",
+    "uttapam": "dosa",
     "daliya": "poha",
     "oats": "poha",
     "khichdi": "poha",
@@ -102,8 +139,8 @@ _ALIASES: dict[str, str] = {
     "murgh": "chicken curry",
     "fish": "fish curry",
     "machhi": "fish curry",
-    "egg": "chicken curry",
-    "anda": "chicken curry",
+    "egg": "omelette",
+    "anda": "omelette",
     "paneer bhurji": "paneer curries",
     "paneer": "paneer curries",
     "curd": "dahi",
@@ -117,10 +154,8 @@ _ALIASES: dict[str, str] = {
     "tea": "sweet juice",
     "coffee": "sweet juice",
     "biscuit": "biscuit",
-    "fruit": "salad",
-    "fruits": "salad",
-    "apple": "salad",
-    "banana": "salad",
+    "choco": "chocolate",
+    "chocolate": "chocolate",
     "salad": "salad",
     "gulabjamun": "gulab jamun",
     "gulab jamun": "gulab jamun",
@@ -157,21 +192,36 @@ def classify_text(text: Optional[str]) -> list[FoodDict]:
     candidates: list[str] = []
     for item, *_rest in FOODS:
         candidates.append(item)
-    candidates += sorted(_ALIASES, key=len, reverse=True)  # longest alias first
+    candidates += sorted(_ALIASES, key=len, reverse=True)
+    candidates = list(dict.fromkeys(candidates))
 
-    for token in candidates:
+    matched_spans: list[tuple[int, int]] = []
+    for token in sorted(candidates, key=len, reverse=True):
         canonical = _ALIASES.get(token, token)
         if canonical in seen:
             continue
-        # match token as substring or whole word in text
-        if token in cleaned:
-            row = _row_for(canonical)
-            if not row:
-                continue
-            seen.add(canonical)
-            resolved.append(row)
-            if len(resolved) >= 4:
-                break
+        # Whole-word / whole-phrase matching only — a substring hit like "bhat"
+        # inside "bhature" must never turn a bhatura into "white rice".
+        m = re.search(r"(?<!\w)" + re.escape(token) + r"(?!\w)", cleaned)
+        if not m:
+            continue
+        # Once "chole bhature" matches as a phrase, "chole" and "bhature" must
+        # not ALSO match (overlapping span) and produce a duplicate row.
+        if any(not (m.end() <= s or m.start() >= e) for s, e in matched_spans):
+            continue
+        row = _row_for(canonical)
+        if not row:
+            continue
+        seen.add(canonical)
+        matched_spans.append((m.start(), m.end()))
+        row = dict(row)
+        # The item is the patient's EXACT words — never a swapped canonical name.
+        row["item"] = cleaned[m.start():m.end()]
+        if row.get("gi") is not None:
+            row["known"] = True
+        resolved.append(row)
+        if len(resolved) >= 4:
+            break
 
     # Graceful fallback: If no candidate catalog dish matched, but the user typed
     # a message with eating/meal clues, treat it as a valid meal so novel foods
@@ -209,8 +259,11 @@ def _fallback_dish(text: str) -> str:
         rest = low[m.end():].strip(" ,.:-")
         # stop at the first sentence/reading-like boundary
         for cut in re.finditer(r"\b(and\s+its?\b|and reading|reading\b|sugar was|"
-                               r"was\s+\d{2,3}\b|\bat\b|\b[yY]esterday\b|\bso\b|"
-                               r"\band\b)", rest):
+                               r"sugar\b|was\s+\d{2,3}\b|\bat\b|\b[yY]esterday\b|"
+                               r"\b(today|abhi|rn|now|again|then|so|but|and|"
+                               r"phir|after|kal|aaj|subah|shaam|raat)\b|"
+                               r"\btook\b|\btaken\b|\bchecked\b|\bmeasured\b|"
+                               r"ke\s+baad\b)", rest):
             rest = rest[:cut.start()]
             break
         rest = re.sub(r"\b(?:the|a|an|some|about|for|of)\b", " ", rest).strip()

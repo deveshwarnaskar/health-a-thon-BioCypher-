@@ -1197,9 +1197,10 @@ def test_reading_plus_meal_same_message_logs_both(store, cfg, intake):
     assert len(meals) == 1
     items = json.loads(meals[0]["items_json"])
     assert items[0]["item"].lower() == "chocolate"
-    assert items[0]["known"] is False
-    assert items[0]["carbs"] == 0.0      # never invented for unknown foods
-    assert items[0]["gi"] is None
+    assert items[0]["known"] is True
+    # Carb/GI numbers are never written into the record — only food + size.
+    assert "carbs" not in items[0]
+    assert "gi" not in items[0]
 
 
 def test_junk_sentence_never_becomes_dish(store, cfg, intake):
@@ -1301,3 +1302,172 @@ def test_daily_log_reading_type_labels(store, cfg):
         for r in day["readings"]:
             assert r["reading_type"] in ("fasting", "postprandial", "random")
             assert r["reading_type_label"]
+
+
+# ---- new intake fixes: perfect timing, exact food phrases, no carbs/GI ------
+
+def test_bare_hour_with_part_of_day_parses_exactly(cfg):
+    from app.core.intake_ai import analyze_intake
+    base = "2026-09-13T10:00:00"
+    cases = [
+        ("sugar 130 at 7 in the morning", "2026-09-13T07:00:00"),
+        ("sugar 130 shaam 3 baje", "2026-09-13T15:00:00"),
+        ("sugar 130 raat 8 baje", "2026-09-13T20:00:00"),
+        ("sugar 130 at 7 in the evening", "2026-09-13T19:00:00"),
+        ("sugar 130 at 8 in the morning today", "2026-09-13T08:00:00"),
+    ]
+    for text, expect in cases:
+        r = analyze_intake(text, "Ramesh", cfg=cfg, msg_ts=base)
+        got = r.reading_ts
+        assert got == expect, f"{text!r}: {got} != {expect}"
+
+
+def test_yesterday_7morning_backdates_reading_and_meal(store, cfg, intake):
+    """'yesterday at 7 in the morning i ate apple and after that sugar reading
+    was 190' must log BOTH at yesterday 07:00 (not the old 08:00 morning
+    default), and apple stays a real food (never 'salad')."""
+    pid = store.add_patient("Tm", "T-1", "+919123456792")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received(
+        "+919123456792",
+        "yesterday at 7 in the morning i ate apple and after that sugar reading was 190",
+        message_id="TM-7AM")
+    intake(store, cfg, send=True)
+    rows = store.readings_for_window(wid)
+    assert len(rows) == 1 and abs(rows[0]["value"] - 190) < 0.5
+    assert (rows[0]["ts"] or "") == "2026-09-12T07:00:00"
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 1
+    assert (meals[0]["ts"] or "")[:10] == "2026-09-12"
+    items = json.loads(meals[0]["items_json"])
+    assert items[0]["item"].lower() == "apple"
+    assert "salad" not in str(items).lower()
+    assert "carbs" not in items[0] and "gi" not in items[0]
+
+
+def test_chocolate_again_backdates_to_8am(store, cfg, intake):
+    """The 'again' in 'chocolate again' never leaks into the dish and the time
+    honours 'yesterday at 8 in the morning' -> yesterday 08:00."""
+    pid = store.add_patient("Tm2", "T-2", "+919123456793")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received(
+        "+919123456793",
+        "yesterday at 8 in the morning i ate chocolate again and the sugar reading was 280",
+        message_id="TM-8AM")
+    intake(store, cfg, send=True)
+    rows = store.readings_for_window(wid)
+    assert len(rows) == 1 and abs(rows[0]["value"] - 280) < 0.5
+    assert (rows[0]["ts"] or "") == "2026-09-12T08:00:00"
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 1
+    items = json.loads(meals[0]["items_json"])
+    assert items[0]["item"].lower() == "chocolate"
+    assert "again" not in items[0]["item"].lower()
+
+
+def test_chole_bhature_logged_as_exact_one_item(store, cfg, intake):
+    """'chole bhature' must be logged as that exact phrase — never split into
+    'white rice' (the old 'bhat'-substring bug) — and without any carbs/GI."""
+    pid = store.add_patient("CB", "CB-1", "+919123456794")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received(
+        "+919123456794",
+        "at 8 in the morning today the sugar reading was 220 and meal was chole bhature",
+        message_id="CB-1")
+    intake(store, cfg, send=True)
+    rows = store.readings_for_window(wid)
+    assert len(rows) == 1 and abs(rows[0]["value"] - 220) < 0.5
+    assert (rows[0]["ts"] or "") == "2026-09-13T08:00:00"
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 1
+    items = json.loads(meals[0]["items_json"])
+    assert len(items) == 1, items
+    assert items[0]["item"].lower() == "chole bhature"
+    assert all("white rice" not in (it.get("item") or "").lower() for it in items)
+    assert all("carbs" not in it and "gi" not in it for it in items)
+    assert meals[0]["carbs"] is None and meals[0]["gi"] is None
+
+
+def test_choco_recognized_asked_for_size_stays_pending(store, cfg, intake):
+    """'choco' is real (chocolate); a reading+food message with no size logs the
+    reading and asks for the meal size in ONE reply; the meal waits pending."""
+    from app.core.ai_worker import IntakeWorker
+    pid = store.add_patient("Ch", "CH-1", "+919123456795")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received(
+        "+919123456795",
+        "i actually ate a choco today rn and took sugar reading again its 200",
+        message_id="CH-1")
+    sent = []
+    IntakeWorker(store, cfg, send_func=lambda o: (sent.append(o), True)[1]).run_once(
+        limit=10, should_send=True, send_gap=0)
+    rows = store.readings_for_window(wid)
+    assert len(rows) == 1 and abs(rows[0]["value"] - 200) < 0.5
+    assert rows[0]["status"] == "confirmed"
+    assert any("choco" in o.body and "size" in o.body.lower() for o in sent), \
+        [o.body for o in sent]
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 1
+    items = json.loads(meals[0]["items_json"])
+    assert items[0]["item"].lower() == "choco"
+    assert meals[0]["status"] == "pending"          # waiting for the size answer
+    assert store.meals_for_window(wid, confirmed_only=True) == []  # hidden
+
+
+def test_sized_meal_message_auto_confirms(store, cfg, intake):
+    """When the SAME message already names the size ('small choco'), the AI meal
+    is confirmed immediately and appears in the Day Log — no second round-trip."""
+    from app.core.ai_worker import IntakeWorker
+    pid = store.add_patient("Sz", "SZ-1", "+919123456796")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received(
+        "+919123456796",
+        "i ate a small choco today rn and sugar reading was 200",
+        message_id="SZ-1")
+    sent = []
+    IntakeWorker(store, cfg, send_func=lambda o: (sent.append(o), True)[1]).run_once(
+        limit=10, should_send=True, send_gap=0)
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 1
+    assert meals[0]["status"] == "confirmed"
+    assert meals[0]["portion"] == "s"
+    assert any(m["id"] == meals[0]["id"]
+               for m in store.meals_for_window(wid, confirmed_only=True))
+    # Still correctable later: a change message supersedes this row.
+    store.record_raw_received(
+        "+919123456796",
+        "actually ate chocolate not choco",
+        message_id="SZ-CHG")
+    sent = []
+    IntakeWorker(store, cfg, send_func=lambda o: (sent.append(o), True)[1]).run_once(
+        limit=10, should_send=True, send_gap=0)
+    allm = store.meals_for_window(wid, confirmed_only=False)
+    assert len(allm) == 2
+    superseded = [m for m in allm if m["status"] == "superseded"]
+    assert len(superseded) == 1
+    old_items = json.loads(superseded[0]["items_json"])
+    assert old_items[0]["item"].lower() == "choco"   # the old row is kept+marked
+    others = [m for m in allm if m["status"] != "superseded"]
+    new_items = json.loads(others[0]["items_json"])
+    assert new_items[0]["item"].lower().startswith("chocolate")
+
+
+def test_novel_food_clean_phrase_no_carbs(store, cfg, intake):
+    """An unknown food ('pasta') logs as clean short 'Pasta' — no junk tail
+    words, no carbs/GI anywhere in the record."""
+    from app.core.ai_worker import IntakeWorker
+    pid = store.add_patient("Nv", "NV-1", "+919123456797")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received(
+        "+919123456797",
+        "i had pasta today rn and sugar was 280",
+        message_id="NV-1")
+    IntakeWorker(store, cfg, send_func=lambda o: True).run_once(
+        limit=10, should_send=True, send_gap=0)
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 1
+    items = json.loads(meals[0]["items_json"])
+    assert items[0]["item"].lower() == "pasta"
+    assert items[0]["known"] is False
+    assert "carbs" not in items[0] and "gi" not in items[0]
+    assert meals[0]["carbs"] is None and meals[0]["gi"] is None

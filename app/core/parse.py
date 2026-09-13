@@ -464,20 +464,47 @@ def time_reference(text: Optional[str]) -> tuple[int, Optional[int]]:
             shift = s
             break
     minute: Optional[int] = None
+    hh: Optional[int] = None
+    explicit_ampm = False
     m = re.search(r"(\d{1,2})(?::(\d{2}))?(?:\s*(am|pm|baje)\b)", low)
     if not m:
         m = re.search(r"(\d{1,2}):(\d{2})\b", low)
     if m:
         hh = int(m.group(1))
         mm = int(m.group(2) or 0)
-        period = (m.group(3) or "").strip()
+        period = (str(m.group(3) or "") if m.lastindex >= 3 else "").strip()
+        if period in ("am", "pm"):
+            explicit_ampm = True
         if period == "pm" and hh < 12:
             hh += 12
         elif period == "am" and hh == 12:
             hh = 0
-        elif period == "baje" and hh < 12:
-            pass
         minute = hh * 60 + mm
+    else:
+        # Bare hour tied to a part-of-day word ("at 7 in the morning",
+        # "7 subah", "8 raat", "shaam 3") — the explicit hour wins, so
+        # "yesterday at 7 in the morning" is 07:00 and NOT the generic
+        # morning default of 08:00. "sugar 130 morning" can never match
+        # because \d{1,2} cannot swallow the third digit.
+        _PART_DAY = (r"(?:morning|subah|saver|savre|savere|afternoon|dopahar|"
+                     r"evening|shaam|shyam|night|raat|ratri)")
+        m2 = re.search(
+            rf"\b(?:at|about|around|karib|lagbhag)?\s*(\d{{1,2}})"
+            rf"(?:\s*baje\b)?\s*(?=(?:in\s+the\s+)?{_PART_DAY}\b)", low)
+        if not m2:
+            m2 = re.search(
+                rf"\b{_PART_DAY}\b\s*(?:ke\s+)?(\d{{1,2}})(?:\s*baje\b)?",
+                low)
+        if m2:
+            hh = int(m2.group(1))
+            minute = hh * 60
+    if minute is not None and not explicit_ampm and hh is not None and hh < 12:
+        # Evening/night hours without am/pm: "shaam 3" -> 15:00, "raat 8" ->
+        # 20:00, "shaam 3 baje" -> 15:00. True 24h-style hours stay untouched.
+        if re.search(
+                r"\b(?:afternoon|dopahar|evening|shaam|shyam|night|raat|ratri)\b",
+                low):
+            minute += 12 * 60
     if minute is None:
         for words, default_h in _PART_DEFAULTS:
             if any(w in low for w in words):
@@ -573,7 +600,7 @@ def _reading_from_text(text: str, raw: Optional[dict] = None) -> Optional[Parsed
 
 
 def _items(text: str, cfg: Settings) -> list[dict]:
-    from .nutrition import estimate_carbs_g, classify_text, KATORI_LABELS
+    from .nutrition import classify_text, KATORI_LABELS
     rows = classify_text(text)
     out = []
     for r in rows:
@@ -582,17 +609,15 @@ def _items(text: str, cfg: Settings) -> list[dict]:
             "item": r["item"], "genus": r["genus"],
             "portion": r.get("portion", "m"),
             "portion_label": KATORI_LABELS.get(r.get("portion", "m")),
-            # unknown fallback rows never get invented carb/ GI values
-            "carbs": estimate_carbs_g(cfg.katori(r.get("portion", "m")), r)
-            if known else 0.0,
-            "gi": r["gi"] if known else None,
+            # Carb/GI numbers are deliberately NOT written: the record keeps
+            # only what the patient actually said (food + size).
             "known": known,
         })
     return out
 
 
 def _mock_photo(raw: dict, cfg: Settings, mock_vision) -> list[dict]:
-    from .nutrition import estimate_carbs_g, detect_photo, KATORI_LABELS
+    from .nutrition import detect_photo, KATORI_LABELS
     now = now_local()
     if mock_vision is not None and callable(mock_vision):
         rows = mock_vision(raw.get("photo_path") or "", now.hour, 0)
@@ -606,8 +631,6 @@ def _mock_photo(raw: dict, cfg: Settings, mock_vision) -> list[dict]:
             "item": r["item"], "genus": r["genus"],
             "portion": r.get("portion", "m"),
             "portion_label": KATORI_LABELS.get(r.get("portion", "m")),
-            "carbs": estimate_carbs_g(cfg.katori(r.get("portion", "m")), r),
-            "gi": r["gi"],
         })
     # health-year safety: keep the echo identical for later text correction
     return out

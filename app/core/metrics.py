@@ -178,9 +178,13 @@ def compute_window_metrics(store: Store, cfg: Settings, window_id: int) -> dict:
     portion_counts: dict[str, int] = defaultdict(int)
     gi_counts: dict[str, int] = defaultdict(int)
     avoid_count = 0
+    # Only meals that actually carry a recorded GI count towards the high-GI
+    # share — rows logged without a GI (novel foods, pending) are skipped.
+    gi_meals = [m for m in meals if m.get("gi")]
+    for m in gi_meals:
+        gi_counts[m["gi"] or "med"] += 1
     for m in meals:
         daily_carbs[_day(m["ts"])] += m["carbs"] or 0
-        gi_counts[m["gi"] or "med"] += 1
         portion_counts[m["portion"] or "m"] += 1
         if m["gi"] == "high":
             high_gi_count += 1
@@ -195,14 +199,16 @@ def compute_window_metrics(store: Store, cfg: Settings, window_id: int) -> dict:
     else:
         carb_volatility = None
 
-    high_gi_share = round(high_gi_count / len(meals) * 100, 1) if meals else None
+    high_gi_share = (round(high_gi_count / len(gi_meals) * 100, 1)
+                     if gi_meals else None)
 
     # --- daily series (for charts) -------------------------------------
     series = []
     for d in dates:
         ds = d.isoformat()
         day_meals = [m for m in meals if _day(m["ts"]) == ds]
-        day_high = sum(1 for m in day_meals if m["gi"] == "high")
+        day_gi = [m for m in day_meals if m.get("gi")]
+        day_high = sum(1 for m in day_gi if m["gi"] == "high")
         def _slot_day(slot):
             return [r["value"] for r in readings
                     if _reading_type(r) == "postprandial" and _day(r["ts"]) == ds
@@ -217,7 +223,8 @@ def compute_window_metrics(store: Store, cfg: Settings, window_id: int) -> dict:
             "pd": _slot_day("postdinner"),
             "meals_today": len(day_meals),
             "high_gi_count": day_high,
-            "high_gi_share": round(day_high / len(day_meals) * 100, 0) if day_meals else 0,
+            "high_gi_share": (round(day_high / len(day_gi) * 100, 0)
+                                  if day_gi else None),
             "carbs": daily_carbs.get(ds, 0.0),
         })
 

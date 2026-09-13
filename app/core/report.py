@@ -36,6 +36,11 @@ def build_report_context(store: Store, cfg: Settings, window_id: int) -> dict:
     genus_counts: Counter = Counter()
     high_weekday = high_weekend = total_weekday = total_weekend = 0
     for mm in meals:
+        for it in json.loads(mm.get("items_json") or "[]"):
+            genus_counts[it.get("genus", "?")] += 1
+        if not mm.get("gi"):
+            # rows without a recorded GI (novel foods) never enter the share
+            continue
         high = mm["gi"] == "high"
         try:
             weekday = datetime.strptime(mm["ts"][:10], "%Y-%m-%d").weekday() < 5
@@ -47,8 +52,6 @@ def build_report_context(store: Store, cfg: Settings, window_id: int) -> dict:
         else:
             total_weekend += 1
             high_weekend += high
-        for it in json.loads(mm.get("items_json") or "[]"):
-            genus_counts[it.get("genus", "?")] += 1
 
     tot_genus = max(1, sum(genus_counts.values()))
     top_genera = [(g, n, round(n / tot_genus * 100, 0))

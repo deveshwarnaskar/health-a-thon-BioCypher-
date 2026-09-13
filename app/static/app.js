@@ -475,7 +475,7 @@ async function loadDayLog() {
         + `<span>${hhmm(m.ts)}</span>`
         + `${pchip}${changed}`
         + `<span class="meal-items">${items}</span>`
-        + `<span class="muted">${fmt(m.carbs)}g carbs · GI ${fmt(m.gi)}${src}</span>`
+        + (m.carbs ? `<span class="muted">${fmt(m.carbs)}g carbs · GI ${fmt(m.gi)}${src}</span>` : (m.source === "ai" ? `<span class="muted">${src}</span>` : ""))
         + (m.superseded ? `</span>` : "")
         + `<button class="mini" style="margin-left:.4rem" data-m="${m.id}" data-d="${d.date}" data-kind="edit-meal" title="Edit meal/portion">\u270E</button>`
         + `<button class="mini danger" data-m="${m.id}" data-kind="del-meal" title="Delete meal">\u2715</button></div>`;
