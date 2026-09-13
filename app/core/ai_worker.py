@@ -77,7 +77,8 @@ class IntakeWorker:
                     res = analyze_intake(r["raw_text"],
                                          patient_name=patient["name"] if patient else "Patient",
                                          cfg=self.cfg,
-                                         msg_ts=str(r.get("ts") or ""))
+                                         msg_ts=str(r.get("ts") or ""),
+                                         use_llm=False)
                     self._save_refined(r["id"], res, followup_sent=False)
                     summary["analyzed"] += 1
             except Exception as e:
@@ -807,17 +808,63 @@ class IntakeWorker:
             is_change = (any(k in low for k in _STRONG_CHANGE)
                          or "actually" in low)
             pend = self.store.newest_pending(sender)
-            if (pend and items and res.intent in ("meal", "reading")
-                    and (_portion_stated(low, res.meal_portion) or is_change)):
+            pend_items = []
+            if pend:
                 try:
                     pend_items = json.loads(pend.get("items_json") or "[]")
                 except Exception:
                     pend_items = []
-                my_names = {str(it.get("item") or "").lower().strip().strip(".")
-                            for it in items}
-                pend_names = {str(x.get("item") or "").lower().strip().strip(".")
-                              for x in pend_items}
-                if pend_names and my_names and not pend_names.isdisjoint(my_names):
+            pend_names = {str(x.get("item") or "").lower().strip().strip(".")
+                          for x in pend_items}
+            my_names = {str(it.get("item") or "").lower().strip().strip(".")
+                        for it in items}
+
+            # A "change X to Y" that names a genuinely NEW dish is a REPLACEMENT,
+            # never an expansion: log ONLY the new dish as a fresh meal row and
+            # mark the old one superseded (kept visible with a strikethrough).
+            if (pend and items and is_change and res.intent in ("meal", "reading")
+                    and any(n not in pend_names for n in my_names)):
+                fresh = [it for it in items
+                         if (str(it.get("item") or "").lower().strip().strip(".")
+                             not in pend_names)]
+                if fresh:
+                    fresh_names = ", ".join(str(it.get("item")) for it in fresh)
+                    repl_portion = (res.meal_portion
+                                    or items[0].get("portion", "m")
+                                    or pend.get("portion") or "m")
+                    repl_txt = (res.meal_portion_text
+                                or portion_text(low) or None)
+                    new_id = self.store.propose_meal(
+                        wid, sender, "patient", "ai",
+                        fresh, repl_portion, self.cfg.katori(repl_portion),
+                        (sum(float(it.get("carbs") or 0.0) for it in fresh)
+                         or None),
+                        self._split_gi(fresh)
+                        if any(it.get("gi") for it in fresh) else None,
+                        float(res.confidence), ts=ts, portion_text=repl_txt)
+                    self.store.supersede_meal(pend["id"], new_id)
+                    self.store.finalize_meal(new_id, "confirmed",
+                                             repl_portion,
+                                             portion_text=repl_txt)
+                    self.store.audit(
+                        "ai_intake", "meal_replaced",
+                        f"raw_id={raw_row['id']} old={pend['id']} "
+                        f"new={new_id} new_dish={fresh_names} ts={ts}")
+                    old_dish = ", ".join(sorted(str(x) for x in pend_names))
+                    res.reply = (
+                        f"✅ {old_dish or 'wo'} wala entry badal kar {fresh_names} "
+                        f"({KATORI_LABELS.get(repl_portion, 'Medium')}) update kar "
+                        f"diya — purana entry cross-mark ho gaya."
+                        f"{self._invite()}")
+                    res.should_reply = True
+                    res.missing = []
+                    self._mark_flag(raw_row["id"], "meal_registered")
+                    return
+
+            if (pend and items and res.intent in ("meal", "reading")
+                    and (_portion_stated(low, res.meal_portion) or is_change)
+                    and pend_names and my_names
+                    and not pend_names.isdisjoint(my_names)):
                     pend_portion = (res.meal_portion
                                     or items[0].get("portion")
                                     or pend.get("portion") or "m")

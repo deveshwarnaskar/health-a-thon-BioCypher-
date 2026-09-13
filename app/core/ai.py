@@ -232,11 +232,13 @@ def call_llm_reasoning(text: str, patient_name: str, cfg: Optional[Settings] = N
 
 
 def refine_text_local(text: str) -> str:
-    """Correct common keyboard typos, dialects, and phonetic misspellings."""
+    """Correct common keyboard typos, dialects, and phonetic misspellings, and
+    split glued number<->word tokens ('was100' -> 'was 100', '3am' -> '3 am')."""
+    from .parse import normalize_glued_numbers
     s = text.strip()
     for pattern, replacement in _TYPO_MAP.items():
         s = re.sub(pattern, replacement, s, flags=re.I)
-    return s
+    return normalize_glued_numbers(s)
 
 
 def analyze_patient_input(text: str, patient_name: str = "Patient",

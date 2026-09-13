@@ -22,7 +22,8 @@ from ..config import Settings
 from .datamodel import Store
 from .nutrition import KATORI_LABELS, gi_bucket_index
 from .parse import (READING_TAG_LABELS, ParsedInput, ambiguous_reading_values,
-                    describe_items, parse_inbound, reading_timestamp, _is_done)
+                    describe_items, parse_inbound, portion_text,
+                    reading_timestamp, _is_done)
 
 
 @dataclass
@@ -139,24 +140,14 @@ class IngestService:
             return []
 
         if parsed.kind == "refusal":
-            from .ai import analyze_patient_input
-            ai_res = analyze_patient_input(raw_text, patient_name=patient.get("name", "Patient"), cfg=self.cfg)
-            if ai_res.intent == "reading" and ai_res.reading is not None:
-                parsed.kind = "reading"
-                parsed.reading = ai_res.reading
-                parsed.reading_tag = ai_res.reading_tag
-                return self._handle_reading(patient, window, role, parsed, raw)
-            elif ai_res.intent == "meal" and ai_res.dishes:
-                from .parse import _items
-                parsed.kind = "text"
-                parsed.items = _items(", ".join(ai_res.dishes), self.cfg)
-                return self._handle_meal(patient, window, role, parsed, raw)
-            elif ai_res.conversational_reply:
-                return [self._out(route=role, kind="text", to=raw.get("sender_phone"),
-                                  body=ai_res.conversational_reply)]
-            return [self._out(route=role, kind="text", to=raw.get("sender_phone"),
-                              body="I didn't understand that. Send a photo of the meal, "
-                                   "a reading like 'fasting 126', or text the dish name.")]
+            # Deterministic-only: the webhook never consults Gemini/LLMs, so a
+            # patient-facing WhatsApp message can never be LLM-composed.
+            name = patient.get("name", "Patient")
+            return [self._out(route=role, kind="text",
+                              to=raw.get("sender_phone"),
+                              body=(f"Namaste {name} ji! I didn't understand "
+                                    "that. Send a reading like 'fasting 126' or "
+                                    "text the dish name."))]
 
         # Unresolved reading ("230 or 330", "shayad 230 ya 330...") takes priority:
         # suppress the meal portion-confirm so the patient receives exactly ONE
@@ -222,30 +213,17 @@ class IngestService:
     def _handle_meal(self, patient, window, role, parsed: ParsedInput, raw) -> list[Outbound]:
         if not parsed.items:
             to = raw.get("sender_phone")
-            from .ai import analyze_patient_input
-            ai_res = analyze_patient_input(str(raw.get("text") or ""),
-                                           patient_name=patient.get("name", "Patient"),
-                                           cfg=self.cfg)
-            if ai_res.intent == "reading" and ai_res.reading is not None:
-                parsed.kind = "reading"
-                parsed.reading = ai_res.reading
-                parsed.reading_tag = ai_res.reading_tag
-                return self._handle_reading(patient, window, role, parsed, raw)
-            if ai_res.intent == "meal" and ai_res.dishes:
-                from .parse import _items
-                parsed.kind = "text"
-                parsed.items = _items(", ".join(ai_res.dishes), self.cfg)
-                if parsed.items:
-                    return self._handle_meal(patient, window, role, parsed, raw)
-            if ai_res.conversational_reply:
-                return [self._out(route=role, kind="text", to=to,
-                                  body=ai_res.conversational_reply)]
+            # Deterministic-only refusal: no Gemini on the webhook path.
+            name = patient.get("name", "Patient")
             return [self._out(route=role, kind="text", to=to,
-                              body="I couldn't recognise dishes in that yet. "
-                                   "Please describe it in text, e.g. '2 roti, dal, sabzi'.")]
-        # proposal stage
+                              body=(f"Namaste {name} ji! I didn't understand that "
+                                    "completely (mujhe thoda samajh nahi aaya). "
+                                    "Reading batayein — jaise 'sugar 130' ya "
+                                    "'fasting 120' — ya khana likhein: "
+                                    "'2 roti, dal, sabzi'."))]
+# proposal stage
         low = str(raw.get("text") or "").lower()
-        # A same-dish message that also states a size/change ("the meal was
+        # A same-dish message that ALSO states a size/change ("the meal was
         # large chocolates" after a pending "Two Chocolates") COMPLETES the
         # pending meal instead of starting a duplicate row.
         my_names = {str(it.get("item") or "").lower().strip().strip(".")
@@ -256,7 +234,53 @@ class IngestService:
                       "glass", "cup", "ml", "do roti", "2 roti",
                       "change", "changed", "wrong", "galat", "actually")
         _size_or_change = any(k in low for k in _SIZE_MARK)
+        _EDIT_ONLY = ("change", "changed", "change karo", "edit", "edit karo",
+                      "replace", "replaced", "galat", "wrong", "wrong tha",
+                      "actually", "sahi karo", "sudhar", "badlo", "badal")
+        is_edit = any(k in low for k in _EDIT_ONLY)
         pend = self.store.newest_pending(raw.get("sender_phone"))
+        pend_items = []
+        if pend:
+            try:
+                pend_items = json.loads(pend.get("items_json") or "[]")
+            except Exception:
+                pend_items = []
+        pend_names = {str(x.get("item") or "").lower().strip().strip(".")
+                      for x in pend_items}
+        # A replacement names a genuinely NEW dish ("change chole bhature to
+        # white rice 1 cup") -> log ONLY the new dish as a fresh row and mark
+        # the old pending row superseded (kept visible). Same-dish restatements
+        # still complete the pending row below instead.
+        fresh = [it for it in parsed.items
+                 if (str(it.get("item") or "").lower().strip().strip(".")
+                     not in pend_names)]
+        if (pend and parsed.items and is_edit and fresh
+                and my_names.difference(pend_names)):
+            new_ts = reading_timestamp(
+                str(raw.get("text") or raw.get("kind") or ""),
+                parsed.ts.strftime("%Y-%m-%dT%H:%M:%S")
+            ).strftime("%Y-%m-%dT%H:%M:%S")
+            portion = fresh[0].get("portion", "m")
+            pt = (getattr(parsed, "portion_text", None)
+                  or portion_text(low))
+            new_id = self.store.propose_meal(
+                window["id"], raw.get("sender_phone"), role, parsed.kind,
+                fresh, portion, self.cfg.katori(portion),
+                (sum(float(x.get("carbs") or 0.0) for x in fresh) or None),
+                (self._split_gi(fresh)
+                 if any(x.get("gi") for x in fresh) else None),
+                0.9 if parsed.kind == "text" else 0.82,
+                ts=new_ts, portion_text=pt)
+            self.store.supersede_meal(pend["id"], new_id)
+            self.store.finalize_meal(new_id, "confirmed", portion,
+                                     portion_text=pt)
+            self.store.audit(role, "meal_replaced",
+                             f"old={pend['id']} new={new_id} "
+                             f"new_dish={describe_items(fresh)}")
+            body = (f"Detected: {describe_items(fresh)} — purana entry replace "
+                    f"kar diya (✓ cross-marked), naya logged. It's in the report.")
+            return [self._out(route=role, kind="text",
+                              to=raw.get("sender_phone"), body=body)]
         if (pend and my_names and _size_or_change):
             try:
                 pend_items = json.loads(pend.get("items_json") or "[]")

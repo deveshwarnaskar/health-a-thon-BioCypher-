@@ -1885,3 +1885,133 @@ def test_meal_association_prompt_when_portion_stated(cfg):
     r2 = analyze_intake("large biryani small", "Ramesh", cfg=cfg)
     if r2.intent == "meal":
         assert "Logged khana" in r2.reply
+
+
+# ---- AI-intelligence fixes: glued numbers, clock times, replace, no-Gemini ----
+
+def test_normalize_glued_numbers_unit():
+    from app.core.parse import normalize_glued_numbers
+    assert normalize_glued_numbers("today at 3am my fasting was100") == \
+        "today at 3 am my fasting was 100"
+    assert normalize_glued_numbers("1cup rice") == "1 cup rice"
+    assert normalize_glued_numbers("200mgdl") == "200 mgdl"
+    assert normalize_glued_numbers("2024") == "2024"
+    assert normalize_glued_numbers("do katori") == "do katori"
+
+
+def test_glued_was100_parses_as_reading(cfg):
+    from app.core.parse import parse_inbound
+    p = parse_inbound({"patient_id": 1, "kind": "text",
+                       "text": "today at 3am my fasting was100"}, cfg)
+    assert p.is_reading and abs(p.reading - 100) < 0.5
+    assert p.reading_tag == "fasting"
+
+
+def test_clock_time_never_misread_as_reading(cfg):
+    """'... at 10 pm ... rading was 200' must resolve to 200 — the 2-digit hour
+    must never be taken as a glucose value and turn the message into a refusal."""
+    from app.core.parse import parse_inbound
+    p = parse_inbound({"patient_id": 1, "kind": "text",
+                       "text": "today at 10 pm after eating chole bhature "
+                               "my rading was 200"}, cfg)
+    assert p.is_reading and abs(p.reading - 200) < 0.5
+    assert p.reading_tag == "postprandial"
+    assert p.kind != "refusal"
+
+
+def test_worker_backdates_glued_fasting_and_clocked_post(store, cfg, intake):
+    pid = store.add_patient("Sunita", "SD-1", "+919123456791")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456791", "today at 3am my fasting was100",
+                              message_id="GL-1")
+    store.record_raw_received("+919123456791",
+                              "today at 10 pm after eating chole bhature "
+                              "my rading was 200", message_id="GL-2")
+    intake(store, cfg)
+    rows = sorted(store.readings_for_window(wid), key=lambda r: r["ts"])
+    assert len(rows) == 2
+    assert abs(rows[0]["value"] - 100) < 0.5
+    assert rows[0]["tag"] == "fasting" and rows[0]["reading_type"] == "fasting"
+    assert rows[0]["ts"][11:16] == "03:00"
+    assert abs(rows[1]["value"] - 200) < 0.5
+    assert rows[1]["reading_type"] == "postprandial"
+    assert rows[1]["ts"][11:16] == "22:00"
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert any("chole bhature" in (json.loads(m["items_json"])[0]["item"].lower()
+                                   if m["items_json"] else "")
+               for m in meals)
+
+
+def test_change_to_new_dish_supersedes_pending_meal(store, cfg, intake):
+    """'change chole bhature to white rice 1 cup rice' is a REPLACEMENT: new
+    row gets ONLY the new dish, old pending row is superseded (kept), and no
+    merged chole-bhature+rice duplicate survives."""
+    pid = store.add_patient("Chg2", "C2-1", "+919123456792")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456792", "chole bhature khaya",
+                              message_id="CB-1")
+    intake(store, cfg, send=True)
+    store.record_raw_received(
+        "+919123456792", "change chole bhature to white rice 1 cup rice",
+        message_id="CB-2")
+    intake(store, cfg, send=True)
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 2, f"expected old + new, got {len(meals)} rows"
+    superseded = [m for m in meals if m["status"] == "superseded"]
+    live = [m for m in meals if m["status"] != "superseded"]
+    assert len(superseded) == 1 and superseded[0]["superseded_by"] == live[0]["id"]
+    assert superseded[0]["status"] == "superseded"
+    items = json.loads(live[0]["items_json"])
+    assert [i["item"].lower() for i in items] == ["white rice"]
+    assert live[0]["portion_text"] == "1 cup"
+    assert live[0]["status"] == "confirmed"
+
+
+def test_webhook_change_to_new_dish_supersedes(seeded, store, cfg):
+    pid, wid = seeded
+    _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
+                              "text": "roti dal"})
+    replies = _handle(store, cfg, pid, {"sender_phone": "+919000000001",
+                                        "kind": "text",
+                                        "text": "change roti dal to paneer"})
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 2
+    assert any(m["status"] == "superseded" for m in meals)
+    live = [m for m in meals if m["status"] != "superseded"]
+    assert len(live) == 1
+    items = json.loads(live[0]["items_json"])
+    assert [i["item"].lower() for i in items] == ["paneer"]
+    assert replies and len(replies) == 1
+
+
+def test_webhook_never_invokes_gemini_composer(monkeypatch, seeded, store, cfg):
+    """The webhook must never call the Gemini composer — any patient-facing
+    WhatsApp text is deterministic-only."""
+    from app.core import ai as ai_mod
+    calls = {"n": 0}
+    def boom(*a, **k):
+        calls["n"] += 1
+        raise AssertionError("Gemini must not run on the webhook path")
+    monkeypatch.setattr(ai_mod, "analyze_patient_input", boom)
+    monkeypatch.setattr(ai_mod, "call_llm_reasoning", boom)
+    pid, wid = seeded
+    for text in ("900", "kuch samajh nahi aa raha", "random broken text 9999",
+                 "chole bhature"):
+        _handle(store, cfg, pid, {"sender_phone": "+919000000001",
+                                  "kind": "text", "text": text})
+    assert calls["n"] == 0
+
+
+def test_worker_whatsapp_path_never_uses_gemini(monkeypatch, store, cfg, intake):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    from app.core import intake_ai as ia
+    calls = {"n": 0}
+    def boom(*a, **k):
+        calls["n"] += 1
+        return None
+    monkeypatch.setattr(ia, "_call_gemini_intake", boom)
+    pid = store.add_patient("NoLLM", "NL-1", "+919123456793")
+    store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456793", "fasting was125 na", message_id="NL-1")
+    intake(store, cfg)
+    assert calls["n"] == 0, "WhatsApp-facing worker must stay deterministic"

@@ -721,12 +721,16 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
 
 def analyze_intake(text: str, patient_name: str = "Patient",
                    cfg: Optional[Settings] = None,
-                   msg_ts: Optional[str] = None) -> IntakeResult:
+                   msg_ts: Optional[str] = None,
+                   use_llm: bool = False) -> IntakeResult:
     """Analyze a STORED patient message and produce an intake-notifier result.
 
     This is only ever called off the live webhook path (dashboard trigger or the
     background worker). ALL logging decisions are deterministic; Gemini (when a
     key is present) only helps the genuinely-unclear case word a better question.
+    WhatsApp-facing calls MUST pass use_llm=False so no patient-facing message is
+    ever composed by the LLM; use_llm=True is reserved for operator dashboard
+    tools that never send a patient text directly.
     """
     cfg = cfg or Settings()
     raw = str(text or "").strip()
@@ -734,7 +738,7 @@ def analyze_intake(text: str, patient_name: str = "Patient",
     # The patient's own script decides the reply language (deterministically).
     local.language = detect_language(raw)
     key = os.environ.get("GEMINI_API_KEY") or getattr(cfg, "gemini_api_key", "")
-    if not key:
+    if not key or not use_llm:
         return local
     parsed = _call_gemini_intake(raw, patient_name, key)
     if not parsed:

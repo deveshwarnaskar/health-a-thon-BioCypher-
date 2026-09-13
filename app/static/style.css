@@ -196,6 +196,10 @@ input, select {
 .meal-line { display: flex; gap: 10px; align-items: baseline; padding: 5px 0; border-bottom: 1px dashed var(--bord); font-size: 13px; flex-wrap: wrap; }
 .meal-line:last-child { border-bottom: 0; }
 .meal-line.meal-muted { filter: opacity(.6); }
+.meal-line.meal-superseded { text-decoration: line-through; color: var(--muted); }
+.meal-superseded .badge { margin-left: 4px; }
+.meal-superseded .mini { text-decoration: none; }
+.badge.err { background: #fde8e8; color: #b42318; }
 .meal-muted .badge { margin-left: 4px; }
 .meal-items { font-weight: 600; }
 .daylog-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }

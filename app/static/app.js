@@ -470,13 +470,12 @@ async function loadDayLog() {
       const items = (m.items || []).map((i) => esc(i.item || "")).join(", ");
       const src = m.source === "ai" ? " (AI)" : "";
       const pchip = m.portion_text ? `<span class="slot-chip">${esc(m.portion_text)}</span>` : (m.portion ? `<span class="slot-chip">${esc((m.portion || "").toUpperCase())}</span>` : "");
-      const changed = m.superseded ? `<span class="badge" title="this row was replaced by a newer correct entry">\u2713 changed</span>` : "";
-      return `<div class="meal-line${m.superseded ? " meal-muted" : ""}">${m.superseded ? `<span style="color:var(--muted)">` : ""}`
+      const changed = m.superseded ? `<span class="badge err" title="this row was replaced by a newer correct entry">\u2713 changed \u2715</span>` : "";
+      return `<div class="meal-line${m.superseded ? " meal-muted meal-superseded" : ""}">`
         + `<span>${hhmm(m.ts)}</span>`
         + `${pchip}${changed}`
         + `<span class="meal-items">${items}</span>`
         + (m.carbs ? `<span class="muted">${fmt(m.carbs)}g carbs · GI ${fmt(m.gi)}${src}</span>` : (m.source === "ai" ? `<span class="muted">${src}</span>` : ""))
-        + (m.superseded ? `</span>` : "")
         + `<button class="mini" style="margin-left:.4rem" data-m="${m.id}" data-d="${d.date}" data-kind="edit-meal" title="Edit meal/portion">\u270E</button>`
         + `<button class="mini danger" data-m="${m.id}" data-kind="del-meal" title="Delete meal">\u2715</button></div>`;
     }).join("");

@@ -28,6 +28,21 @@ from typing import Optional
 from ..config import Settings
 from .clock import iso_now, now_local
 
+_GLUE_RE = re.compile(
+    r"(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])")
+
+
+def normalize_glued_numbers(text: Optional[str]) -> str:
+    """Insert a space at every letter<->digit boundary so glued tokens like
+    'was100', '3am', '1cup' and '200mgdl' become readable by word-anchored
+    number regexes. Pure numbers ('2024') and pure words are untouched, and the
+    transform is idempotent."""
+    s = str(text or "")
+    if not s:
+        return s
+    return _GLUE_RE.sub(" ", s)
+
+
 _READING_FULL = re.compile(
     r"^\s*([a-z][a-z ]*?)\??\s*[:=]?\s*(\d{2,3}(?:\.\d)?)\s*(mg/dl)?\s*$", re.I)
 _READING_SHORT = re.compile(r"^\s*(\d{2,3}(?:\.\d)?)\s*$")
@@ -161,7 +176,7 @@ def _strip_space_pairs(low: str) -> str:
 def strip_reading_noise(text: Optional[str]) -> str:
     """Remove clock times, "8 30 am", "100 ml" and "do katori" clutter so only
     real glucose numbers remain when scanning a message for a reading."""
-    low = str(text or "")
+    low = normalize_glued_numbers(text)
     low = _CLOCK_NOISE_RE.sub(" ", low)
     low = _strip_space_pairs(low)
     low = _AMPM_NOISE_RE.sub(" ", low)
@@ -428,6 +443,7 @@ def parse_inbound(raw: dict, cfg: Settings, mock_vision=None) -> ParsedInput:
 
     if kind in (None, "text", "voice") and text:
         return ParsedInput(kind="text", text=text, items=_items(text, cfg),
+                           portion_text=portion_text(text),
                            ts=_ts(raw), raw=text)
 
     if kind == "photo" or photo:
@@ -823,6 +839,7 @@ def _as_reading(raw: dict, value) -> ParsedInput:
 
 def _reading_from_text(text: str, raw: Optional[dict] = None) -> Optional[ParsedInput]:
     ts = _ts(raw) if raw else now_local()
+    text = normalize_glued_numbers(text)
     m = _READING_SHORT.match(text.strip())
     if m:
         val = float(m.group(1))
@@ -843,8 +860,12 @@ def _reading_from_text(text: str, raw: Optional[dict] = None) -> Optional[Parsed
 
     # Natural conversational pattern: e.g. "aaj subah fasting 135 tha", "my sugar is 142"
     low = text.lower().strip()
+    # Scan a noise-stripped COPY (clocks, sizes, counts removed first) so
+    # "today at 10 pm ... rading was 200" finds 200 — never the 2-digit hour —
+    # and "3am" stays a time. The FULL text still drives context/tag words.
+    scan = strip_reading_noise(low)
     # Find any standalone 2 to 3 digit number (with optional decimal)
-    num_match = re.search(r"\b(\d{2,3}(?:\.\d)?)\s*(?:mg/?dl)?\b", low)
+    num_match = re.search(r"\b(\d{2,3}(?:\.\d)?)\s*(?:mg/?dl)?\b", scan)
     if num_match:
         context_words = (
             "sugar", "glucose", "bg", "fbs", "rbs", "ppbg", "mg/dl", "mgdl",
@@ -859,7 +880,9 @@ def _reading_from_text(text: str, raw: Optional[dict] = None) -> Optional[Parsed
             except ValueError:
                 return None
             if not (20 <= val <= 600):
-                return ParsedInput(kind="refusal", raw=text.strip())
+                # Not a glucose-sized number (clock hour, day, count) — this is
+                # a meal/other message, never a refusal.
+                return None
 
             tag = _tag_from_text(low)
             return ParsedInput(kind="reading", reading=val, reading_tag=tag,
