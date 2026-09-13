@@ -1471,3 +1471,75 @@ def test_novel_food_clean_phrase_no_carbs(store, cfg, intake):
     assert items[0]["known"] is False
     assert "carbs" not in items[0] and "gi" not in items[0]
     assert meals[0]["carbs"] is None and meals[0]["gi"] is None
+
+
+def test_charts_reflect_live_daylog_and_reset_purges(tmp_path, store, cfg):
+    """Trends charts are always re-rendered from LIVE day-log data (PNG bytes
+    change after a live edit) and demo-reset wipes the on-disk artifacts so
+    nothing stale can show afterwards."""
+    import hashlib as _h
+    import os
+    from dataclasses import replace as _replace
+    from fastapi.testclient import TestClient
+    from app.server.main import create_app
+    from app.core.process import IngestService
+    from app.core.ai_worker import IntakeWorker
+    from app.core.seed import seed_demo
+
+    rd = str(tmp_path / "report_dir")
+    cfg = _replace(cfg, report_dir=rd)
+    pid, wid = seed_demo(store, cfg, days=5)
+    ingest = IngestService(store, cfg)
+    for txt in ("sugar 130 at 9am", "sugar 168 at 2pm", "2 roti dal sabzi", "yes"):
+        ingest.handle({"patient_id": pid, "sender_phone": "+917439030190",
+                       "kind": "text", "text": txt})
+    IntakeWorker(store, cfg, send_func=lambda o: True).run_once(
+        limit=100, should_send=False)
+
+    c = TestClient(create_app(cfg=cfg, db_path=cfg.db_path))
+
+    def png_hash():
+        p = os.path.join(rd, f"chart-top-{pid}.png")
+        with open(p, "rb") as f:
+            return _h.sha256(f.read()).hexdigest()
+
+    r1 = c.get(f"/api/v1/patients/{pid}/report/charts?which=top")
+    assert r1.status_code == 200 and r1.headers["content-type"].startswith("image/png")
+    hash1 = png_hash()
+
+    # A live day-log edit (new reading) must change the chart.
+    c.post(f"/api/v1/patients/{pid}/readings",
+           json={"value": 200, "tag": "postprandial", "ts": "2026-09-13T17:00:00"},
+           headers={"X-Aahaar-Key": "aahaar-2026"})
+    r2 = c.get(f"/api/v1/patients/{pid}/report/charts?which=top")
+    assert r2.status_code == 200
+    assert png_hash() != hash1
+
+    # demo-reset wipes rows AND the stored PNGs, and charts still render (empty).
+    assert c.post(f"/api/v1/patients/{pid}/demo-reset",
+                  headers={"X-Aahaar-Key": "aahaar-2026"}).status_code == 200
+    assert os.path.isdir(rd) and os.listdir(rd) == []
+    r3 = c.get(f"/api/v1/patients/{pid}/report/charts?which=bottom")
+    assert r3.status_code == 200 and r3.headers["content-type"].startswith("image/png")
+    days = c.get(f"/api/v1/patients/{pid}/daily-log").json()
+    assert sum(len(d["readings"]) + len(d["meals"]) for d in days["days"]) == 0
+    c.close()
+
+
+def test_demo_render_path_skips_charts_on_render(tmp_path):
+    """On Render (RENDER env set) scripts.demo seeds DB-only: no chart PNGs /
+    PDF, fast boot, exit 0 — the dashboard rebuilds charts on demand."""
+    import os, subprocess, sys
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    db = os.path.join(str(tmp_path), "d.db")
+    env = dict(os.environ, RENDER="1")
+    # Pin demo's default phone away from operator data and run with a tmp CWD so
+    # the fixed "reports" dir lands in the sandbox, not the repo.
+    sub = str(tmp_path)
+    r = subprocess.run(
+        [sys.executable, "-m", "scripts.demo", "--days", "2", "--db", db],
+        cwd=repo, env=env, capture_output=True, text=True, timeout=180)
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert "Report PDF: skipped" in r.stdout
+    assert not os.path.exists(os.path.join(sub, "reports")) or \
+        os.listdir(os.path.join(sub, "reports")) == []

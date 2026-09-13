@@ -26,8 +26,6 @@ from app.core.metrics import compute_window_metrics
 from app.core.process import IngestService
 from app.core.report import build_report_context
 from app.core.seed import seed_demo
-from app.report import charts as report_charts
-from app.report import pdf as report_pdf
 from app.server.whatsapp import SimulatorBackend
 
 PATIENT_PHONE = os.environ.get("AAHAAR_DEMO_PHONE", "+917439030190")
@@ -42,6 +40,10 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=14)
     ap.add_argument("--db", default=None)
+    ap.add_argument("--report", action="store_true",
+                    help="force rendering the chart PNGs + PDF at seed time")
+    ap.add_argument("--no-report", action="store_true",
+                    help="skip rendering chart PNGs + PDF at seed time")
     ap.add_argument("--desktop", action="store_true")
     ap.add_argument("--close", action="store_true",
                     help="close the window when the log finishes (default: leave it open)")
@@ -49,9 +51,17 @@ def main() -> None:
 
     days = min(max(args.days, 2), 21)
     today = date.today()
-    db_path = args.db or "aahaar-demo.db"
+    # Use the SAME database the server reads so "deploy + seed" and the app
+    # agree: AAHAAR_DB env (Render) wins, otherwise the local demo default.
+    db_path = args.db or os.environ.get("AAHAAR_DB", "aahaar-demo.db")
     if os.path.exists(db_path):
         os.remove(db_path)
+
+    # Chart/PDF rendering only happens when asked: Render runs this at boot and
+    # must bind its port fast, and the charts are always re-rendered on demand
+    # from live day-log data anyway. RENDER is set automatically by Render.
+    render_report = (not args.no_report
+                     and (args.report or not os.environ.get("RENDER")))
 
     cfg = Settings(db_path=db_path, report_dir="reports")
     store = Store(db_path)
@@ -129,9 +139,13 @@ def main() -> None:
 
     metrics = compute_window_metrics(store, cfg, wid)
     ctx = build_report_context(store, cfg, wid)
-    os.makedirs(cfg.report_dir, exist_ok=True)
-    top, bottom = report_charts.render(ctx, cfg.report_dir)
-    pdf_path = report_pdf.render(ctx, cfg.report_dir, top, bottom)
+    pdf_path = None
+    if render_report:
+        from app.report import charts as report_charts
+        from app.report import pdf as report_pdf
+        os.makedirs(cfg.report_dir, exist_ok=True)
+        top, bottom = report_charts.render(ctx, cfg.report_dir)
+        pdf_path = report_pdf.render(ctx, cfg.report_dir, top, bottom)
 
     # Retain only the clinic welcome message in the chat thread
     # so the dashboard chat is clean for live testing, while preserving
@@ -159,7 +173,10 @@ def main() -> None:
         "carb_volatility": metrics["carb_volatility"],
         "avoid": metrics["avoid_count"],
     }, indent=2))
-    print("\nReport PDF:", pdf_path)
+    if pdf_path:
+        print("\nReport PDF:", pdf_path)
+    else:
+        print("\nReport PDF: skipped (charts/PDF build on demand from the dashboard)")
 
     if args.desktop:
         dest = "/mnt/c/Users/DELL/Desktop"

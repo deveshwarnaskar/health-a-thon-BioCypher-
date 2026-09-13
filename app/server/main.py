@@ -86,6 +86,26 @@ def _make_backend(store: Store):
     return SimulatorBackend(store, settings)
 
 
+def _purge_patient_artifacts(pid: int) -> None:
+    """Best-effort removal of rendered chart PNGs / PDFs for a patient so
+    nothing on disk can go stale after edits or a demo reset. Never raises."""
+    try:
+        d = settings.report_dir
+        if not d or not os.path.isdir(d):
+            return
+        for name in os.listdir(d):
+            for prefix in (f"chart-top-{pid}.", f"chart-bottom-{pid}.",
+                           f"Aahaar-Doctor-Report-{pid}-"):
+                if name.startswith(prefix):
+                    try:
+                        os.remove(os.path.join(d, name))
+                    except OSError:
+                        pass
+                    break
+    except Exception:
+        pass
+
+
 def create_app(cfg: Settings | None = None, db_path: str | None = None):
     global settings
     if cfg is not None:
@@ -707,6 +727,9 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         _require_op(x_aahaar_key)
         w = _window_for_patient(pid)
         store.reset_demo_data(w["id"])
+        # Drop stale rendered artifacts so charts/preview/report can never show
+        # the pre-reset picture from disk.
+        _purge_patient_artifacts(pid)
         store.audit("doctor", "demo_reset", f"patient {pid} window {w['id']} cleared")
         return {"ok": True}
 
@@ -756,10 +779,19 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         ctx = latest_report_context(store, settings, pid)
         if not ctx:
             return JSONResponse({"error": "no window"}, status_code=404)
-        fn = f"chart-{which}-{pid}.png"
-        p = os.path.join(settings.report_dir, fn)
-        if not os.path.exists(p):
-            return JSONResponse({"error": "report not built yet"}, status_code=404)
+        # Always re-render straight from the LIVE day-log data (readings +
+        # meals) so the Trends tab always shows the current picture after
+        # edits, demo resets, or new patient messages. Never serve a stale
+        # cached PNG.
+        try:
+            from ..report import charts as report_charts
+            os.makedirs(settings.report_dir, exist_ok=True)
+            p = report_charts.render(ctx, settings.report_dir)[0 if which == "top" else 1]
+        except Exception as e:
+            import traceback as _tb
+            _tb.print_exc()
+            return JSONResponse({"error": f"chart render failed: {e}"},
+                                status_code=500)
         return FileResponse(p, media_type="image/png")
 
     @app.get("/api/v1/patients/{pid}/report/preview")

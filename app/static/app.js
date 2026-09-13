@@ -591,7 +591,10 @@ function setupDayLogButtons() {
   if (reset) reset.onclick = async () => {
     if (!confirm("Wipe ALL logged data for this patient (readings, meals, messages, audit) and start fresh? The patient and linked numbers stay.")) return;
     const r = await j("POST", `/api/v1/patients/${state.active}/demo-reset`, undefined, OP_KEY());
-    if (r.ok) { await refreshThreadAndContext(false); loadDayLog(); loadAudit(); }
+    if (r.ok) {
+      await refreshThreadAndContext(false); loadDayLog(); loadAudit();
+      if ($("tab-trends") && $("tab-trends").classList.contains("active")) showTrends();
+    }
     else alert("Failed: " + (r.data ? r.data.error : ""));
   };
   if (fresh) fresh.onclick = () => loadDayLog();

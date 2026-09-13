@@ -56,6 +56,21 @@ On first launch with an empty DB the server auto-seeds a demo patient, so it nev
 The dashboard's **Messages** tab lets you play the WhatsApp chat (pick patient/caregiver/unknown
 sender, send a reading or a plate) to watch the guard + confirm loop live.
 
+### Deploying (Render / any web host)
+
+Use the checked-in entrypoint so the seed and the server share ONE database and the port
+binds quickly (charts/PDF are rebuilt on demand from live day-log data — nothing heavy runs
+at boot):
+
+```bash
+# start command:
+bash scripts/start.sh
+```
+
+`scripts/start.sh` exports `AAHAAR_DB` (default `aahaar.db` — override via env), seeds `--days 14`,
+then runs uvicorn on `$PORT`. On Render, `scripts.demo` automatically skips the chart/PDF render
+step (`RENDER` env) so boot takes <1s; pass `--report` to force rendering at seed time.
+
 ## Tests
 
 ```bash
