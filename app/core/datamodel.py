@@ -26,6 +26,20 @@ from typing import Iterator, Optional
 
 from .clock import iso_now, now_local
 
+
+def _type_from_tag(tag: Optional[str]) -> Optional[str]:
+    """Collapse any legacy reading tag/context into the 3 doctor-meaningful
+    types: fasting | postprandial (2hr after eating) | random.
+    pre-meal pricks are no longer tracked -> typed as random."""
+    t = str(tag or "").strip().lower()
+    if not t:
+        return None
+    if t == "fasting":
+        return "fasting"
+    if t == "pre":
+        return "random"
+    return "postprandial"
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS patients(
     id INTEGER PRIMARY KEY, name TEXT, uh_id TEXT UNIQUE, phone TEXT,
@@ -111,11 +125,34 @@ class Store:
             ("status", "ALTER TABLE readings ADD COLUMN status TEXT DEFAULT 'confirmed'"),
             ("candidates_json", "ALTER TABLE readings ADD COLUMN candidates_json TEXT"),
             ("raw_id", "ALTER TABLE readings ADD COLUMN raw_id INTEGER"),
+            ("reading_type", "ALTER TABLE readings ADD COLUMN reading_type TEXT"),
         ):
             try:
                 self.conn.execute(ddl)
             except sqlite3.OperationalError:
                 pass  # column already present
+        # additive migration: patient-stated meal size + meal replacement chain
+        for col, ddl in (
+            ("portion_text", "ALTER TABLE meals ADD COLUMN portion_text TEXT"),
+            ("superseded_by", "ALTER TABLE meals ADD COLUMN superseded_by INTEGER"),
+        ):
+            try:
+                self.conn.execute(ddl)
+            except sqlite3.OperationalError:
+                pass  # column already present
+        # reading_type backfill from the legacy tag (idempotent: NULLs only).
+        # pre-meal pricks are no longer a type -> typed as random; the old meal
+        # slots collapse to one 2hr post-prandial type.
+        self.conn.execute(
+            "UPDATE readings SET reading_type='fasting'"
+            " WHERE reading_type IS NULL AND tag='fasting'")
+        self.conn.execute(
+            "UPDATE readings SET reading_type='random'"
+            " WHERE reading_type IS NULL AND tag='pre'")
+        self.conn.execute(
+            "UPDATE readings SET reading_type='postprandial'"
+            " WHERE reading_type IS NULL AND tag IN"
+            " ('postprandial','postbreakfast','postlunch','postdinner')")
         self.conn.commit()
 
     def close(self) -> None:
@@ -261,14 +298,17 @@ class Store:
     def propose_meal(self, window_id: int, sender_phone: str, role: str, source: str,
                      items: list[dict], portion: str, portion_ml: float,
                      carbs: float, gi: str, confidence: float,
-                     ts: Optional[str] = None) -> int:
+                     ts: Optional[str] = None,
+                     portion_text: Optional[str] = None,
+                     superseded_by: Optional[int] = None) -> int:
         with self.tx() as c:
             cur = c.execute(
                 "INSERT INTO meals(window_id, ts, sender_phone, role, source, status, items_json,"
-                " portion, portion_ml, carbs, gi, confidence)"
-                " VALUES(?,?,?,?,?, 'pending', ?,?,?,?,?,?)",
+                " portion, portion_ml, carbs, gi, confidence, portion_text, superseded_by)"
+                " VALUES(?,?,?,?,?, 'pending', ?,?,?,?,?,?,?,?)",
                 (window_id, ts or iso_now(), sender_phone, role, source,
-                 json.dumps(items, ensure_ascii=False), portion, portion_ml, carbs, gi, confidence))
+                 json.dumps(items, ensure_ascii=False), portion, portion_ml, carbs, gi,
+                 confidence, portion_text, superseded_by))
             return cur.lastrowid
 
     def mark_pending_stale(self, sender_phone: str) -> None:
@@ -301,17 +341,26 @@ class Store:
         return None
 
     def finalize_meal(self, meal_id: int, status: str, portion: Optional[str] = None,
-                      correction_note: Optional[str] = None) -> None:
+                      correction_note: Optional[str] = None,
+                      portion_text: Optional[str] = None) -> None:
         meal = self.conn.execute("SELECT * FROM meals WHERE id=?", (meal_id,)).fetchone()
         if not meal:
             return
         with self.tx() as c:
+            op = "UPDATE meals SET status=?"
+            args: list = [status]
             if portion:
-                c.execute("UPDATE meals SET status=?, portion=?, correction_note=? WHERE id=?",
-                          (status, portion, correction_note or portion, meal_id))
-            else:
-                c.execute("UPDATE meals SET status=?, correction_note=? WHERE id=?",
-                          (status, correction_note, meal_id))
+                op += ", portion=?, correction_note=?"
+                args += [portion, correction_note or portion]
+            elif correction_note:
+                op += ", correction_note=?"
+                args.append(correction_note)
+            if portion_text:
+                op += ", portion_text=?"
+                args.append(portion_text)
+            op += " WHERE id=?"
+            args.append(meal_id)
+            c.execute(op, tuple(args))
 
     def meals_for_window(self, window_id: int, confirmed_only: bool = True) -> list[dict]:
         q = ("SELECT * FROM meals WHERE window_id=? "
@@ -322,13 +371,16 @@ class Store:
     def update_meal(self, meal_id: int, portion: Optional[str] = None,
                     items_json: Optional[str] = None, ts: Optional[str] = None,
                     status: Optional[str] = None, carbs: Optional[float] = None,
-                    gi: Optional[str] = None) -> None:
+                    gi: Optional[str] = None,
+                    portion_text: Optional[str] = None,
+                    superseded_by: Optional[int] = None) -> None:
         """Edit a logged meal (operator edit or AI correction)."""
         sets: list[str] = []
         args: list = []
         for col, val in (("portion", portion), ("items_json", items_json),
                          ("ts", ts), ("status", status), ("carbs", carbs),
-                         ("gi", gi)):
+                         ("gi", gi), ("portion_text", portion_text),
+                         ("superseded_by", superseded_by)):
             if val is not None:
                 sets.append(f"{col}=?")
                 args.append(val)
@@ -338,6 +390,28 @@ class Store:
         with self.tx() as c:
             c.execute(f"UPDATE meals SET {', '.join(sets)} WHERE id=?",
                       tuple(args))
+
+    def supersede_meal(self, meal_id: int, by_meal_id: int) -> None:
+        """Tag an existing meal as replaced by a new one while keeping the row,
+        so the previous + changed version stay visible at the same time."""
+        with self.tx() as c:
+            c.execute("UPDATE meals SET status='superseded', superseded_by=? WHERE id=?",
+                      (int(by_meal_id), int(meal_id)))
+
+    def meal_at_time(self, window_id: int, ts: str,
+                     except_id: Optional[int] = None) -> Optional[dict]:
+        """Latest meal in the same window on the SAME day/time (used to detect
+        that a new meal is a replacement of an existing one)."""
+        base = (ts or "")[:16]
+        if len(base) < 16:
+            return None
+        with self.tx() as c:
+            r = c.execute(
+                "SELECT * FROM meals WHERE window_id=? AND substr(ts,1,16)=? "
+                "AND status IN ('confirmed','corrected') AND (superseded_by IS NULL) "
+                "AND (? IS NULL OR id!=?) ORDER BY ts DESC LIMIT 1",
+                (window_id, base, except_id, except_id)).fetchone()
+        return dict(r) if r else None
 
     def delete_meal(self, meal_id: int) -> bool:
         with self.tx() as c:
@@ -369,14 +443,16 @@ class Store:
                     tag: str, value: float, ts: Optional[str] = None,
                     status: str = "confirmed",
                     candidates_json: Optional[str] = None,
-                    raw_id: Optional[int] = None) -> int:
+                    raw_id: Optional[int] = None,
+                    reading_type: Optional[str] = None) -> int:
+        reading_type = reading_type if reading_type else _type_from_tag(tag)
         with self.tx() as c:
             cur = c.execute(
                 "INSERT INTO readings(window_id, ts, sender_phone, role, tag, value,"
-                " status, candidates_json, raw_id)"
-                " VALUES(?,?,?,?,?,?,?,?,?)",
+                " status, candidates_json, raw_id, reading_type)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (window_id, ts or iso_now(), sender_phone, role, tag, value,
-                 status, candidates_json, raw_id))
+                 status, candidates_json, raw_id, reading_type))
             return cur.lastrowid
 
     def readings_for_window(self, window_id: int) -> list[dict]:
@@ -415,19 +491,22 @@ class Store:
         r = self.conn.execute(q, tuple(args)).fetchone()
         return dict(r) if r else None
 
-    def set_reading_tag(self, reading_id: int, tag: str) -> None:
+    def set_reading_tag(self, reading_id: int, tag: str,
+                        reading_type: Optional[str] = None) -> None:
+        rt = reading_type if reading_type else _type_from_tag(tag)
         with self.tx() as c:
-            c.execute("UPDATE readings SET tag=? WHERE id=?",
-                      (tag, int(reading_id)))
+            c.execute("UPDATE readings SET tag=?, reading_type=? WHERE id=?",
+                      (tag, rt, int(reading_id)))
 
     def resolve_reading(self, reading_id: int, value: float,
                         tag: Optional[str] = None) -> None:
         """Confirm an ambiguous (pending) reading to its real value."""
         with self.tx() as c:
             if tag:
+                rt = _type_from_tag(tag)
                 c.execute("UPDATE readings SET status='confirmed', value=?, tag=?,"
-                          " candidates_json=NULL WHERE id=?",
-                          (float(value), tag, int(reading_id)))
+                          " reading_type=?, candidates_json=NULL WHERE id=?",
+                          (float(value), tag, rt, int(reading_id)))
             else:
                 c.execute("UPDATE readings SET status='confirmed', value=?,"
                           " candidates_json=NULL WHERE id=?",
@@ -435,17 +514,29 @@ class Store:
 
     def update_reading(self, reading_id: int, value: Optional[float] = None,
                        tag: Optional[str] = None, ts: Optional[str] = None,
-                       status: Optional[str] = None) -> bool:
+                       status: Optional[str] = None,
+                       reading_type: Optional[str] = None) -> bool:
         """Edit a logged reading (operator/doctor edit or AI correction)."""
         sets: list[str] = []
         args: list = []
-        for col, val in (("value", value), ("tag", tag), ("ts", ts),
-                         ("status", status)):
-            if val is not None:
-                sets.append(f"{col}=?")
-                args.append(val)
-        if not sets:
+        updates: list[tuple[str, object]] = []
+        if value is not None:
+            updates.append(("value", value))
+        if tag is not None:
+            updates.append(("tag", tag))
+        if ts is not None:
+            updates.append(("ts", ts))
+        if status is not None:
+            updates.append(("status", status))
+        if reading_type is not None:
+            updates.append(("reading_type", reading_type))
+        elif tag is not None:
+            updates.append(("reading_type", _type_from_tag(tag)))
+        if not updates:
             return False
+        for col, val in updates:
+            sets.append(f"{col}=?")
+            args.append(val)
         args.append(int(reading_id))
         with self.tx() as c:
             cur = c.execute(f"UPDATE readings SET {', '.join(sets)} WHERE id=?",

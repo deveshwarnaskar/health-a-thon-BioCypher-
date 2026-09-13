@@ -9,6 +9,7 @@ Remember the product rule: the PATIENT only ever sees a calibrated katori portio
 """
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 # Calibrated katori bowls (ml). These are the units shown to the patient.
@@ -173,26 +174,51 @@ def classify_text(text: Optional[str]) -> list[FoodDict]:
                 break
 
     # Graceful fallback: If no candidate catalog dish matched, but the user typed
-    # a message with eating/meal clues, treat it as a valid meal so novel foods are not lost.
-    if not resolved and len(text.strip()) >= 2:
-        desc = text.strip().lower()
-        food_clues = ("had", "ate", "eating", "khaya", "khaye", "khana", "khaana",
-                      "meal", "lunch", "dinner", "breakfast", "nashta", "bowl", "plate")
-        if any(c in desc for c in food_clues):
-            clean_desc = text.strip()
-            for filler in ("maine", "humne", "aaj", "i had", "ate", "eating", "khaya", "meal", "lunch", "dinner", "breakfast"):
-                if clean_desc.lower().startswith(filler):
-                    clean_desc = clean_desc[len(filler):].strip()
-            plate_name = clean_desc[:30].strip() or "Mixed meal"
-            resolved.append({
-                "item": plate_name,
-                "genus": "mixed meal",
-                "carbs_per_100g": 16.0,
-                "gi": "med",
-                "portion": "m"
-            })
+    # a message with eating/meal clues, treat it as a valid meal so novel foods
+    # are not lost. Kept minimal/safe: the "dish" is the short food phrase right
+    # after the eat markers ("i ate a chocolate and its reading was 311" ->
+    # "chocolate"), never the whole chatty sentence. Fallback rows are flagged
+    # known=False so no carbs/GI are ever invented for them.
+    food_clues = ("had", "ate", "eating", "eaten", "khaya", "khaye", "khana",
+                  "khaana", "meal", "lunch", "dinner", "breakfast", "nashta",
+                  "bowl", "plate", "roti", "chawal", "biryani", "pani puri",
+                  "chole", "paratha", "mithai", "laddu", "sandwich", "toast",
+                  "omelette", "eat")
+    if not resolved and text and any(c in text.lower() for c in food_clues):
+        phrase = _fallback_dish(text)
+        plate_name = phrase[:30].strip(" ,:") or "Mixed meal"
+        resolved.append({
+            "item": plate_name,
+            "genus": "mixed meal",
+            "carbs_per_100g": 0.0,
+            "gi": None,
+            "portion": "m",
+            "known": False,
+        })
 
     return resolved
+
+
+def _fallback_dish(text: str) -> str:
+    """'i ate a chocolate and its reading was 311' -> 'chocolate'.
+    Picks the short food phrase after the eat/meal markers."""
+    low = text.lower()
+    for m in re.finditer(
+            r"\b(?:ate|had|eating|eaten|khaya|khaye|khaana|khana|meal|had\s+a|"
+            r"took|having)\b", low):
+        rest = low[m.end():].strip(" ,.:-")
+        # stop at the first sentence/reading-like boundary
+        for cut in re.finditer(r"\b(and\s+its?\b|and reading|reading\b|sugar was|"
+                               r"was\s+\d{2,3}\b|\bat\b|\b[yY]esterday\b|\bso\b|"
+                               r"\band\b)", rest):
+            rest = rest[:cut.start()]
+            break
+        rest = re.sub(r"\b(?:the|a|an|some|about|for|of)\b", " ", rest).strip()
+        words = [w for w in re.split(r"\s+", rest) if w]
+        if words:
+            dish = " ".join(words[:3])
+            return dish.title() if dish != "mixed" else "Mixed meal"
+    return "Mixed meal"
 
 
 # A small "plausible plate" library used by mock-vision (photo mode).

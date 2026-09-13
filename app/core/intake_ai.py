@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -31,6 +32,7 @@ from ..config import Settings
 from .clock import fmt_ts_log, iso_now
 from .parse import (
     PATIENT_TAG_LABELS,
+    _PORTION_MAP,
     _correction_value,
     _is_dup_answer,
     _is_tag_answer,
@@ -55,15 +57,18 @@ def _meal_items(text: str, cfg: Settings) -> list:
 
 
 # Words that mark the reading-context tag as explicitly stated by the patient.
+# "morning"/"subah" are timing words, NOT fasting — they never tag a reading.
 _TAG_KEYWORDS = (
-    "fasting", "fast", "fbs", "khali", "morning", "subah",
+    "fasting", "fast", "fbs", "khali", "roza",
     "breakfast", "nashta", "pb", "lunch", "dopahar", "pl",
     "dinner", "raat", "pd", "pre", "before", "pehle", "post", "after", "baad",
+    "random",
 )
 
 # Words that imply a glucose reading is being reported (even without a number).
 _READING_HINTS = ("sugar", "glucose", "fasting", "fast", "khali", "prick",
-                  "glucometer", "reading", "level", "bg", "fbs", "rbs", "ppbg")
+                  "glucometer", "reading", "level", "bg", "fbs", "rbs", "ppbg",
+                  "random")
 
 # Portion words that make the meal input complete.
 _PORTION_WORDS = ("small", "medium", "large", "chota", "chhota", "chhoti",
@@ -82,17 +87,64 @@ def _hm(ts_s: Optional[str]) -> str:
     return s[11:16] if len(s) >= 16 else s
 
 
+# Patient-stated meal/portion sizes that we store verbatim ("200ml").
+_SIZE_UNITS = ("ml", "g", "gm", "gr", "kg", "l", "litre", "litres", "liter")
+_SIZE_BOWLS = ("bowl", "katori", "plate", "thali", "glass", "cup", "dona",
+               "katori bhara", "pao")
+_SIZE_COUNT = ("do", "teen", "char", "paanch", "ek", "two", "three", "four",
+               "five", "one")
+
+
+def portion_text(text: str) -> Optional[str]:
+    """Extract the patient-stated size verbatim, e.g. '200ml', '2 bowls',
+    'do katori'. Returns None when no explicit size was mentioned."""
+    low = str(text or "").lower()
+    m = re.search(r"(\d+(?:\.\d+)?\s*(?:ml|g|l|kg|glass|bowl|katori|plate|cup))", low)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"(\d+\s*(?:ml|g|kg)?\s*(?:bowl|katori|plate|thali|glass|cup"
+                  r"|dona)s?\b)", low)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"((?:do|teen|char|paanch|ek|two|three|four|five)\s+"
+                  r"(?:bowl|katori|plate|thali|glass|cup|dona)s?\b)", low)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+def _portion_answer(text: str) -> Optional[tuple]:
+    """A portion answer: 'small', 'large bowl', or '<portion> <dish>' like
+    'small choco'. Returns (portion_letter, remaining_text) or None. This lets
+    '<small|medium|large|chota...> ...' replies finalize the pending meal
+    instead of bouncing to a confused clarify."""
+    low = str(text or "").strip().lower()
+    low = re.sub(r"\b\d{1,2}:\d{2}\s*(?:am|pm)?\b", " ", low)
+    low = re.sub(r"\b\d{1,2}\s*(?:am|pm|baje|o[ ']?clock)\b", " ", low)
+    low = re.sub(r"\s+", " ", low).strip()
+    if not low or " " not in low:
+        return None
+    first, rest = low.split(None, 1)
+    letter = _PORTION_MAP.get(first)
+    if not letter or len(rest) > 24 or re.search(r"\d", rest):
+        return None
+    return letter, rest
+
+
 def _reading_deduction(text: str, msg_ts: Optional[str] = None) -> dict:
     """Deterministic deduction of a glucose READING from a stored message.
 
     Returns {"value": float|None, "tag": str|None, "candidates": [..],
              "status": "resolved"|"ambiguous"|"none", "ts_str": str|None}.
-    - Ambiguous messages (>=2 plausible values like "230 or 330") never pick a
-      value — they wait for the patient to say which one is real.
+    - Ambiguous messages (>=2 distinct plausible values like "230 or 330") never
+      pick a value — they wait for the patient to say which one is real.
+    - Repeating the same number ("its reading was 311 ... 311") collapses to a
+      single value and logs it once.
     - A single in-range number is a resolved reading (patients reply bare
       numbers like "200"); its tag and timestamp are honoured when the message
       explicitly states them ("yesterday evening near 3pm the post eating sugar
-      was 300" -> yesterday 15:00, postprandial).
+      was 300" -> yesterday 15:00, postprandial). "morning"/"subah" are timing,
+      never fasting.
     """
     low = str(text or "")
     cand = ambiguous_reading_values(low)
@@ -101,16 +153,30 @@ def _reading_deduction(text: str, msg_ts: Optional[str] = None) -> dict:
                 "status": "ambiguous", "ts_str": None}
     nums = [float(m) for m in re.findall(r"\b\d{2,3}(?:\.\d)?\b", low.lower())
             if 20 <= float(m) <= 600]
-    if len(nums) == 1:
-        tag = None
-        if any(k in low.lower() for k in _TAG_KEYWORDS):
-            tag = _tag_from_text(low)
-        ts_dt = reading_timestamp(low, msg_ts or iso_now())
-        return {"value": nums[0], "tag": tag, "candidates": [],
-                "status": "resolved",
-                "ts_str": ts_dt.strftime("%Y-%m-%dT%H:%M:%S")}
-    return {"value": None, "tag": None, "candidates": [],
-            "status": "none", "ts_str": None}
+    if not nums:
+        return {"value": None, "tag": None, "candidates": [],
+                "status": "none", "ts_str": None}
+    counts = Counter(nums)
+    single = None
+    for value, count in counts.most_common():
+        if count > 1 and 40 <= value <= 600:
+            single = value
+            break
+    if single is None:
+        high = [n for n in nums if n >= 60]
+        keep = high if high else nums
+        if len(set(keep)) > 1:
+            return {"value": None, "tag": None,
+                    "candidates": sorted(set(keep)),
+                    "status": "ambiguous", "ts_str": None}
+        single = keep[0]
+    tag = None
+    if any(k in low.lower() for k in _TAG_KEYWORDS):
+        tag = _tag_from_text(low)
+    ts_dt = reading_timestamp(low, msg_ts or iso_now())
+    return {"value": single, "tag": tag, "candidates": [],
+            "status": "resolved",
+            "ts_str": ts_dt.strftime("%Y-%m-%dT%H:%M:%S")}
 
 
 @dataclass
@@ -265,21 +331,18 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
             meal_items=local_items, meal_portion=meal_portion)
 
     # ---- reading: one clear value -> confirm it (single message) ---------
+    # Default type is "after eating" (post-prandial) — the patient logs fasting
+    # only when they say so; "morning"/"subah" are never fasting.
     if ded["status"] == "resolved":
         v = float(ded["value"])
-        tag = ded.get("tag")
+        tag = ded.get("tag") or "postprandial"
         hm = _hm(ded.get("ts_str"))
-        if tag:
-            label = PATIENT_TAG_LABELS.get(tag, tag)
-            reply = (f"✅ Logged sugar {v:g} ({label}) — {hm}. "
-                     "Aur kuch log karna hai — sugar ya khana?")
-        else:
-            reply = (f"✅ Sugar {v:g} add kiya — {hm}. "
-                     "Ye kab ka reading tha — fasting, khane se pehle, "
-                     "ya khane ke baad?")
+        label = PATIENT_TAG_LABELS.get(tag, tag)
+        reply = (f"✅ Logged sugar {v:g} ({label}) — {hm}. "
+                 "Aur kuch log karna hai — sugar ya khana?")
         return IntakeResult(
             intent="reading",
-            missing=[] if tag else ["reading_tag"],
+            missing=[],
             reply=reply,
             should_reply=True, raw_text=raw, confidence=0.9,
             analyzed_by="local-refiner",
@@ -297,6 +360,28 @@ def _local_notifier(text: str, patient_name: str, cfg: Settings,
             should_reply=True, raw_text=raw, confidence=0.75,
             analyzed_by="local-refiner",
             meal_items=local_items, meal_portion=meal_portion)
+
+    # ---- portion answer: '<small|medium|large...> <dish>' or a bare 'small'
+    # finalizes the pending meal with the stated size (never a confused clarify)
+    p_ans = _portion_answer(raw)
+    if p_ans:
+        letter, rest = p_ans
+        extra = _meal_items(rest, cfg) if rest else []
+        return IntakeResult(
+            intent="meal_confirm", missing=[], reply="",
+            should_reply=True, raw_text=raw, confidence=0.95,
+            analyzed_by="local-refiner",
+            meal_portion=letter, meal_items=extra,
+            meal_ts=reading_timestamp(raw, msg_ts or iso_now()).strftime(
+                "%Y-%m-%dT%H:%M:%S"))
+    if parsed.kind == "confirm" and parsed.portion_letter:
+        return IntakeResult(
+            intent="meal_confirm", missing=[], reply="",
+            should_reply=True, raw_text=raw, confidence=0.95,
+            analyzed_by="local-refiner",
+            meal_portion=parsed.portion_letter,
+            meal_ts=reading_timestamp(raw, msg_ts or iso_now()).strftime(
+                "%Y-%m-%dT%H:%M:%S"))
 
     # ---- meal: log + one confirm (portion question merged into the same text)
     if parsed.kind in ("photo", "voice", "correct") or parsed.items or local_items:

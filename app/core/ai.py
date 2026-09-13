@@ -281,8 +281,10 @@ def analyze_patient_input(text: str, patient_name: str = "Patient",
             # If explicit sugar hint, or text is mostly just the number
             if has_sugar_hint or len(low.split()) <= 3:
                 tag = "postprandial"
-                if any(k in low for k in ("fasting", "fast", "fbs", "khali", "morning", "subah")):
+                if any(k in low for k in ("fasting", "fast", "fbs", "khali", "roza", "empty stomach")):
                     tag = "fasting"
+                elif any(k in low for k in ("random", "rdn", "rbg")):
+                    tag = "random"
                 elif any(k in low for k in ("breakfast", "nashta", "pb")):
                     tag = "postbreakfast"
                 elif any(k in low for k in ("lunch", "dopahar", "pl")):
@@ -298,6 +300,7 @@ def analyze_patient_input(text: str, patient_name: str = "Patient",
                     "postlunch": "post-lunch (dopahar ke baad)",
                     "postdinner": "post-dinner (raat ke baad)",
                     "postprandial": "postprandial (khane ke baad)",
+                    "random": "random",
                     "pre": "pre-meal (khane se pehle)",
                 }.get(tag, tag)
 

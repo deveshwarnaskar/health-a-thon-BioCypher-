@@ -335,7 +335,7 @@ def page1(ctx):
     c2.append(Spacer(1, 2))
     tag_rows = [[Paragraph("Tag", st["thead"]), Paragraph("Count", st["thead"]),
                  Paragraph("Mean (mg/dL)", st["thead"])]]
-    for tag in ("fasting", "pre", "postbreakfast", "postlunch", "postdinner", "postprandial"):
+    for tag in ("fasting", "postprandial", "random"):
         vals = ctx["glucose_by_tag"].get(tag, [])
         if vals:
             label = READING_TAG_LABELS.get(tag, tag)

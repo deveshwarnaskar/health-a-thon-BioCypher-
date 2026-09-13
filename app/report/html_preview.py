@@ -199,7 +199,7 @@ def _page1(ctx) -> list[str]:
     c2.append(f'<table class="rp-tbl">{"".join(w)}</table>')
     c2.append("<h4>Readings by context</h4>")
     t = ["<tr><th>Context</th><th>Count</th><th>Mean (mg/dL)</th></tr>"]
-    for tag in ("fasting", "pre", "postbreakfast", "postlunch", "postdinner", "postprandial"):
+    for tag in ("fasting", "postprandial", "random"):
         vals = ctx["glucose_by_tag"].get(tag, [])
         if vals:
             t.append(f"<tr><td>{tag.capitalize().replace('Post', 'Post-')}</td>"

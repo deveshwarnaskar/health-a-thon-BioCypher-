@@ -31,6 +31,26 @@ def _is_weekend(ts: str) -> bool:
 _POST_TAGS = {"postprandial", "postbreakfast", "postlunch", "postdinner"}
 _SLOT_TAG = {"postbreakfast": "postbreakfast", "postlunch": "postlunch",
              "postdinner": "postdinner"}
+_READING_TYPE_BY_TAG = {
+    "fasting": "fasting",
+    "pre": "random",
+    "postprandial": "postprandial",
+    "postbreakfast": "postprandial",
+    "postlunch": "postprandial",
+    "postdinner": "postprandial",
+    "random": "random",
+    "post": "postprandial",
+}
+
+
+def _reading_type(r: dict) -> str:
+    """Collapse every reading to the 3-type taxonomy: fasting | postprandial |
+    random. Prefers the dedicated reading_type column; old rows and any unpaid
+    tag values fall back through the tag mapping."""
+    rt = str(r.get("reading_type") or "").strip()
+    if rt in ("fasting", "postprandial", "random"):
+        return rt
+    return _READING_TYPE_BY_TAG.get(str(r.get("tag") or ""), "postprandial")
 
 
 def _hour_of(ts: str) -> Optional[int]:
@@ -103,28 +123,30 @@ def compute_window_metrics(store: Store, cfg: Settings, window_id: int) -> dict:
     adherence = round(len(active_days) / eligible_days * 100, 1)
 
     # --- glucose -----------------------------------------------------
+    # 3-type taxonomy: fasting | postprandial (2 hr) | random.
     tag_values: dict[str, list[float]] = defaultdict(list)
     by_day: dict[str, list[float]] = defaultdict(list)
     slot_by_reading: dict[int, str] = {}
     for r in readings:
-        tag_values[r["tag"]].append(r["value"])
+        t = _reading_type(r)
+        tag_values[t].append(r["value"])
         by_day[_day(r["ts"])].append(r["value"])
-        if r["tag"] in _POST_TAGS:
+        if t == "postprandial":
             slot_by_reading[r["id"]] = _slot_for(r, meals)
 
     def mean(vals):
         return round(statistics.fmean(vals), 1) if vals else None
 
     mean_fpg = mean(tag_values.get("fasting", []))
-    mean_pre = mean(tag_values.get("pre", []))
+    mean_random = mean(tag_values.get("random", []))
 
     post_vals: dict[str, list[float]] = {"postbreakfast": [], "postlunch": [], "postdinner": []}
     post_wkday: dict[str, list[float]] = {"postbreakfast": [], "postlunch": [], "postdinner": []}
     post_wkend: dict[str, list[float]] = {"postbreakfast": [], "postlunch": [], "postdinner": []}
     for r in readings:
-        if r["tag"] not in _POST_TAGS:
+        if _reading_type(r) != "postprandial":
             continue
-        slot = slot_by_reading[r["id"]]
+        slot = slot_by_reading.get(r["id"]) or _slot_for(r, meals)
         post_vals[slot].append(r["value"])
         (post_wkend if _is_weekend(r["ts"]) else post_wkday)[slot].append(r["value"])
 
@@ -183,13 +205,13 @@ def compute_window_metrics(store: Store, cfg: Settings, window_id: int) -> dict:
         day_high = sum(1 for m in day_meals if m["gi"] == "high")
         def _slot_day(slot):
             return [r["value"] for r in readings
-                    if r["tag"] in _POST_TAGS and _day(r["ts"]) == ds
+                    if _reading_type(r) == "postprandial" and _day(r["ts"]) == ds
                     and slot_by_reading.get(r["id"]) == slot]
         series.append({
             "date": ds,
             "weekend": d.weekday() >= 5,
-            "fpg": next((r["value"] for r in readings if r["tag"] == "fasting" and _day(r["ts"]) == ds), None),
-            "ppbg": [r["value"] for r in readings if r["tag"] in _POST_TAGS and _day(r["ts"]) == ds],
+            "fpg": next((r["value"] for r in readings if _reading_type(r) == "fasting" and _day(r["ts"]) == ds), None),
+            "ppbg": [r["value"] for r in readings if _reading_type(r) == "postprandial" and _day(r["ts"]) == ds],
             "pb": _slot_day("postbreakfast"),
             "pl": _slot_day("postlunch"),
             "pd": _slot_day("postdinner"),
@@ -217,7 +239,8 @@ def compute_window_metrics(store: Store, cfg: Settings, window_id: int) -> dict:
         "active_logging_days": len(active_days),
         "eligible_days": eligible_days,
         "adherence_index": adherence,
-        "mean_fpg": mean_fpg, "mean_pre": mean_pre, "mean_ppbg": mean_ppbg,
+        "mean_fpg": mean_fpg, "mean_random": mean_random, "mean_pre": mean_random,
+        "mean_ppbg": mean_ppbg,
         "weekday_ppbg": wkday_ppbg, "weekend_ppbg": wkend_ppbg,
         "post_breakfast": slot_stats["postbreakfast"],
         "post_lunch": slot_stats["postlunch"],

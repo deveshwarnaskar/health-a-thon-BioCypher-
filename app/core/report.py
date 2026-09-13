@@ -13,7 +13,7 @@ from typing import Optional
 
 from ..config import Settings
 from .datamodel import Store
-from .metrics import compute_window_metrics
+from .metrics import _reading_type, compute_window_metrics
 from .nutrition import KATORI_LABELS
 
 
@@ -30,7 +30,8 @@ def build_report_context(store: Store, cfg: Settings, window_id: int) -> dict:
 
     glucose_by_tag: dict[str, list[float]] = {}
     for r in readings:
-        glucose_by_tag.setdefault(r["tag"], []).append(r["value"])
+        type_ = _reading_type(r)
+        glucose_by_tag.setdefault(type_, []).append(r["value"])
 
     genus_counts: Counter = Counter()
     high_weekday = high_weekend = total_weekday = total_weekend = 0

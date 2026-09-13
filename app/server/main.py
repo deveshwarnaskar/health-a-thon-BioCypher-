@@ -522,10 +522,11 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         readings = store.readings_for_window(w["id"])
         meals = store.meals_for_window(w["id"], confirmed_only=False)
         confirmed_meals = [mm for mm in meals
-                           if (mm.get("status") or "confirmed") != "pending"]
+                           if (mm.get("status") or "confirmed") not in ("pending", "stale")]
         slot_label = {"postbreakfast": "Morning", "postlunch": "Afternoon",
                       "postdinner": "Evening", "fasting": "Fasting",
-                      "pre": "Pre-meal", "postprandial": "Other"}
+                      "postprandial": "Other", "random": "Random"}
+        from ..core.parse import READING_TAG_LABELS as _RTL
         groups: dict = {}
         for r in readings:
             day = (r.get("ts") or "")[:10]
@@ -537,9 +538,17 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
                 candidates = list(_json.loads(cand)) if cand else []
             except Exception:
                 candidates = []
+            reading_type = r.get("reading_type") or ""
+            from_tag = {"fasting": "fasting", "pre": "random",
+                        "postprandial": "postprandial", "postbreakfast": "postprandial",
+                        "postlunch": "postprandial", "postdinner": "postprandial",
+                        "random": "random"}.get(r.get("tag") or "", "postprandial")
+            rt_display = _RTL.get(reading_type) or _RTL.get(from_tag, reading_type)
             g["readings"].append({
                 "id": r["id"], "ts": r.get("ts"), "tag": r.get("tag"),
                 "tag_label": slot_label.get(r.get("tag") or "", "Other") if r.get("tag") else "",
+                "reading_type": reading_type or from_tag,
+                "reading_type_label": rt_display,
                 "value": r.get("value"),
                 "status": r.get("status", "confirmed"),
                 "candidates": candidates,
@@ -554,11 +563,15 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
                 items = list(_json.loads(mm.get("items_json") or "[]"))
             except Exception:
                 items = []
+            status = mm.get("status", "pending")
             g["meals"].append({
                 "id": mm["id"], "ts": mm.get("ts"),
                 "items": items, "carbs": mm.get("carbs"),
                 "gi": mm.get("gi"), "portion": mm.get("portion"),
-                "status": mm.get("status", "pending"),
+                "portion_text": mm.get("portion_text"),
+                "status": status,
+                "superseded": status == "superseded",
+                "superseded_by": mm.get("superseded_by"),
                 "source": mm.get("source") or "webhook",
                 "slot_label": slot_label.get(_meal_slot(mm.get("ts") or ""), ""),
             })
@@ -578,30 +591,47 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
 
     @app.post("/api/v1/patients/{pid}/readings")
     def add_reading(pid: int, payload: dict, x_aahaar_key: str | None = Header(default=None)):
-        """Doctor adds a sugar reading directly into the patient's day log."""
+        """Doctor adds a sugar reading directly into the patient's day log.
+
+        reading_type is the 3-value taxonomy (fasting|postprandial|random).
+        A matching tag is derived for legacy display/other code paths.
+        """
         _require_op(x_aahaar_key)
         w = _window_for_patient(pid)
         value = float(payload.get("value"))
-        tag = str(payload.get("tag") or "postprandial").strip() or "postprandial"
+        reading_type = str(payload.get("reading_type") or "").strip() or None
+        tag = str(payload.get("tag") or "").strip()
+        if not tag:
+            tag = {"fasting": "fasting", "random": "random",
+                   "postprandial": "postprandial"}.get(reading_type or "", "postprandial")
         ts = str(payload.get("ts") or iso_now())
         status = "confirmed" if payload.get("status") in (None, "confirmed") else "pending"
-        rid = store.add_reading(w["id"], None, "doctor", tag, value, ts=ts, status=status)
-        store.audit("doctor", "reading_added", f"reading {rid} {tag} {value:g} at {ts}")
+        rid = store.add_reading(w["id"], None, "doctor", tag, value, ts=ts, status=status,
+                                reading_type=reading_type)
+        store.audit("doctor", "reading_added",
+                    f"reading {rid} {reading_type or tag} {value:g} at {ts}")
         return {"ok": True, "id": rid}
 
     @app.put("/api/v1/patients/{pid}/readings/{rid}")
     def update_reading(pid: int, rid: int, payload: dict,
                        x_aahaar_key: str | None = Header(default=None)):
-        """Doctor edits a logged reading (value / before-after tag / time)."""
+        """Doctor edits a logged reading (value / type / time)."""
         _require_op(x_aahaar_key)
         _window_for_patient(pid)
         value = float(payload["value"]) if "value" in payload else None
         tag = payload.get("tag")
+        reading_type = payload.get("reading_type")
+        if tag is not None:
+            tag = str(tag).strip()
+            if not tag:
+                tag = {"fasting": "fasting", "random": "random",
+                       "postprandial": "postprandial"}.get(
+                    str(reading_type or ""), "postprandial")
         ts = payload.get("ts")
         status = payload.get("status")
         updated = store.update_reading(
             rid, value=value, tag=tag, ts=str(ts) if ts is not None else None,
-            status=status or None)
+            status=status or None, reading_type=reading_type or None)
         if not updated:
             raise HTTPException(status_code=404, detail="reading not found")
         store.audit("doctor", "reading_updated", f"reading {rid}")
@@ -630,9 +660,35 @@ def create_app(cfg: Settings | None = None, db_path: str | None = None):
         mid = store.propose_meal(w["id"], None, "doctor", "webhook",
                                  parsed_items or items,
                                  payload.get("portion") or "m",
-                                 None, carbs, "med", 0.99, ts=ts)
+                                 None, carbs, "med", 0.99, ts=ts,
+                                 portion_text=payload.get("portion_text") or None)
         store.audit("doctor", "meal_added", f"meal {mid} at {ts}")
         return {"ok": True, "id": mid}
+
+    @app.put("/api/v1/patients/{pid}/meals/{mid}")
+    def update_meal(pid: int, mid: int, payload: dict,
+                    x_aahaar_key: str | None = Header(default=None)):
+        """Doctor edits a logged meal (portion / items / time / portion text)."""
+        _require_op(x_aahaar_key)
+        _window_for_patient(pid)
+        from ..core.parse import _items
+        import json as _json
+        items_json = None
+        carbs = None
+        gi = None
+        if "items" in payload:
+            items = list(payload.get("items") or [])
+            parsed_items = _items(", ".join(str(i.get("item") or "") for i in items), settings)
+            items_json = _json.dumps(parsed_items or items, ensure_ascii=False)
+            carbs = sum(float(i.get("carbs") or 0.0) for i in parsed_items) or None
+            gi = "med"
+        store.update_meal(
+            mid, portion=payload.get("portion"), items_json=items_json,
+            ts=str(payload.get("ts")) if payload.get("ts") is not None else None,
+            status=payload.get("status"), carbs=carbs, gi=gi,
+            portion_text=payload.get("portion_text"))
+        store.audit("doctor", "meal_updated", f"meal {mid}")
+        return {"ok": True}
 
     @app.delete("/api/v1/patients/{pid}/meals/{mid}")
     def delete_meal(pid: int, mid: int, x_aahaar_key: str | None = Header(default=None)):

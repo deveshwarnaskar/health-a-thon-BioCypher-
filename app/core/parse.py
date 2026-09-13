@@ -41,11 +41,15 @@ _TAG_MAP = {"fasting": "fasting", "fast": "fasting", "fbs": "fasting",
             "after lunch": "postlunch", "pl": "postlunch",
             "post dinner": "postdinner", "postdinner": "postdinner",
             "after dinner": "postdinner", "pd": "postdinner",
-            "prick": "postprandial", "fingerprick": "postprandial", "glucometer": "postprandial"}
+            "prick": "postprandial", "fingerprick": "postprandial", "glucometer": "postprandial",
+            "random": "random", "rdn": "random", "rbg": "random",
+            "random check": "random", "normal": "random", "general": "random",
+            "kabhi bhi": "random"}
 
 READING_TAG_LABELS = {
     "fasting": "fasting", "pre": "pre-meal",
-    "postprandial": "postprandial",
+    "postprandial": "postprandial (2 hr)",
+    "random": "random",
     "postbreakfast": "post-breakfast",
     "postlunch": "post-lunch",
     "postdinner": "post-dinner",
@@ -53,8 +57,9 @@ READING_TAG_LABELS = {
 
 # Patient-facing (Hinglish) names for the same tags in confirmations.
 PATIENT_TAG_LABELS = {
-    "fasting": "Fasting", "pre": "Khane se pehle",
+    "fasting": "Fasting", "pre": "Khane se pehle (needed nahi)",
     "postprandial": "Khane ke baad",
+    "random": "Random",
     "postbreakfast": "Breakfast ke baad",
     "postlunch": "Lunch ke baad",
     "postdinner": "Dinner ke baad",
@@ -109,14 +114,19 @@ def _tag_from_text(prefix: str) -> str:
     cleaned = prefix.lower().strip()
     if cleaned in _TAG_MAP:
         return _TAG_MAP[cleaned]
-    # Meal-slot specific words take precedence over generic fasting
+    # Meal-slot specific words take precedence over generic type words
     if re.search(r"\b(breakfast|nashta|pb)\b", cleaned):
         return "postbreakfast"
     if re.search(r"\b(lunch|dopahar|pl)\b", cleaned):
         return "postlunch"
     if re.search(r"\b(dinner|raat|pd)\b", cleaned):
         return "postdinner"
-    if re.search(r"\b(fasting|fast|fbs|khali\s*pet|morning|subah)\b", cleaned):
+    # Fasting only when the patient says so (empty-stomach cues). "morning"/
+    # "subah" are timing, NOT fasting — a morning reading is after eating by
+    # default. Random is its own explicit type.
+    if re.search(r"\b(random|randomly|rdn|rbg|random blood glucose)\b", cleaned):
+        return "random"
+    if re.search(r"\b(fasting|fast|fbs|khali\s*pet|khali\s*pet\b|roza|rozey|empty\s*stomach)\b", cleaned):
         return "fasting"
     if re.search(r"\b(pre|before|pehle)\b", cleaned):
         return "pre"
@@ -204,9 +214,10 @@ def ambiguous_reading_values(text: str) -> list[float]:
 # ---- follow-up answer detection (deterministic, dashboard-driven) ------
 # Short replies that answer the reading-context/tag question the AI asked
 # ("khane ke baad", "fasting", "post lunch" ...). Never treated as food/sugar.
-_TAG_CUES = ("fasting", "fast", "fbs", "khali", "morning", "subah",
+_TAG_CUES = ("fasting", "fast", "fbs", "khali", "roza",
              "breakfast", "nashta", "lunch", "dopahar", "dinner", "raat",
-             "pre", "before", "pehle", "post", "after", "baad", "pp", "khane")
+             "pre", "before", "pehle", "post", "after", "baad", "pp",
+             "random", "khane")
 _TAG_DENY = ("roti", "sabzi", "sabji", "paneer", "chana", "dahi", "chawal",
              "rice", "paratha", "dosa", "idli", "khana", "khaana", "mithai",
              "photo", "picture")
@@ -566,12 +577,16 @@ def _items(text: str, cfg: Settings) -> list[dict]:
     rows = classify_text(text)
     out = []
     for r in rows:
+        known = bool(r.get("known", True))
         out.append({
             "item": r["item"], "genus": r["genus"],
             "portion": r.get("portion", "m"),
             "portion_label": KATORI_LABELS.get(r.get("portion", "m")),
-            "carbs": estimate_carbs_g(cfg.katori(r.get("portion", "m")), r),
-            "gi": r["gi"],
+            # unknown fallback rows never get invented carb/ GI values
+            "carbs": estimate_carbs_g(cfg.katori(r.get("portion", "m")), r)
+            if known else 0.0,
+            "gi": r["gi"] if known else None,
+            "known": known,
         })
     return out
 

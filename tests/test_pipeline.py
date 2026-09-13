@@ -461,10 +461,11 @@ def test_intake_local_notifier_confirms_and_asks(cfg):
     r = analyze_intake("fasting 128", "Ramesh", cfg=cfg)
     assert r.intent == "reading" and r.missing == [] and r.should_reply is True
     assert "Logged sugar 128" in r.reply and "fasting" in r.reply.lower()
-    # Reading without context tag -> the confirmation also asks the tag.
+    # Reading without context tag -> logged immediately as after-eating;
+    # no extra question, no pending state.
     r = analyze_intake("sugar 130", "Ramesh", cfg=cfg)
-    assert r.intent == "reading" and r.missing == ["reading_tag"] and r.should_reply is True
-    assert "fasting" in r.reply or "khane" in r.reply
+    assert r.intent == "reading" and r.missing == [] and r.should_reply is True
+    assert r.reading_tag == "postprandial" and "Khane ke baad" in r.reply
     # Meal without portion -> the confirmation also asks the portion.
     r = analyze_intake("roti dal sabzi", "Ramesh", cfg=cfg)
     assert r.intent == "meal" and r.missing == ["portion"] and r.should_reply is True
@@ -506,12 +507,13 @@ def test_intake_worker_picks_stored_rows_and_routes_reply(store, cfg):
     tag = [r for r in rows if r["message_id"] == "WAMID-WORK-1"][0]
     import json as _json
     refined = _json.loads(tag["refined_json"])
-    assert refined["intent"] == "reading" and refined["missing"] == ["reading_tag"]
+    assert refined["intent"] == "reading" and refined["missing"] == []
+    assert refined["reading_tag"] == "postprandial"
     assert refined["followup_sent"] is False
     # Phase 2: dashboard-driven send releases exactly one follow-up.
     s2 = w.run_once(limit=10, should_send=True, send_gap=0.0)
     assert s2["analyzed"] == 0 and s2["sent"] == 1
-    assert len(sent) == 1 and ("fasting" in sent[0].body or "khane" in sent[0].body)
+    assert len(sent) == 1 and "Khane ke baad" in sent[0].body
     tag = [r for r in store.raw_inbound_all(limit=10)
            if r["message_id"] == "WAMID-WORK-1"][0]
     assert _json.loads(tag["refined_json"])["followup_sent"] is True
@@ -828,11 +830,12 @@ def test_intake_asks_already_logged_and_honors_dup_answer(seeded, store, cfg, in
     _handle(store, cfg, pid, {"sender_phone": "+919000000001", "kind": "text",
                               "text": "sugar 200"})
     intake(store, cfg)
-    # No before/after context yet -> the reading is 'needs confirmation'.
-    pending = [r for r in store.readings_for_window(wid)
-               if r["status"] == "pending" and abs(r["value"] - 200) < 0.5]
-    assert len(pending) == 1
-    # 'fasting' resolves it to confirmed (with the before/after tag).
+    # A bare reading logs immediately as after-eating (post-prandial) by default.
+    logged = [r for r in store.readings_for_window(wid)
+              if r["status"] == "confirmed" and abs(r["value"] - 200) < 0.5]
+    assert len(logged) == 1
+    assert logged[0]["tag"] == "postprandial" and logged[0]["reading_type"] == "postprandial"
+    # 'fasting' re-tags the latest reading as fasting.
     sent = []
     store.record_raw_received("+919000000001", "fasting", message_id="TAG-A-1")
     IntakeWorker(store, cfg, send_func=lambda o: (sent.append(o), True)[1]).run_once(
@@ -1123,3 +1126,178 @@ def test_webhook_events_persisted_across_restarts(tmp_path):
     types = [r["event_type"] for r in rows]
     assert "GET_VERIFY" in types and "POST_INBOUND" in types
     s2.close()
+
+
+# ---- 3-type reading taxonomy + after-eating default -------------------------
+def test_morning_is_not_fasting(store, cfg, intake):
+    """'morning'/'subah' are timing, never fasting — a morning reading logs
+    as post-prandial by default."""
+    pid = store.add_patient("Morning", "M-1", "+919123456781")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456781", "sugar 168 subah", message_id="AM-1")
+    intake(store, cfg)
+    rows = store.readings_for_window(wid)
+    assert len(rows) == 1
+    assert rows[0]["tag"] == "postprandial"
+    assert rows[0]["reading_type"] == "postprandial"
+    assert rows[0]["status"] == "confirmed"
+
+
+def test_bare_reading_defaults_to_after_eating(store, cfg, intake):
+    pid = store.add_patient("Bare", "B-1", "+919123456782")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456782", "200", message_id="BARE-1")
+    intake(store, cfg)
+    rows = store.readings_for_window(wid)
+    assert len(rows) == 1
+    assert rows[0]["reading_type"] == "postprandial"
+    assert rows[0]["status"] == "confirmed"  # logged immediately, no pending
+
+
+def test_fasting_explicit_still_fasting(store, cfg, intake):
+    pid = store.add_patient("Fast", "F-1", "+919123456783")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456783", "fasting 96 khali pet", message_id="FST-1")
+    intake(store, cfg)
+    rows = store.readings_for_window(wid)
+    assert len(rows) == 1
+    assert rows[0]["tag"] == "fasting" and rows[0]["reading_type"] == "fasting"
+
+
+def test_repeated_identical_number_logs_once(store, cfg, intake):
+    """'was 311 ... it was 311' collapses to ONE resolved reading (the 311 that
+    was previously being dropped) instead of an ambiguous ask."""
+    pid = store.add_patient("Rep", "R-1", "+919123456784")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received(
+        "+919123456784",
+        "it was 311 i told u yesterday its reading was 311 at 8:30 am",
+        message_id="REP-1")
+    intake(store, cfg, send=True)
+    rows = store.readings_for_window(wid)
+    assert len(rows) == 1
+    assert abs(rows[0]["value"] - 311) < 0.5
+    assert rows[0]["status"] == "confirmed"
+    assert (rows[0]["ts"] or "")[:10] == "2026-09-12"  # "yesterday"
+
+
+def test_reading_plus_meal_same_message_logs_both(store, cfg, intake):
+    """A message with a reading AND food logs the reading AND a short meal
+    (never the whole chatty sentence)."""
+    pid = store.add_patient("Both", "BO-1", "+919123456785")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received(
+        "+919123456785",
+        "yesterday evening near 3pm ate a chocolate and sugar was 311",
+        message_id="BOTH-1")
+    intake(store, cfg)
+    rows = store.readings_for_window(wid)
+    assert len(rows) == 1 and abs(rows[0]["value"] - 311) < 0.5
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 1
+    items = json.loads(meals[0]["items_json"])
+    assert items[0]["item"].lower() == "chocolate"
+    assert items[0]["known"] is False
+    assert items[0]["carbs"] == 0.0      # never invented for unknown foods
+    assert items[0]["gi"] is None
+
+
+def test_junk_sentence_never_becomes_dish(store, cfg, intake):
+    """Pure reading chatter with numbers never spawns a junk meal row."""
+    pid = store.add_patient("Junk", "J-1", "+919123456786")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456786",
+                              "sugar check kiya 130 thi", message_id="JUNK-1")
+    intake(store, cfg)
+    rows = store.readings_for_window(wid)
+    assert len(rows) == 1 and abs(rows[0]["value"] - 130) < 0.5
+    assert store.meals_for_window(wid, confirmed_only=False) == []
+
+
+def test_portion_answer_small_choco_finalizes_pending(store, cfg, intake):
+    pid = store.add_patient("Part", "P-1", "+919123456787")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456787", "khana roti aur choco", message_id="M-1")
+    intake(store, cfg, send=True)
+    pend = store.newest_pending("+919123456787")
+    assert pend is not None
+    # '<portion> <dish>' answer finalizes the meal with the stated size.
+    store.record_raw_received("+919123456787", "small choco", message_id="PA-1")
+    intake(store, cfg, send=True)
+    meals = store.meals_for_window(wid, confirmed_only=True)
+    assert len(meals) == 1 and meals[0]["portion"] == "s"
+
+
+def test_meal_change_supersedes_not_duplicates(store, cfg, intake):
+    pid = store.add_patient("Chg", "C-1", "+919123456788")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456788", "yaar actually dinner me biryani thi",
+                              message_id="C-1")
+    intake(store, cfg)
+    store.record_raw_received("+919123456788", "actually change karo dinner rice tha",
+                              message_id="C-2")
+    intake(store, cfg)
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert len(meals) == 2
+    superseded = [m for m in meals if m["status"] == "superseded"]
+    live = [m for m in meals if m["status"] != "superseded"]
+    assert len(superseded) == 1 and superseded[0]["superseded_by"] is not None
+    assert len(live) >= 1
+    assert all(superseded[0]["id"] != m["id"] for m in live)
+    assert meals[0]["superseded_by"] == meals[1]["id"]
+
+
+def test_portion_text_stored_verbatim(store, cfg, intake):
+    pid = store.add_patient("Sz", "SZ-1", "+919123456789")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456789", "ate chicken rice do katori", message_id="SZ-1")
+    intake(store, cfg)
+    meals = store.meals_for_window(wid, confirmed_only=False)
+    assert meals and meals[0]["portion_text"] == "do katori"
+
+
+def test_pre_meal_answer_guides_not_logs(store, cfg, intake):
+    pid = store.add_patient("Pre", "PR-1", "+919123456790")
+    wid = store.open_window(pid, "2026-09-01", "2026-09-14")
+    store.record_raw_received("+919123456790", "sugar 150", message_id="PRE-0")
+    intake(store, cfg, send=True)
+    store.record_raw_received("+919123456790", "khane se pehle", message_id="PRE-1")
+    intake(store, cfg, send=True)
+    rows = store.readings_for_window(wid)
+    assert rows[0]["reading_type"] == "postprandial"  # stays after-eating
+    assert rows[0]["tag"] != "pre" and rows[0]["tag"] != "fasting"
+
+
+def test_daylog_writes_need_operator_key(store, cfg):
+    from app.server.main import create_app
+    from fastapi.testclient import TestClient
+    from app.core.seed import seed_demo
+    pid, _ = seed_demo(store, cfg, days=7)
+    c = TestClient(create_app(cfg=cfg, db_path=cfg.db_path))
+    r = c.post(f"/api/v1/patients/{pid}/demo-reset")
+    assert r.status_code == 403
+    r = c.post(f"/api/v1/patients/{pid}/readings", json={"value": 130})
+    assert r.status_code == 403
+    r = c.delete(f"/api/v1/patients/{pid}/readings/1")
+    assert r.status_code == 403
+    r = c.get(f"/api/v1/patients/{pid}/daily-log")
+    assert r.status_code == 200  # reads stay open
+    c.close()
+
+
+def test_daily_log_reading_type_labels(store, cfg):
+    from app.server.main import create_app
+    from fastapi.testclient import TestClient
+    from app.core.seed import seed_demo
+    pid, _ = seed_demo(store, cfg, days=7)
+    wid = store.last_window_for(pid)["id"]
+    store.add_reading(wid, None, "doctor", "postprandial", 150, ts="2026-09-13T09:00:00")
+    store.add_reading(wid, None, "doctor", "fasting", 95, ts="2026-09-13T07:00:00",
+                      reading_type="fasting")
+    c = TestClient(create_app(cfg=cfg, db_path=cfg.db_path))
+    d = c.get(f"/api/v1/patients/{pid}/daily-log").json()
+    c.close()
+    for day in d["days"]:
+        for r in day["readings"]:
+            assert r["reading_type"] in ("fasting", "postprandial", "random")
+            assert r["reading_type_label"]

@@ -15,14 +15,16 @@ async function j(method, url, body, headers) {
 }
 
 const TAG_LABELS = {
-  fasting: "Fasting", pre: "Pre-meal", postbreakfast: "Post-breakfast",
-  postlunch: "Post-lunch", postdinner: "Post-dinner", postprandial: "Post (generic)",
+  fasting: "Fasting", postprandial: "Post (2 hr)", random: "Random",
+  pre: "Pre-meal", postbreakfast: "Post-breakfast",
+  postlunch: "Post-lunch", postdinner: "Post-dinner",
 };
 const SLOTS = [
   { key: "post_breakfast", label: "Post-Breakfast", color: "var(--pb)" },
   { key: "post_lunch", label: "Post-Lunch", color: "var(--pl)" },
   { key: "post_dinner", label: "Post-Dinner", color: "var(--pd)" },
 ];
+const OP_KEY = () => ({ "X-Aahaar-Key": String($("new-p-key")?.value || "").trim() || "aahaar-2026" });
 // ---------- boot / patients ----------
 async function boot() {
   const h = await fetch("/healthz").then((r) => r.json()).catch(() => ({}));
@@ -423,10 +425,11 @@ const SLOT_LABELS = {
   Fasting: "Fasting", "Pre-meal": "Pre-meal", Other: "Other",
 };
 const TAG_CHOICES = [
-  ["fasting", "Fasting"], ["pre", "Pre-meal"],
-  ["postbreakfast", "Post-breakfast"], ["postlunch", "Post-lunch"],
-  ["postdinner", "Post-dinner"], ["postprandial", "Other"],
+  ["fasting", "Fasting (khali pet)"],
+  ["postprandial", "After eating (2 hr post)"],
+  ["random", "Random"],
 ];
+const TYPE_KEY = { fasting: "fasting", postprandial: "postprandial", random: "random" };
 
 async function loadDayLog() {
   const body = $("daylog-body");
@@ -451,25 +454,31 @@ async function loadDayLog() {
       const badge = g.status === "pending"
         ? `<span class="badge warn" title="value not confirmed by the patient yet">needs confirmation${g.candidates && g.candidates.length ? " · " + esc(g.candidates.join(" v/s ")) : ""}</span>`
         : "";
-      const sl = (g.slot_label && SLOT_LABELS[g.slot_label]) ? SLOT_LABELS[g.slot_label] : (TAG_LABELS[g.tag] || g.tag || "");
+      const sl = (g.reading_type_label && TAG_LABELS[g.reading_type]) ? esc(g.reading_type_label)
+        : ((g.slot_label && SLOT_LABELS[g.slot_label]) ? SLOT_LABELS[g.slot_label] : (TAG_LABELS[g.tag] || g.tag || ""));
       return `<tr>`
         + `<td>${hhmm(g.ts)}</td>`
-        + `<td><span class="slot-chip">${esc(sl)}</span></td>`
+        + `<td><span class="slot-chip">${sl}</span></td>`
         + `<td class="num"><b>${fmt(g.value)}</b> mg/dL</td>`
         + `<td>${badge}</td>`
         + `<td class="row-actions">`
-        + `  <button class="mini" data-r="${g.id}" data-d="${d.date}" data-kind="edit-reading" title="Edit value/tag/time">\u270E</button>`
+        + `  <button class="mini" data-r="${g.id}" data-d="${d.date}" data-kind="edit-reading" title="Edit value/type/time">\u270E</button>`
         + `  <button class="mini danger" data-r="${g.id}" data-kind="del-reading" title="Delete reading">\u2715</button>`
         + `</td></tr>`;
     }).join("");
     const mealRows = (d.meals || []).map((m) => {
       const items = (m.items || []).map((i) => esc(i.item || "")).join(", ");
       const src = m.source === "ai" ? " (AI)" : "";
-      return `<div class="meal-line"><span>${hhmm(m.ts)}</span>`
-        + `${m.portion ? `<span class="slot-chip">${esc((m.portion || "").toUpperCase())}</span>` : ""}`
+      const pchip = m.portion_text ? `<span class="slot-chip">${esc(m.portion_text)}</span>` : (m.portion ? `<span class="slot-chip">${esc((m.portion || "").toUpperCase())}</span>` : "");
+      const changed = m.superseded ? `<span class="badge" title="this row was replaced by a newer correct entry">\u2713 changed</span>` : "";
+      return `<div class="meal-line${m.superseded ? " meal-muted" : ""}">${m.superseded ? `<span style="color:var(--muted)">` : ""}`
+        + `<span>${hhmm(m.ts)}</span>`
+        + `${pchip}${changed}`
         + `<span class="meal-items">${items}</span>`
         + `<span class="muted">${fmt(m.carbs)}g carbs · GI ${fmt(m.gi)}${src}</span>`
-        + `<button class="mini danger" style="margin-left:.4rem" data-m="${m.id}" data-kind="del-meal" title="Delete meal">\u2715</button></div>`;
+        + (m.superseded ? `</span>` : "")
+        + `<button class="mini" style="margin-left:.4rem" data-m="${m.id}" data-d="${d.date}" data-kind="edit-meal" title="Edit meal/portion">\u270E</button>`
+        + `<button class="mini danger" data-m="${m.id}" data-kind="del-meal" title="Delete meal">\u2715</button></div>`;
     }).join("");
     return `<div class="card daylog-card"><div class="daylog-card-head">`
       + `<h3>${esc(d.date)}</h3>${addButtonsDay(d.date)}</div>`
@@ -485,6 +494,7 @@ async function loadDayLog() {
       else if (k === "add-meal") daylogAddMeal(b.dataset.d);
       else if (k === "edit-reading") daylogEditReading(Number(b.dataset.r), b.dataset.d);
       else if (k === "del-reading") daylogDeleteReading(Number(b.dataset.r));
+      else if (k === "edit-meal") daylogEditMeal(Number(b.dataset.m), b.dataset.d);
       else if (k === "del-meal") daylogDeleteMeal(Number(b.dataset.m));
     };
   });
@@ -503,20 +513,6 @@ function _dayTs(dateStr, hm) {
   return `${dateStr}T${hh}:${mm}:00`;
 }
 
-async function daylogAddReading(dateStr) {
-  const v = prompt(`Add sugar reading for ${dateStr}\nValue (mg/dL):`);
-  if (v === null || !Number.isFinite(Number(v))) return;
-  const tagK = prompt("Tag (before/after meal):\n1 = Fasting\n2 = Pre-meal (khane se pehle)\n3 = Post-breakfast\n4 = Post-lunch\n5 = Post-dinner\n6 = Other", "1");
-  if (tagK === null) return;
-  const t = prompt("Time (24h, HH:MM):", "12:00");
-  if (t === null) return;
-  const idx = Math.max(0, Math.min(5, parseInt(tagK, 10) - 1));
-  const r = await j("POST", `/api/v1/patients/${state.active}/readings`, {
-    value: Number(v), tag: TAG_CHOICES[idx][0], ts: _dayTs(dateStr, t),
-  });
-  if (r.ok) loadDayLog(); else alert("Failed: " + (r.data ? r.data.error : ""));
-}
-
 async function daylogAddMeal(dateStr) {
   const items = prompt(`Add meal for ${dateStr}\nItems (comma separated, e.g. 2 roti, dal):`);
   if (!items) return;
@@ -525,34 +521,67 @@ async function daylogAddMeal(dateStr) {
   const list = items.split(",").map((s) => s.trim()).filter(Boolean).map((item) => ({ item }));
   const r = await j("POST", `/api/v1/patients/${state.active}/meals`, {
     items: list, ts: _dayTs(dateStr, t),
-  });
+  }, OP_KEY());
+  if (r.ok) loadDayLog(); else alert("Failed: " + (r.data ? r.data.error : ""));
+}
+
+async function daylogEditMeal(id, dateStr) {
+  const items = prompt("Meal items (comma separated):");
+  if (items === null) return;
+  const t = prompt("Time (24h, HH:MM):", "12:00");
+  if (t === null) return;
+  const portion = prompt("Portion (small/medium/large or a size like 200ml, blank = keep):");
+  const body = { ts: _dayTs(dateStr, t) };
+  if (items.trim()) body.items = items.split(",").map((s) => s.trim()).filter(Boolean).map((i) => ({ item: i }));
+  if (portion) body.portion_text = portion.trim();
+  const r = await j("PUT", `/api/v1/patients/${state.active}/meals/${id}`, body, OP_KEY());
+  if (r.ok) loadDayLog(); else alert("Failed: " + (r.data ? r.data.error : ""));
+}
+
+function _chooseType(label) {
+  const line = prompt(`${label}\n1 = Fasting (khali pet)\n2 = After eating (2 hr post)\n3 = Random`, "2");
+  if (line === null) return null;
+  const i = Math.max(0, Math.min(2, parseInt(line, 10) - 1));
+  return { tag: TAG_CHOICES[i][0], type: TYPE_KEY[TAG_CHOICES[i][0]] };
+}
+
+async function daylogAddReading(dateStr) {
+  const v = prompt(`Add sugar reading for ${dateStr}\nValue (mg/dL):`);
+  if (v === null || !Number.isFinite(Number(v))) return;
+  const choice = _chooseType("Reading type (when was the reading?):");
+  if (choice === null) return;
+  const t = prompt("Time (24h, HH:MM):", "12:00");
+  if (t === null) return;
+  const r = await j("POST", `/api/v1/patients/${state.active}/readings`, {
+    value: Number(v), reading_type: choice.type, tag: choice.tag,
+    ts: _dayTs(dateStr, t),
+  }, OP_KEY());
   if (r.ok) loadDayLog(); else alert("Failed: " + (r.data ? r.data.error : ""));
 }
 
 async function daylogEditReading(id, dateStr) {
   const v = prompt("Sugar value (mg/dL):");
   if (v === null || !Number.isFinite(Number(v))) return;
-  const tagK = prompt("Tag:\n1 = Fasting\n2 = Pre-meal\n3 = Post-breakfast\n4 = Post-lunch\n5 = Post-dinner\n6 = Other", "1");
-  if (tagK === null) return;
+  const choice = _chooseType("Reading type (when was the reading?):");
+  if (choice === null) return;
   const t = prompt("Time (24h, HH:MM):", "12:00");
   if (t === null) return;
-  const idx = Math.max(0, Math.min(5, parseInt(tagK, 10) - 1));
   const r = await j("PUT", `/api/v1/patients/${state.active}/readings/${id}`, {
-    value: Number(v), tag: TAG_CHOICES[idx][0],
+    value: Number(v), reading_type: choice.type, tag: choice.tag,
     ts: _dayTs(dateStr, t), status: "confirmed",
-  });
+  }, OP_KEY());
   if (r.ok) loadDayLog(); else alert("Failed: " + (r.data ? r.data.error : ""));
 }
 
 async function daylogDeleteReading(id) {
   if (!confirm("Delete this reading?")) return;
-  const r = await j("DELETE", `/api/v1/patients/${state.active}/readings/${id}`);
+  const r = await j("DELETE", `/api/v1/patients/${state.active}/readings/${id}`, undefined, OP_KEY());
   if (r.ok) loadDayLog(); else alert("Failed: " + (r.data ? r.data.error : ""));
 }
 
 async function daylogDeleteMeal(id) {
   if (!confirm("Delete this meal?")) return;
-  const r = await j("DELETE", `/api/v1/patients/${state.active}/meals/${id}`);
+  const r = await j("DELETE", `/api/v1/patients/${state.active}/meals/${id}`, undefined, OP_KEY());
   if (r.ok) loadDayLog(); else alert("Failed: " + (r.data ? r.data.error : ""));
 }
 
@@ -561,7 +590,7 @@ function setupDayLogButtons() {
   const fresh = $("daylog-refresh");
   if (reset) reset.onclick = async () => {
     if (!confirm("Wipe ALL logged data for this patient (readings, meals, messages, audit) and start fresh? The patient and linked numbers stay.")) return;
-    const r = await j("POST", `/api/v1/patients/${state.active}/demo-reset`);
+    const r = await j("POST", `/api/v1/patients/${state.active}/demo-reset`, undefined, OP_KEY());
     if (r.ok) { await refreshThreadAndContext(false); loadDayLog(); loadAudit(); }
     else alert("Failed: " + (r.data ? r.data.error : ""));
   };

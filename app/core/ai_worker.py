@@ -26,9 +26,14 @@ from typing import Callable, Optional
 from ..config import Settings
 from .clock import fmt_ts_log, iso_now
 from .datamodel import Store
-from .intake_ai import IntakeResult, analyze_intake
+from .intake_ai import (
+    IntakeResult,
+    analyze_intake,
+    portion_text,
+)
 from .parse import (PATIENT_TAG_LABELS, _is_dup_answer,
                     _is_tag_negation, _tag_from_text)
+from .nutrition import KATORI_LABELS
 
 
 class IntakeWorker:
@@ -243,6 +248,15 @@ class IntakeWorker:
 
             if intent == "tag_answer":
                 tag = _tag_from_text(res.raw_text) or "postprandial"
+                if tag == "pre":
+                    # Before-meal pickings are discouraged, never logged.
+                    res.reply = ("Ji, khane se pehle ka prick zaruri nahi hota. "
+                                 "Fasting, khane ke 2 ghante baad, ya random — "
+                                 "ye tin me se bata dijiye, aur value de dijiye.")
+                    res.should_reply = True
+                    res.missing = []
+                    self._mark_registered(raw_row["id"])
+                    return
                 if target:
                     self.store.set_reading_tag(target["id"], tag)
                     if target.get("status") == "pending":
@@ -275,7 +289,8 @@ class IntakeWorker:
                         self.store.set_reading_tag(target["id"], "")
                     denied_label = PATIENT_TAG_LABELS.get(denied, denied or "wo")
                     res.reply = (f"{name} ji, theek hai — {denied_label} nahi. "
-                                 "Phir ye kab ka tha — khane se pehle ya khane ke baad?")
+                                 "Phir ye kab ka tha — fasting, khane ke 2 ghante "
+                                 "baad, ya random?")
                     res.should_reply = True
                     res.missing = ["reading_tag"]
                 self.store.audit("ai_intake", "tag_negated",
@@ -303,19 +318,11 @@ class IntakeWorker:
                     res.missing = []
                 else:
                     ts = res.reading_ts or self._now_iso()
-                    tag = (res.reading_tag or "").strip() or None
-                    if tag:
-                        self.store.add_reading(wid, sender, "patient", tag, v, ts=ts)
-                        self.store.audit("ai_intake", "reading_registered",
-                                         f"raw_id={raw_row['id']} {tag} {v:g} at {ts}")
-                        res.reply = self._confirm_reading(v, tag, ts)
-                    else:
-                        self.store.add_reading(wid, sender, "patient", "", v, ts=ts,
-                                               status="pending")
-                        self.store.audit("ai_intake", "reading_registered",
-                                         f"raw_id={raw_row['id']} pending-no-tag {v:g} at {ts}")
-                        res.reply = (f"✅ Sugar {v:g} add kiya — {fmt_ts_log(ts)}. "
-                                     f"{self._tag_question()}")
+                    tag = (res.reading_tag or "").strip() or "postprandial"
+                    self.store.add_reading(wid, sender, "patient", tag, v, ts=ts)
+                    self.store.audit("ai_intake", "reading_registered",
+                                     f"raw_id={raw_row['id']} {tag} {v:g} at {ts}")
+                    res.reply = self._confirm_reading(v, tag, ts)
                     res.should_reply = True
                     res.missing = []
                 self._mark_registered(raw_row["id"])
@@ -346,25 +353,17 @@ class IntakeWorker:
                 ts = res.reading_ts or self._now_iso()
                 pend = self.store.pending_reading_near(sender, wid)
                 if pend:
-                    self.store.resolve_reading(pend["id"], v, res.reading_tag or None)
+                    self.store.resolve_reading(pend["id"], v, res.reading_tag or "postprandial")
                     self.store.audit("ai_intake", "reading_resolved",
                                      f"raw_id={raw_row['id']} reading={pend['id']} -> {v:g}")
                     res.reply = self._confirm_reading(
-                        v, res.reading_tag or pend.get("tag") or None, ts)
+                        v, res.reading_tag or "postprandial", ts)
                 else:
-                    tag = (res.reading_tag or "").strip() or None
-                    if tag:
-                        self.store.add_reading(wid, sender, "patient", tag, v, ts=ts)
-                        self.store.audit("ai_intake", "reading_registered",
-                                         f"raw_id={raw_row['id']} {tag} {v:g} at {ts}")
-                        res.reply = self._confirm_reading(v, tag, ts)
-                    else:
-                        self.store.add_reading(wid, sender, "patient", "", v, ts=ts,
-                                               status="pending")
-                        self.store.audit("ai_intake", "reading_registered",
-                                         f"raw_id={raw_row['id']} pending-no-tag {v:g} at {ts}")
-                        res.reply = (f"✅ Sugar {v:g} add kiya — {fmt_ts_log(ts)}. "
-                                     f"{self._tag_question()}")
+                    tag = (res.reading_tag or "").strip() or "postprandial"
+                    self.store.add_reading(wid, sender, "patient", tag, v, ts=ts)
+                    self.store.audit("ai_intake", "reading_registered",
+                                     f"raw_id={raw_row['id']} {tag} {v:g} at {ts}")
+                    res.reply = self._confirm_reading(v, tag, ts)
                 res.should_reply = True
                 res.missing = []
                 self._mark_registered(raw_row["id"])
@@ -394,40 +393,18 @@ class IntakeWorker:
 
             if res.reading_status == "resolved" and res.reading_value is not None:
                 v = float(res.reading_value)
-                tag = (res.reading_tag or "").strip() or None
+                tag = (res.reading_tag or "").strip() or "postprandial"
                 ts = res.reading_ts or self._now_iso()
-                if not tag:
-                    # Before/after context unknown -> 'needs confirmation' until
-                    # the patient tells us fasting/khane se pehle/khane ke baad.
-                    target_day = (ts or "")[:10]
-                    for rd in confirmed:
-                        if (str(rd.get("ts") or "")[:10] == target_day
-                                and abs(float(rd.get("value") or 0.0) - v) < 0.5):
-                            # Same value already logged today -> ask, don't re-log.
-                            self.store.audit("ai_intake", "duplicate_asked",
-                                             f"raw_id={raw_row['id']} value={v:g} "
-                                             f"matches reading {rd['id']}")
-                            res.reply = (f"{name} ji, sugar {v:g} is already logged for "
-                                         f"{fmt_ts_log(ts)} — naya hai ya mistake? "
-                                         "('naya' / 'mistake')")
-                            res.should_reply = True
-                            res.missing = ["duplicate"]
-                            self._store_dup_pending(raw_row["id"], v, ts)
-                            self._mark_registered(raw_row["id"])
-                            return
-                    for pd in pending:
-                        if (not pd.get("candidates_json")
-                                and abs(float(pd.get("value") or 0.0) - v) < 0.5):
-                            res.reply = ""
-                            res.should_reply = False
-                            self._mark_registered(raw_row["id"])
-                            return
-                    self.store.add_reading(wid, sender, "patient", "", v, ts=ts,
-                                           status="pending")
-                    self.store.audit("ai_intake", "reading_registered",
-                                     f"raw_id={raw_row['id']} pending-no-tag {v:g} at {ts}")
-                    self._mark_registered(raw_row["id"])
-                    return
+                # If the very same single value is already pending (an earlier
+                # message that asked about a duplicate), this is its "naya hai"
+                # answer, not an extra log.
+                for pd in pending:
+                    if (not pd.get("candidates_json")
+                            and abs(float(pd.get("value") or 0.0) - v) < 0.5):
+                        res.reply = ""
+                        res.should_reply = False
+                        self._mark_registered(raw_row["id"])
+                        return
                 target_day = (ts or "")[:10]
                 dup = None
                 for rd in confirmed:
@@ -462,14 +439,15 @@ class IntakeWorker:
         return " Aur kuch log karna hai — sugar ya khana?"
 
     def _tag_question(self) -> str:
-        return "Ye kab ka reading tha — fasting, khane se pehle, ya khane ke baad?"
+        return ("Ye kab ka reading tha — fasting, khane ke 2 ghante baad, "
+                "ya random?")
 
     def _confirm_reading(self, value: float, tag: Optional[str], ts_s: Optional[str]) -> str:
         hm = fmt_ts_log(str(ts_s or ""))
         if tag:
             label = PATIENT_TAG_LABELS.get(tag, tag)
             return f"✅ Logged sugar {value:g} ({label}) — {hm}.{self._invite()}"
-        return f"✅ Logged sugar {value:g} — {hm}. {self._tag_question()}"
+        return f"✅ Logged sugar {value:g} ({PATIENT_TAG_LABELS['postprandial']}) — {hm}.{self._invite()}"
 
     def _store_dup_pending(self, raw_id: int, value: float, ts: Optional[str]) -> None:
         try:
@@ -539,6 +517,41 @@ class IntakeWorker:
             if not window or not window.get("id"):
                 return
             wid = window["id"]
+
+            # A portion answer ('small', 'small choco', '200ml') finalizes the
+            # patient's pending meal instead of bouncing to a confused clarify.
+            if res.intent == "meal_confirm":
+                pend = self.store.newest_pending(sender)
+                if not pend:
+                    res.reply = ("Ji, abhi ko pending khana nahi hai — pehle "
+                                 "khana bataiye.")
+                    res.should_reply = True
+                    res.missing = []
+                    return
+                low2 = str(res.raw_text or "").lower()
+                ptext = portion_text(low2) or res.meal_portion or None
+                self.store.finalize_meal(pend["id"], "confirmed",
+                                         res.meal_portion, portion_text=ptext)
+                if res.meal_items:
+                    cur = json.loads(pend.get("items_json") or "[]")
+                    have = {(str(x.get("item") or "").lower(), x.get("genus"))
+                            for x in cur}
+                    for it in res.meal_items:
+                        key = (str(it.get("item") or "").lower(), it.get("genus"))
+                        if key not in have:
+                            cur.append(it)
+                    new_carbs = sum(float(x.get("carbs", 0.0)) for x in cur)
+                    new_gi = self._split_gi(cur)
+                    self.store.update_meal(pend["id"], items_json=json.dumps(
+                        cur, ensure_ascii=False), carbs=new_carbs, gi=new_gi)
+                plabel = KATORI_LABELS.get(res.meal_portion or "m", "Medium")
+                res.reply = (f"✅ Khana {plabel} log ho gaya."
+                             f"{self._invite()}")
+                res.should_reply = True
+                res.missing = []
+                self._mark_flag(raw_row["id"], "meal_registered")
+                return
+
             # The meal takes the same day/time the text refers to ("yesterday i
             # ate...", "14 july lunch"); if the message was also a reading, its
             # backdated reading_ts counts too ("...ate the same thing, reading
@@ -569,10 +582,9 @@ class IntakeWorker:
                     inherited = []
             if not items:
                 items = list(inherited)
-            elif inherited and all(
-                    str(it.get("genus")) == "mixed meal"
-                    and len(str(it.get("item") or "")) > 20
-                    for it in items):
+            elif inherited and all(it.get("known") is False for it in items):
+                # The only "dishes" were the classifier's fallback guesses for a
+                # "same thing / wahi" repeat message -> reuse the real dish set.
                 items = list(inherited)
             if not items:
                 return
@@ -592,10 +604,35 @@ class IntakeWorker:
             portion = res.meal_portion or items[0].get("portion", "m") or "m"
             carbs = sum(float(it.get("carbs", 0.0)) for it in items)
             gi = self._split_gi(items)
+            # The patient-stated size verbatim ("200ml", "2 bowls"). Never
+            # invented: only stored when the message actually names it.
+            portion_txt = portion_text(low) or None
+            _STRONG_CHANGE = ("change", "changed", "replace", "replaced",
+                              "galat", "wrong", "sudhar", "update",
+                              "badlo", "badal", "sahi karo")
+            is_change = (any(k in low for k in _STRONG_CHANGE)
+                         or "actually" in low)
             meal_id = self.store.propose_meal(
                 wid, sender, "patient", "ai",
                 items, portion, self.cfg.katori(portion), carbs, gi,
-                float(res.confidence), ts=ts)
+                float(res.confidence), ts=ts, portion_text=portion_txt)
+            # A meal-change message ("actually ate dinner, not lunch" / "change
+            # the meal") keeps the previous row and marks it superseded, so both
+            # versions stay visible at the same time.
+            if is_change:
+                old = self.store.meal_at_time(wid, ts)
+                if not old and any(k in low for k in _STRONG_CHANGE):
+                    prior = [m for m in self.store.meals_for_window(
+                                 wid, confirmed_only=False)
+                             if m.get("sender_phone") == sender
+                             and m.get("status") != "superseded"
+                             and m.get("id") != meal_id]
+                    old = prior[-1] if prior else None
+                if old and old.get("id") != meal_id:
+                    self.store.supersede_meal(old["id"], meal_id)
+                    self.store.audit("ai_intake", "meal_superseded",
+                                     f"raw_id={raw_row['id']} old={old['id']} "
+                                     f"new={meal_id} ts={ts}")
             names = ", ".join(str(it.get("item") or it) for it in items)
             self.store.audit("ai_intake", "meal_registered",
                              f"raw_id={raw_row['id']} meal_id={meal_id} "
