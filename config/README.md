@@ -1,21 +1,35 @@
 # config/ — Target Configuration Boundary
 
-**GATE 02B — boundary only.**
+**GATE 03 — production configuration schema introduced (not yet consumed by
+the legacy prototype).**
 
 ## Status
 
-The runtime configuration is **unchanged** and continues to live in
-`app/config.py` (`Settings` dataclass, `AAHAAR_*` environment variables).
-No `pydantic-settings` dependency is installed at Gate 02B.
+- `config/settings.py` provides a pydantic-settings / Pydantic v2 `Settings`
+  model covering: application, database, Redis, object storage, identity
+  provider, WhatsApp/Meta, AI, observability, and security configuration.
+- The runtime configuration of the legacy prototype is **unchanged** and still
+  lives in `app/config.py`. Legacy Aahaar does **not** depend on this layer.
+- `config/example.env` documents the environment variable contract with safe
+  placeholders. No real credentials are stored in source control.
+- No service is created, connected, or pinged at import or load time.
 
-## Purpose
+## Usage (target system, later gates)
 
-Future home of the environment-based configuration schema for the target
-system (database URLs, Keycloak realm, Redis, S3, channel credentials).
-Configuration migration belongs to the next gate.
+```python
+from config.settings import Settings
 
-## Not done at Gate 02B
+cfg = Settings()
+cfg.app.env            # -> "development"
+cfg.database.url       # -> "" until a database URL is injected via env
+```
 
-- No replacement of `app/config.py`.
-- No runtime configuration behavior change.
-- No new configuration dependencies installed.
+Environment variables use the `THALI_` prefix with `__` nested delivery,
+e.g. `THALI_REDIS__HOST`.
+
+## Not done at Gate 03
+
+- No replacement of `app/config.py` (deferred to the runtime switchover gate).
+- No database, Redis, S3, Keycloak, or AI connection.
+- No secret material.
+- No integration with the legacy or target application code.

@@ -13,6 +13,6 @@ from ...domain.value_objects.phone_number import PhoneNumber
 @dataclass(frozen=True)
 class LinkPatientPhone:
     command_id: UUID = field(default_factory=uuid4)
-    patient_profile_id: UUID | None = None
+    patient_id: UUID | None = None
     phone: PhoneNumber | None = None
     role: str = "patient"

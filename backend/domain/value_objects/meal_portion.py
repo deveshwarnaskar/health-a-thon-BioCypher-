@@ -1,14 +1,16 @@
-"""MealPortion value object placeholder (Gate 02B).
+"""MealPortion value object (Gate 03).
 
-Katori-based volumetric portion references the Aahaar prototype taxonomy
-(Small 150ml, Medium 220ml, Large 350ml).
+References the canonical katori volumetric vocabulary without adding any
+nutritional interpretation at the value-object layer.
 """
 
 from dataclasses import dataclass
+
+from .katori_volume import KatoriVolume
 
 
 @dataclass(frozen=True)
 class MealPortion:
     food_key: str
-    katori_size: str
-    quantity: float
+    katori: KatoriVolume
+    quantity: float = 1.0

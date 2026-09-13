@@ -10,5 +10,5 @@ from uuid import UUID, uuid4
 @dataclass(frozen=True)
 class LogMealDraft:
     command_id: UUID = field(default_factory=uuid4)
-    patient_profile_id: UUID | None = None
+    patient_id: UUID | None = None
     description: str = ""

@@ -11,5 +11,5 @@ from uuid import UUID, uuid4
 @dataclass(frozen=True)
 class ComputeWindowMetrics:
     query_id: UUID = field(default_factory=uuid4)
-    patient_profile_id: UUID | None = None
+    patient_id: UUID | None = None
     window_id: UUID | None = None
