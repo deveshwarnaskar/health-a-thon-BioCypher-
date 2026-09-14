@@ -232,6 +232,7 @@ class IntakeResult:
     meal_portion: Optional[str] = None
     meal_portion_text: Optional[str] = None
     meal_ts: Optional[str] = None
+    portion_uncertain: bool = False
     multi_readings: list = field(default_factory=list)
     language: str = "hi"
 
@@ -244,14 +245,25 @@ _INTAKE_PROMPT = (
     "Bengali, Telugu, Punjabi, Gujarati, Kannada, Malayalam, Odia, English...). Also catch typos "
     "('mithai', 'khana', 'sugar 120', 'fasting', 'khali pet', 'prick 140').\n"
     "Your only job: decide which logging fields the patient's latest message provided, and if "
-    "anything is missing or ambiguous, ask for EXACTLY ONE in a short friendly question written in the "
-    "patient's OWN language (under 70 characters).\n"
-    "Required fields: 1) reading number 2) reading context tag (fasting / post-breakfast / post-lunch / "
-    "post-dinner / pre-meal) 3) meal items 4) portion size (small/medium/large).\n"
+    "anything is missing or ambiguous or if it is helpful, ask ONE short friendly question written in an "
+    "asking-only-for-the-most-useful-thing way, always under 70 characters. You never have to ask about "
+    "every field.\n"
+    "Fields: 1) reading number 2) reading context tag (fasting / post-breakfast / post-lunch / "
+    "post-dinner / pre-meal) 3) meal items 4) portion. Portion is OPTIONAL and is rarely worth asking: "
+    "it can be a small/medium/large word, real ml/grams ('220 ml', 'do roti'), or uncertain "
+    "('pata nahi', 'lagbhag medium') — all are fine to log as-is. Ask about it ONLY when knowing it "
+    "actually matters to the patient (a fresh sweet or a brand-new untried dish), never as routine.\n"
     "Rules:\n"
-    "- ALWAYS write reply: when everything needed is in the message, confirm in a warm natural sentence "
-    "what you logged by ECHOING the exact number/food you extracted (e.g. 'sugar 140 fasting log kar diya' ); "
-    "when something is missing, ask for only that one thing. Never use checkmarks or emoji spam.\n"
+    "- LANGUAGE MIRRORING (very important): write your reply in EXACTLY the same language and style the "
+    "patient just used. If they wrote in English, reply in natural relaxed English. If they wrote in "
+    "Hinglish, reply in Hinglish. If Hindi, reply in Hindi. Never switch language on the patient. "
+    "Match their vibe: serious stays warm-and-steady, playful can be light, brief can be brief.\n"
+    "- ALWAYS write reply: when everything the patient intends to log is present, confirm in a warm "
+    "natural sentence ECHOING the exact number/food you extracted (e.g. 'sugar 140 fasting log kar diya' "
+    "or 'ghi' -> 'ok ghee toast logged, medium size bila rkha'). When something is missing but asking is "
+    "helpful, ask for only that one thing. When a message only references a past meal/reading without "
+    "new data, acknowledge it naturally and ask ONE gentle question about what they want done. Never use "
+    "checkmarks or emoji spam.\n"
     "- Only report a reading number that the patient ACTUALLY wrote. Never invent one.\n"
     "- A number far outside a plausible blood-sugar range (e.g. 999 or 12) is NOT a logging number: "
     "reply asking the patient to recheck and restate the value in their language. Never treat it as "
@@ -261,15 +273,21 @@ _INTAKE_PROMPT = (
     "claim it was logged again: reply asking 'naya hai ya mistake?' in a natural way. When the message "
     "corrects a logged value ('wo galat tha, 140 tha') or deletes one, refer to it naturally using the "
     "context.\n"
+    "- When the person says 'commit this to bio-cypher' or anything about the app/repo itself, it is "
+    "NOT a reading and NOT a meal: treat it as is_reference=true with items=[], and reply naturally asking "
+    "what they want (e.g. 'sure, kuch aur log karna hai?'), never treat it as a value or dish to log.\n"
     "- When the message changes/corrects a meal said earlier ('not the one i told', 'the meal i told was "
     "wrong') but names no new dish and no number, set is_reference=true and items=[].\n"
     "- When the message asks to delete a reading or a meal, set is_delete=true and reply=''.\n"
     'Return strictly valid JSON: {"intent":"reading"|"meal"|"confirm"|"clarify"|"reference"|"delete", '
-    '"missing":["reading_value"|"reading_tag"|"meal_items"|"portion"], "reply":"<always a short natural '
-    'sentence in the patient language>", "reading": <number the patient wrote or null>, '
+    '"missing":["reading_value"|"reading_tag"|"meal_items","portion"|"clarification"], "reply":"<always a short '
+    'natural sentence in exactly the patient language/vibe>", "reading": <number the patient wrote or null>, '
     '"reading_tag":"fasting"|"postprandial"|"postbreakfast"|"postlunch"|"postdinner"|"pre"|"random"|null, '
-    '"items":["dish 1","dish 2"] (only what the patient mentioned, or []), '
-    '"portion":"s"|"m"|"l" (only when the patient stated it), '
+    '"items":["dish 1","dish 2"] (only real dishes the patient named; if they say food is unknown '
+    'or describe it but cannot name it, set portion_uncertain=true and items=[]), '
+    '"portion":"s"|"m"|"l" (a word the patient used, or null), '
+    '"portion_uncertain": true if the portion is unknown/uncertain but the meal itself is fine to log, '
+    '"portion_note":"220 ml" or "do roti" or null (the patient\'s own words about size, if any), '
     '"readings":[{"value": <number>, "tag": <tag or null>}, ...] (ONLY when the message reports several '
     'readings, e.g. "8am 130, 9am 145"; else []), '
     '"is_reference": true|false, "is_delete": true|false, '
@@ -976,7 +994,8 @@ def analyze_intake(text: str, patient_name: str = "Patient",
                 result.missing.remove("portion")
         else:
             cur = list(result.missing or [])
-            if "portion" not in cur:
+            # An uncertain portion is still a LOGGED meal — never a re-ask loop.
+            if not res.portion_uncertain and "portion" not in cur:
                 cur.append("portion")
             result.missing = cur
             if not gem_reply and result.intent == "meal":
