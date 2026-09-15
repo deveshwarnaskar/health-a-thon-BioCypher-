@@ -241,3 +241,54 @@ def seed_ai_artifact(session_factory, tenant_id, patient_id):
         uow.ai_artifacts.add(artifact)
         uow.commit()
     return artifact
+
+
+def seed_identity_mapping(session_factory, tenant_id, user_id, patient_id, active=True):
+    from backend.domain.entities import IdentityPatientMapping
+    from backend.infrastructure.persistence.models.identity_models import IdentityPatientMappingModel
+    from sqlalchemy import text
+
+    now = datetime.now(timezone.utc)
+    with session_factory() as s:
+        s.add(
+            IdentityPatientMappingModel(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                patient_id=patient_id,
+                active=active,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        s.commit()
+
+
+def seed_caregiver_relationship(
+    session_factory,
+    tenant_id,
+    patient_id,
+    caregiver_user_id,
+    status="verified",
+    capabilities=None,
+    expires_at=None,
+):
+    from backend.infrastructure.persistence.models.identity_models import CaregiverRelationshipModel
+    from sqlalchemy import text
+
+    now = datetime.now(timezone.utc)
+    caps = sorted(capabilities) if capabilities is not None else sorted(["read_glucose", "read_meal"])
+    with session_factory() as s:
+        s.add(
+            CaregiverRelationshipModel(
+                tenant_id=tenant_id,
+                patient_id=patient_id,
+                caregiver_user_id=caregiver_user_id,
+                relationship_label="test-caregiver",
+                status=status,
+                capabilities=caps,
+                expires_at=expires_at,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        s.commit()

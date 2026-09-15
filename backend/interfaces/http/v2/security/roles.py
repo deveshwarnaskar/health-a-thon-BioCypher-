@@ -23,11 +23,17 @@ def role_tokens(roles: list[str]) -> list[str]:
         return []
 
     canonical = {
+        # Clinical care-team roles (domain vocabulary)
         CareTeamRole.DOCTOR.value.lower(),
         CareTeamRole.NURSE.value.lower(),
         CareTeamRole.CARE_COORDINATOR.value.lower(),
         CareTeamRole.DIETITIAN.value.lower(),
         CareTeamRole.FIELD_HEALTH_WORKER.value.lower(),
+        # Non-clinical identity/system roles consumed by the authorization
+        # policy (patient proxy, caregiver proxy, administrator).
+        "admin",
+        "patient",
+        "caregiver",
     }
     tokens = sorted(canonical & lowered)
     return tokens

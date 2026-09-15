@@ -14,3 +14,11 @@ class ApplicationError(Exception):
 
 class ReviewerNotAuthorized(ApplicationError):
     """An actor attempted a CLINICIAN review without a licensed clinical role."""
+
+
+class DuplicateIdentityMapping(ApplicationError):
+    """An active identity-patient mapping already binds this user or patient."""
+
+
+class DuplicateCaregiverRelationship(ApplicationError):
+    """A non-revoked caregiver relationship already exists for this pair."""

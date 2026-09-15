@@ -10,15 +10,21 @@ from backend.application.services import (
     CompleteCareTaskHandler,
     ConfirmMealObservationHandler,
     CreateCareTaskHandler,
+    CreateIdentityMappingHandler,
     CreateMedicationPlanHandler,
+    DeactivateIdentityMappingHandler,
     GenerateAIReviewArtifactHandler,
     GetClinicalObservationFeedHandler,
     GetPatientObservationFeedHandler,
+    IdentityPatientResolver,
     IngestGlucoseHandler,
     LinkPatientPhoneHandler,
     LogMealDraftHandler,
     RecordMedicationAdministrationHandler,
+    RegisterCaregiverHandler,
     ReviewAIArtifactHandler,
+    RevokeCaregiverHandler,
+    VerifyCaregiverHandler,
 )
 from backend.domain.entities import CareTeamRole
 
@@ -57,6 +63,12 @@ class App:
         self.review_ai_artifact = ReviewAIArtifactHandler(uow, events, clock, id_gen)
         self.patient_feed = GetPatientObservationFeedHandler(uow)
         self.clinical_feed = GetClinicalObservationFeedHandler(uow)
+        self.register_caregiver = RegisterCaregiverHandler(uow, events, clock, id_gen)
+        self.verify_caregiver = VerifyCaregiverHandler(uow, events, clock, id_gen)
+        self.revoke_caregiver = RevokeCaregiverHandler(uow, events, clock, id_gen)
+        self.create_identity_mapping = CreateIdentityMappingHandler(uow, events, clock, id_gen)
+        self.deactivate_identity_mapping = DeactivateIdentityMappingHandler(uow, events, clock, id_gen)
+        self.identity_resolver = IdentityPatientResolver(uow)
 
 
 @pytest.fixture

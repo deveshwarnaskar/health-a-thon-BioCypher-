@@ -43,6 +43,8 @@ class Operation(str, Enum):
     REVIEW_AI_ARTIFACT = "review_ai_artifact"
     READ_PATIENT = "read_patient"
     WRITE_PATIENT = "write_patient"
+    MANAGE_CAREGIVER_RELATIONSHIPS = "manage_caregiver_relationships"
+    MANAGE_IDENTITY_MAPPINGS = "manage_identity_mappings"
     ADMIN = "admin"
 
 
@@ -83,6 +85,7 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.READ_AI_ARTIFACTS,
         Operation.READ_PATIENT,
         Operation.WRITE_PATIENT,
+        Operation.MANAGE_CAREGIVER_RELATIONSHIPS,
     }),
     "field_health_worker": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -99,6 +102,8 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
     }),
     "admin": frozenset({
         Operation.ADMIN,
+        Operation.MANAGE_CAREGIVER_RELATIONSHIPS,
+        Operation.MANAGE_IDENTITY_MAPPINGS,
     }),
 }
 
@@ -133,3 +138,104 @@ class DefaultAuthorizationPolicy:
             if operation in permitted:
                 return True
         return False
+
+
+def is_proxy_role(ctx: AuthenticatedContext) -> bool:
+    """True when the caller holds a patient/caregiver (proxy) identity role.
+
+    Proxy roles NEVER hold coarse RBAC permissions. They are authorized only
+    through the relationship/identity policy, never through the role matrix.
+    """
+    roles = set(ctx.roles)
+    return bool(roles & {"patient", "caregiver"})
+
+
+class RelationshipAuthorizationPolicy(DefaultAuthorizationPolicy):
+    """Gate 08 authorization policy: coarse RBAC + relational identity.
+
+    Non-proxy callers resolve through the standard deny-by-default role
+    matrix. Proxy callers (patient/caregiver) are authorized exclusively via
+    the relational identity contracts:
+    - patient  → active identity→patient mapping bound to the target patient
+    - caregiver → VERIFIED, non-expired relationship + capability grant
+    """
+
+    def __init__(self, clock=None, base: AuthorizationPolicy | None = None) -> None:
+        from backend.infrastructure.config.clock import SystemClock
+
+        self._clock = clock or SystemClock()
+        self._base = base or DefaultAuthorizationPolicy()
+
+    def is_allowed(
+        self,
+        ctx: AuthenticatedContext,
+        operation: Operation,
+        patient_id: UUID | None = None,
+        uow=None,
+    ) -> bool:
+        if is_proxy_role(ctx):
+            return self._is_proxy_allowed(ctx, operation, patient_id, uow)
+        return self._base.is_allowed(ctx, operation)
+
+    def _is_proxy_allowed(
+        self,
+        ctx: AuthenticatedContext,
+        operation: Operation,
+        patient_id: UUID | None,
+        uow,
+    ) -> bool:
+        if uow is None or patient_id is None:
+            return False
+        try:
+            if "caregiver" in ctx.roles:
+                return self._is_relationship_allowed(ctx, operation, patient_id, uow)
+            return self._is_self_allowed(ctx, operation, patient_id, uow)
+        except Exception:
+            # Fail closed: any identity/relationship resolution error DENIES.
+            return False
+
+    def _is_relationship_allowed(
+        self,
+        ctx: AuthenticatedContext,
+        operation: Operation,
+        patient_id: UUID,
+        uow,
+    ) -> bool:
+        from .capabilities import caregiver_required_capabilities
+
+        required = caregiver_required_capabilities(operation)
+        if not required:
+            return False
+        relationship = uow.caregiver_relationships.get_verified_for_patient(
+            ctx.actor_id, patient_id
+        )
+        if relationship is None:
+            return False
+        if not relationship.is_granted_at(self._clock.now()):
+            return False
+        return relationship.has_capabilities(required)
+
+    def _is_self_allowed(
+        self,
+        ctx: AuthenticatedContext,
+        operation: Operation,
+        patient_id: UUID,
+        uow,
+    ) -> bool:
+        self_capable = {
+            Operation.READ_OBSERVATIONS,
+            Operation.WRITE_OBSERVATIONS,
+            Operation.READ_PATIENT,
+        }
+        if operation not in self_capable:
+            return False
+        mapping = uow.identity_mappings.get_by_user_id(ctx.actor_id)
+        if mapping is None or not mapping.active:
+            return False
+        if mapping.patient_id != patient_id:
+            return False
+        try:
+            patient = uow.patients.get(patient_id)
+        except Exception:
+            return False
+        return getattr(patient, "active", True)

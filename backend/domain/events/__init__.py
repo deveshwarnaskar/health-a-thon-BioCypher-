@@ -11,6 +11,14 @@ from .clinical import (
     MealObservationRecorded,
     MedicationAdministrationRecorded,
 )
+from .identity import (
+    CaregiverRelationshipCreated,
+    CaregiverRelationshipExpired,
+    CaregiverRelationshipRevoked,
+    CaregiverRelationshipVerified,
+    IdentityMappingCreated,
+    IdentityMappingDeactivated,
+)
 
 __all__ = [
     "DomainEvent",
@@ -22,4 +30,10 @@ __all__ = [
     "CareTaskCompleted",
     "AIArtifactGenerated",
     "AIArtifactReviewed",
+    "IdentityMappingCreated",
+    "IdentityMappingDeactivated",
+    "CaregiverRelationshipCreated",
+    "CaregiverRelationshipVerified",
+    "CaregiverRelationshipRevoked",
+    "CaregiverRelationshipExpired",
 ]

@@ -1,12 +1,13 @@
-"""Resource scoping and authorization helpers (Gate 07).
+"""Resource scoping and authorization helpers (Gate 07 → Gate 08).
 
 DENY-BY-DEFAULT resource resolution for patient-targeted operations:
 
-- patient role → DENY (identity mapping is a Gate 08 contract)
-- caregiver role → DENY (relationship contracts are a Gate 08 contract)
-- clinician without facility context → DENY
-- patient without facility context → DENY
-- patient facility != authenticated facility → DENY
+- patient role → authorized ONLY via an active identity→patient mapping
+- caregiver role → authorized ONLY via a VERIFIED, non-expired relationship
+- clinician without a CareTeamMember record → DENY
+- clinician without a member facility context → DENY
+- member/JWT facility conflict → DENY
+- patient facility != authorized member facility → DENY
 
 These rules ensure no universal doctor/caregiver bypass exists.
 """
@@ -21,6 +22,7 @@ from backend.interfaces.http.v2.security.authorization import (
     AuthenticatedContext,
     AuthorizationPolicy,
     Operation,
+    is_proxy_role,
 )
 
 
@@ -34,17 +36,91 @@ def authorize_or_403(
         raise HTTPException(status_code=403, detail="Access denied")
 
 
-def deny_unavailable_identity(ctx: AuthenticatedContext) -> None:
-    """Deny patient/caregiver identity resolution until Gate 08 contracts exist."""
-    if "patient" in ctx.roles:
+def authorize_patient_operation(
+    ctx: AuthenticatedContext,
+    policy: AuthorizationPolicy,
+    operation: Operation,
+    patient_id: _uuid.UUID,
+    uow,
+):
+    """Resolve and authorize access to a scoped patient resource.
+
+    Proxy roles (patient/caregiver) are authorized ONLY through the
+    relational identity policy — never through the coarse role matrix. All
+    other roles flow through coarse RBAC followed by membership/facility
+    scoping. Returns the tenant-scoped patient entity on success.
+    """
+    if is_proxy_role(ctx):
+        if not policy.is_allowed(ctx, operation, patient_id=patient_id, uow=uow):
+            raise HTTPException(status_code=403, detail="Access denied")
+        return _resolve_patient(uow, patient_id)
+
+    authorize_or_403(ctx, policy, operation)
+    patient = _resolve_patient(uow, patient_id)
+    assert_authorized_clinician_facility(ctx, uow, patient)
+    return patient
+
+
+def _resolve_patient(uow, patient_id: _uuid.UUID):
+    from backend.domain.exceptions import EntityNotFound
+
+    try:
+        return uow.patients.get(patient_id)
+    except EntityNotFound:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+
+def assert_authorized_clinician_facility(
+    ctx: AuthenticatedContext,
+    uow,
+    patient,
+) -> None:
+    """Enforce CareTeamMember-membership-based clinical authorization.
+
+    The authenticated member record is authoritative for facility scoping.
+    A missing member, inactive member, member without a facility, a JWT
+    facility conflicting with the member's facility, or a patient outside
+    the member's facility all DENY access.
+    """
+    from backend.domain.exceptions import EntityNotFound
+
+    try:
+        member = uow.care_team_members.get(ctx.actor_id)
+    except EntityNotFound:
         raise HTTPException(
             status_code=403,
-            detail="Patient self-access is unavailable until identity mapping exists",
+            detail="No active care team membership for this tenant",
         )
-    if "caregiver" in ctx.roles:
+
+    if getattr(member, "active", True) is False:
         raise HTTPException(
             status_code=403,
-            detail="Caregiver relationship access is unavailable until relationship contracts exist",
+            detail="Care team membership is inactive",
+        )
+
+    member_facility = getattr(member, "facility_id", None)
+    if member_facility is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Clinician facility context is required for patient access",
+        )
+
+    if ctx.facility_id is not None and ctx.facility_id != member_facility:
+        raise HTTPException(
+            status_code=403,
+            detail="Token facility conflicts with care team membership",
+        )
+
+    patient_facility = getattr(patient, "facility_id", None)
+    if isinstance(patient_facility, str):
+        try:
+            patient_facility = _uuid.UUID(patient_facility)
+        except ValueError:
+            patient_facility = None
+    if patient_facility is None or patient_facility != member_facility:
+        raise HTTPException(
+            status_code=403,
+            detail="Access to this patient is outside your authorized facility",
         )
 
 
@@ -52,11 +128,12 @@ def assert_tenant_scoped_patient(
     ctx: AuthenticatedContext,
     patient: object,
 ) -> None:
-    """Confirm the resolved patient belongs to the authenticated resource scope.
+    """[Backward-compatible] Unsafe legacy wrapper.
 
-    ``patient`` is the tenant-scoped domain entity already resolved through the
-    tenant-bound UnitOfWork (RLS backstop). Facility matching is enforced here
-    so ``doctor``/``nurse`` roles never become universal patient access.
+    Do NOT use in new routes: the clinician path is handled by
+    ``assert_authorized_clinician_facility``. This is retained for routes that
+    do not carry a CareTeamMember relationship (e.g. legacy AI review), where
+    the JWT facility claim is the only facility evidence available.
     """
     facility_id = getattr(patient, "facility_id", None)
 

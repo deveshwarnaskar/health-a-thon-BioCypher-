@@ -124,6 +124,56 @@ class InMemoryCareTeamMemberStore(InMemoryRepository[T]):
         raise EntityNotFound(f"care_team_member with user_id {user_id} not found")
 
 
+class InMemoryCaregiverRelationshipStore(InMemoryRepository[T]):
+    """In-memory caregiver relationship repository (Gate 08)."""
+
+    def list_for_caregiver(self, caregiver_user_id: UUID) -> list[T]:
+        return [e for e in self.list() if e.caregiver_user_id == caregiver_user_id]
+
+    def list_for_patient(self, patient_id: UUID) -> list[T]:
+        return [e for e in self.list() if e.patient_id == patient_id]
+
+    def find_by_pair(
+        self, caregiver_user_id: UUID, patient_id: UUID
+    ) -> T | None:
+        for e in self.list():
+            if e.caregiver_user_id == caregiver_user_id and e.patient_id == patient_id:
+                return e
+        return None
+
+    def get_verified_for_patient(
+        self, caregiver_user_id: UUID, patient_id: UUID
+    ) -> T | None:
+        module = __import__(
+            "backend.domain.entities", fromlist=["CaregiverRelationshipStatus"]
+        )
+        verified = module.CaregiverRelationshipStatus.VERIFIED
+        for e in self.list():
+            if (
+                e.caregiver_user_id == caregiver_user_id
+                and e.patient_id == patient_id
+                and e.status is verified
+            ):
+                return e
+        return None
+
+
+class InMemoryIdentityMappingStore(InMemoryRepository[T]):
+    """In-memory identity-patient mapping repository (Gate 08)."""
+
+    def get_by_user_id(self, user_id: UUID) -> T | None:
+        for e in self.list():
+            if e.user_id == user_id:
+                return e
+        return None
+
+    def get_by_patient_id(self, patient_id: UUID) -> T | None:
+        for e in self.list():
+            if e.patient_id == patient_id:
+                return e
+        return None
+
+
 class InMemoryUnitOfWork:
     def __init__(self) -> None:
         self._stage: dict = {}
@@ -132,6 +182,8 @@ class InMemoryUnitOfWork:
         self.rollbacks = 0
         self.patients = InMemoryRepository(self._stage, self._committed, "patients")
         self.care_team_members = InMemoryCareTeamMemberStore(self._stage, self._committed, "care_team_members")
+        self.caregiver_relationships = InMemoryCaregiverRelationshipStore(self._stage, self._committed, "caregiver_relationships")
+        self.identity_mappings = InMemoryIdentityMappingStore(self._stage, self._committed, "identity_patient_mappings")
         self.glucose_observations = InMemoryRepository(self._stage, self._committed, "glucose_observations")
         self.meal_observations = InMemoryRepository(self._stage, self._committed, "meal_observations")
         self.medication_plans = InMemoryRepository(self._stage, self._committed, "medication_plans")

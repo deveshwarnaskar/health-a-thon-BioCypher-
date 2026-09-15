@@ -5,6 +5,8 @@ Exports concrete SQLAlchemy repository implementations.
 
 from .patient_repo import SqlAlchemyPatientRepository
 from .care_team_member_repo import SqlAlchemyCareTeamMemberRepository
+from .caregiver_relationship_repo import SqlAlchemyCaregiverRelationshipRepository
+from .identity_patient_mapping_repo import SqlAlchemyIdentityPatientMappingRepository
 from .glucose_observation_repo import SqlAlchemyGlucoseObservationRepository
 from .meal_observation_repo import SqlAlchemyMealObservationRepository
 from .medication_plan_repo import SqlAlchemyMedicationPlanRepository
@@ -14,6 +16,8 @@ from .ai_artifact_repo import SqlAlchemyAIReviewArtifactRepository
 __all__ = [
     "SqlAlchemyPatientRepository",
     "SqlAlchemyCareTeamMemberRepository",
+    "SqlAlchemyCaregiverRelationshipRepository",
+    "SqlAlchemyIdentityPatientMappingRepository",
     "SqlAlchemyGlucoseObservationRepository",
     "SqlAlchemyMealObservationRepository",
     "SqlAlchemyMedicationPlanRepository",

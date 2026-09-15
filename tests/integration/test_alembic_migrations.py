@@ -36,6 +36,8 @@ def test_alembic_migration_upgrade_and_downgrade_sqlite():
             "facilities",
             "patients",
             "care_team_members",
+            "caregiver_relationships",
+            "identity_patient_mappings",
             "glucose_observations",
             "meal_observations",
             "medication_plans",

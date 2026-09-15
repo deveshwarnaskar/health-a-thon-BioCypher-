@@ -40,6 +40,7 @@ from backend.interfaces.http.v2.security.authorization import (
     AuthenticatedContext,
     AuthorizationPolicy,
     DefaultAuthorizationPolicy,
+    RelationshipAuthorizationPolicy,
 )
 from backend.interfaces.http.v2.security.jwt import JwtSignatureError, verify_hs256
 from backend.interfaces.http.v2.security.roles import role_tokens
@@ -96,8 +97,9 @@ def get_app_env() -> str:
     return _load_config()["app_env"]
 
 
-def get_authorization_policy() -> DefaultAuthorizationPolicy:
-    return DefaultAuthorizationPolicy()
+def get_authorization_policy() -> RelationshipAuthorizationPolicy:
+    """Return the Gate 08 policy: coarse RBAC + relational identity grants."""
+    return RelationshipAuthorizationPolicy()
 
 
 async def get_verified_claims(

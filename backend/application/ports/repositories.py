@@ -1,12 +1,13 @@
-"""Outbound repository ports (Gate 04).
+"""Outbound repository ports (Gate 04, extended Gate 08).
 
 Repository contracts express DOMAIN/APPLICATION needs, never SQL. They are
 derived from the actual Gate 03 domain entities and from the use cases that
 Gate 04 orchestrates. Missing aggregates raise ``EntityNotFound``.
 
 Only repositories justified by a current use case are declared. Caregiver
-relationships and document references are intentionally NOT declared here —
-no Gate 04 use case requires them.
+relationships and identity mappings are declared here for the Gate 08
+relational identity and clinical authorization contracts; document references
+remain intentionally undeclared — no use case requires them.
 """
 
 from typing import Protocol, runtime_checkable
@@ -16,7 +17,9 @@ from ...domain.entities import (
     AIReviewArtifact,
     CareTask,
     CareTeamMember,
+    CaregiverRelationship,
     GlucoseObservation,
+    IdentityPatientMapping,
     MealObservation,
     MedicationPlan,
     Patient,
@@ -72,3 +75,28 @@ class AIReviewArtifactRepository(Protocol):
     def add(self, artifact: AIReviewArtifact) -> None: ...
     def get(self, artifact_id: UUID) -> AIReviewArtifact: ...
     def list_for_patient(self, patient_id: UUID) -> list[AIReviewArtifact]: ...
+
+
+@runtime_checkable
+class CaregiverRelationshipRepository(Protocol):
+    def add(self, relationship: CaregiverRelationship) -> None: ...
+    def get(self, relationship_id: UUID) -> CaregiverRelationship: ...
+    def save(self, relationship: CaregiverRelationship) -> None: ...
+    def list_for_caregiver(self, caregiver_user_id: UUID) -> list[CaregiverRelationship]: ...
+    def list_for_patient(self, patient_id: UUID) -> list[CaregiverRelationship]: ...
+    def find_by_pair(
+        self, caregiver_user_id: UUID, patient_id: UUID
+    ) -> CaregiverRelationship | None: ...
+    def get_verified_for_patient(
+        self, caregiver_user_id: UUID, patient_id: UUID
+    ) -> CaregiverRelationship | None: ...
+
+
+@runtime_checkable
+class IdentityPatientMappingRepository(Protocol):
+    def add(self, mapping: IdentityPatientMapping) -> None: ...
+    def save(self, mapping: IdentityPatientMapping) -> None: ...
+    def get(self, mapping_id: UUID) -> IdentityPatientMapping: ...
+    def get_by_user_id(self, user_id: UUID) -> IdentityPatientMapping | None: ...
+    def get_by_patient_id(self, patient_id: UUID) -> IdentityPatientMapping | None: ...
+    def list(self) -> list[IdentityPatientMapping]: ...

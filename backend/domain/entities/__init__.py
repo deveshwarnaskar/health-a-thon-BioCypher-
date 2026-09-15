@@ -3,8 +3,9 @@
 from .ai_artifact import AIReviewArtifact, ReviewAuthority, ReviewState
 from .care_team_member import CareTeamMember, CareTeamRole
 from .care_task import CareTask, CareTaskStatus
-from .caregiver_relationship import CaregiverRelationship
+from .caregiver_relationship import CaregiverRelationship, CaregiverRelationshipStatus
 from .document_reference import DocumentKind, DocumentReference
+from .identity_patient_mapping import IdentityPatientMapping
 from .glucose_observation import GlucoseObservation
 from .meal_observation import MealObservation
 from .medication_plan import MedicationPlan
@@ -23,8 +24,10 @@ __all__ = [
     "CareTask",
     "CareTaskStatus",
     "CaregiverRelationship",
+    "CaregiverRelationshipStatus",
     "DocumentKind",
     "DocumentReference",
+    "IdentityPatientMapping",
     "GlucoseObservation",
     "MealObservation",
     "MedicationPlan",

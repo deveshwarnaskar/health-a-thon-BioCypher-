@@ -75,3 +75,38 @@ class AIArtifactReviewedResult:
     artifact_id: UUID
     state: str
     reviewed_by_user_id: UUID
+
+
+@dataclass(frozen=True)
+class CaregiverRelationshipRegistered:
+    relationship_id: UUID
+    patient_id: UUID
+    status: str
+
+
+@dataclass(frozen=True)
+class CaregiverRelationshipVerified:
+    relationship_id: UUID
+    status: str
+    verified_at: datetime
+
+
+@dataclass(frozen=True)
+class CaregiverRelationshipRevoked:
+    relationship_id: UUID
+    status: str
+
+
+@dataclass(frozen=True)
+class IdentityMappingCreated:
+    mapping_id: UUID
+    user_id: UUID
+    patient_id: UUID
+    active: bool
+
+
+@dataclass(frozen=True)
+class IdentityMappingDeactivated:
+    mapping_id: UUID
+    user_id: UUID
+    active: bool

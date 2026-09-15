@@ -191,6 +191,55 @@ class WhatsAppInboundResponse(BaseModel):
     message: str = "Webhook event accepted for processing"
 
 
+# ─── Caregiver Relationship (Gate 08) ────────────────────────────────────────
+
+
+class CaregiverRelationshipResponse(BaseModel):
+    model_config = _STRICT
+    relationship_id: str
+    patient_id: str
+    caregiver_user_id: str
+    relationship_label: str
+    status: Literal["pending", "verified", "revoked", "expired"]
+    capabilities: list[str]
+    verified_at: datetime | None = None
+    revoked_at: datetime | None = None
+    expires_at: datetime | None = None
+    created_at: datetime
+
+
+class CaregiverRelationshipListResponse(BaseModel):
+    model_config = _STRICT
+    patient_id: str
+    items: list[CaregiverRelationshipResponse]
+
+
+class RegisterCaregiverRequest(BaseModel):
+    model_config = _STRICT
+    caregiver_user_id: UUID
+    relationship_label: str = Field(min_length=1)
+    capabilities: list[str] = []
+    expires_at: datetime | None = None
+
+
+# ─── Identity Patient Mapping (Gate 08) ─────────────────────────────────────
+
+
+class CreateIdentityMappingRequest(BaseModel):
+    model_config = _STRICT
+    user_id: UUID
+    patient_id: UUID
+
+
+class IdentityMappingResponse(BaseModel):
+    model_config = _STRICT
+    mapping_id: str
+    user_id: str
+    patient_id: str
+    active: bool
+    created_at: datetime
+
+
 # ─── Error ──────────────────────────────────────────────────────────────────
 
 

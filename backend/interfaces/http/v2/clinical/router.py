@@ -55,9 +55,9 @@ from backend.interfaces.http.v2.security.authorization import (
     Operation,
 )
 from backend.interfaces.http.v2.security.scoping import (
-    assert_tenant_scoped_patient,
+    assert_authorized_clinician_facility,
     authorize_or_403,
-    deny_unavailable_identity,
+    authorize_patient_operation,
 )
 
 clinical_router = APIRouter()
@@ -84,23 +84,18 @@ async def get_observations(
 ) -> PatientObservationFeedResponse:
     """Read the patient-facing observation feed for ONE scoped patient.
 
-    Roles that cannot prove a relationship (patient, caregiver) are denied.
-    Clinicians require a verified facility context matching the patient.
+    Proxy roles (patient/caregiver) are authorized through the relational
+    identity policy. Clinicians require an active CareTeamMember record whose
+    facility matches the patient's facility.
     """
-    authorize_or_403(ctx, policy, Operation.READ_OBSERVATIONS)
-    deny_unavailable_identity(ctx)
-
     try:
         patient_uuid = _uuid.UUID(patient_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid patient_id")
 
-    try:
-        patient = uow.patients.get(patient_uuid)
-    except EntityNotFound:
-        raise HTTPException(status_code=404, detail="Patient not found")
-
-    assert_tenant_scoped_patient(ctx, patient)
+    authorize_patient_operation(
+        ctx, policy, Operation.READ_OBSERVATIONS, patient_uuid, uow
+    )
 
     feed = GetPatientObservationFeedHandler(uow).handle(
         GetPatientObservationFeed(patient_id=patient_uuid, limit=min(limit, 200))
@@ -120,19 +115,14 @@ async def ingest_observations(
     clock: Clock = Depends(get_clock),
     id_gen: IdGenerator = Depends(get_id_generator),
 ) -> IngestGlucoseResponse:
-    """Record a glucose observation for a scoped patient (clinician workflow).
+    """Record a glucose observation for a scoped patient.
 
-    Patient/caregiver roles are denied (no self-access / relationship contract).
+    Proxy roles (patient/caregiver) are authorized through the relational
+    identity policy; proxy access to write requires the corresponding grant.
     """
-    authorize_or_403(ctx, policy, Operation.WRITE_OBSERVATIONS)
-    deny_unavailable_identity(ctx)
-
-    try:
-        patient = uow.patients.get(body.patient_id)
-    except EntityNotFound:
-        raise HTTPException(status_code=404, detail="Patient not found")
-
-    assert_tenant_scoped_patient(ctx, patient)
+    authorize_patient_operation(
+        ctx, policy, Operation.WRITE_OBSERVATIONS, body.patient_id, uow
+    )
 
     tag = ReadingTag(body.tag) if body.tag else None
     cmd = IngestGlucoseReading(
@@ -167,15 +157,9 @@ async def create_medication_plan(
     value. Patient, caregiver, AI, generic system process, and administrator
     are denied. The domain enforces ``CareTeamRole.can_author_medication``.
     """
-    authorize_or_403(ctx, policy, Operation.WRITE_MEDICATION_PLANS)
-    deny_unavailable_identity(ctx)
-
-    try:
-        patient = uow.patients.get(body.patient_id)
-    except EntityNotFound:
-        raise HTTPException(status_code=404, detail="Patient not found")
-
-    assert_tenant_scoped_patient(ctx, patient)
+    authorize_patient_operation(
+        ctx, policy, Operation.WRITE_MEDICATION_PLANS, body.patient_id, uow
+    )
 
     cmd = CreateMedicationPlan(
         patient_id=body.patient_id,
@@ -210,7 +194,6 @@ async def review_ai_artifact(
     NO endpoint through which AI itself can approve or execute an artifact.
     """
     authorize_or_403(ctx, policy, Operation.REVIEW_AI_ARTIFACT)
-    deny_unavailable_identity(ctx)
 
     try:
         artifact_uuid = _uuid.UUID(artifact_id)
@@ -228,7 +211,7 @@ async def review_ai_artifact(
         patient = uow.patients.get(artifact.patient_id)
     except EntityNotFound:
         raise HTTPException(status_code=404, detail="Patient not found")
-    assert_tenant_scoped_patient(ctx, patient)
+    assert_authorized_clinician_facility(ctx, uow, patient)
 
     cmd = ReviewAIArtifact(
         artifact_id=artifact_uuid,

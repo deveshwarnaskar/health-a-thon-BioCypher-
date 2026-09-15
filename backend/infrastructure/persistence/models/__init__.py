@@ -5,6 +5,7 @@ Exports DeclarativeBase and all relational infrastructure models.
 
 from .base import Base
 from .tenant_models import FacilityModel, OrganizationModel
+from .identity_models import CaregiverRelationshipModel, IdentityPatientMappingModel
 from .patient_models import PatientModel
 from .clinician_models import CareTeamMemberModel
 from .observation_models import GlucoseObservationModel, MealObservationModel
@@ -18,6 +19,8 @@ __all__ = [
     "FacilityModel",
     "PatientModel",
     "CareTeamMemberModel",
+    "CaregiverRelationshipModel",
+    "IdentityPatientMappingModel",
     "GlucoseObservationModel",
     "MealObservationModel",
     "MedicationPlanModel",

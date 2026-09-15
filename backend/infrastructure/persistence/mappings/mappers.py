@@ -16,7 +16,10 @@ from backend.domain.entities import (
     CareTeamMember,
     CareTeamRole,
     CareTaskStatus,
+    CaregiverRelationship,
+    CaregiverRelationshipStatus,
     GlucoseObservation,
+    IdentityPatientMapping,
     MealObservation,
     MedicationPlan,
     Patient,
@@ -36,7 +39,9 @@ from ..models import (
     AIReviewArtifactModel,
     CareTaskModel,
     CareTeamMemberModel,
+    CaregiverRelationshipModel,
     GlucoseObservationModel,
+    IdentityPatientMappingModel,
     MealObservationModel,
     MedicationPlanModel,
     PatientModel,
@@ -258,4 +263,68 @@ def ai_artifact_to_model(
         summary=entity.summary,
         reviewed_by_user_id=entity.reviewed_by_user_id,
         created_at=entity.created_at,
+    )
+
+
+# --- CaregiverRelationship Mapping ---
+
+def caregiver_relationship_to_domain(model: CaregiverRelationshipModel) -> CaregiverRelationship:
+    return CaregiverRelationship(
+        id=model.id,
+        patient_id=model.patient_id,
+        caregiver_user_id=model.caregiver_user_id,
+        relationship=model.relationship_label,
+        status=CaregiverRelationshipStatus(model.status),
+        capabilities=frozenset((model.capabilities or []) if isinstance(model.capabilities, list) else []),
+        verified_at=model.verified_at,
+        revoked_at=model.revoked_at,
+        expires_at=model.expires_at,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+    )
+
+
+def caregiver_relationship_to_model(
+    entity: CaregiverRelationship, tenant_id: UUID
+) -> CaregiverRelationshipModel:
+    return CaregiverRelationshipModel(
+        id=entity.id,
+        tenant_id=tenant_id,
+        patient_id=entity.patient_id,
+        caregiver_user_id=entity.caregiver_user_id,
+        relationship_label=entity.relationship,
+        status=entity.status.value,
+        capabilities=sorted(entity.capabilities),
+        verified_at=entity.verified_at,
+        revoked_at=entity.revoked_at,
+        expires_at=entity.expires_at,
+        created_at=entity.created_at,
+        updated_at=entity.updated_at,
+    )
+
+
+# --- IdentityPatientMapping Mapping ---
+
+def identity_patient_mapping_to_domain(model: IdentityPatientMappingModel) -> IdentityPatientMapping:
+    return IdentityPatientMapping(
+        id=model.id,
+        user_id=model.user_id,
+        patient_id=model.patient_id,
+        active=model.active,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+    )
+
+
+def identity_patient_mapping_to_model(
+    entity: IdentityPatientMapping, tenant_id: UUID
+) -> IdentityPatientMappingModel:
+    return IdentityPatientMappingModel(
+        id=entity.id,
+        tenant_id=tenant_id,
+        user_id=entity.user_id,
+        patient_id=entity.patient_id,
+        active=entity.active,
+        created_at=entity.created_at,
+        updated_at=entity.updated_at,
     )

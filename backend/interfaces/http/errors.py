@@ -13,7 +13,12 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from backend.application.exceptions import ApplicationError, ReviewerNotAuthorized
+from backend.application.exceptions import (
+    ApplicationError,
+    DuplicateCaregiverRelationship,
+    DuplicateIdentityMapping,
+    ReviewerNotAuthorized,
+)
 from backend.domain.exceptions import (
     DomainError,
     EntityNotFound,
@@ -80,6 +85,18 @@ async def _reviewer_not_authorized_handler(
     return _error_response(403, "REVIEW_UNAUTHORIZED", "Insufficient authority to review AI artifacts", request)
 
 
+async def _duplicate_identity_mapping_handler(
+    request: Request, exc: DuplicateIdentityMapping
+) -> JSONResponse:
+    return _error_response(409, "IDENTITY_MAPPING_CONFLICT", "An active identity mapping already exists", request)
+
+
+async def _duplicate_caregiver_relationship_handler(
+    request: Request, exc: DuplicateCaregiverRelationship
+) -> JSONResponse:
+    return _error_response(409, "CAREGIVER_RELATIONSHIP_CONFLICT", "An active caregiver relationship already exists", request)
+
+
 async def _jwt_signature_handler(request: Request, exc: JwtSignatureError) -> JSONResponse:
     return _error_response(401, "JWT_SIGNATURE_INVALID", "JWT signature verification failed", request)
 
@@ -141,6 +158,8 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(InvalidStateTransition, _invalid_state_handler)
     app.add_exception_handler(UnauthorizedMedicationPlanMutation, _unauthorized_medication_handler)
     app.add_exception_handler(ReviewerNotAuthorized, _reviewer_not_authorized_handler)
+    app.add_exception_handler(DuplicateIdentityMapping, _duplicate_identity_mapping_handler)
+    app.add_exception_handler(DuplicateCaregiverRelationship, _duplicate_caregiver_relationship_handler)
     app.add_exception_handler(JwtSignatureError, _jwt_signature_handler)
     app.add_exception_handler(WebhookSignatureError, _webhook_signature_handler)
     app.add_exception_handler(VerifyTokenError, _verify_token_handler)

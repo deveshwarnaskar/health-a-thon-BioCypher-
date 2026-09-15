@@ -14,7 +14,9 @@ from ..repositories import (
     SqlAlchemyAIReviewArtifactRepository,
     SqlAlchemyCareTaskRepository,
     SqlAlchemyCareTeamMemberRepository,
+    SqlAlchemyCaregiverRelationshipRepository,
     SqlAlchemyGlucoseObservationRepository,
+    SqlAlchemyIdentityPatientMappingRepository,
     SqlAlchemyMealObservationRepository,
     SqlAlchemyMedicationPlanRepository,
     SqlAlchemyPatientRepository,
@@ -47,6 +49,8 @@ class SqlAlchemyUnitOfWork:
     def _init_repositories(self) -> None:
         self.patients = SqlAlchemyPatientRepository(self.session, self.tenant_id)
         self.care_team_members = SqlAlchemyCareTeamMemberRepository(self.session, self.tenant_id)
+        self.caregiver_relationships = SqlAlchemyCaregiverRelationshipRepository(self.session, self.tenant_id)
+        self.identity_mappings = SqlAlchemyIdentityPatientMappingRepository(self.session, self.tenant_id)
         self.glucose_observations = SqlAlchemyGlucoseObservationRepository(self.session, self.tenant_id)
         self.meal_observations = SqlAlchemyMealObservationRepository(self.session, self.tenant_id)
         self.medication_plans = SqlAlchemyMedicationPlanRepository(self.session, self.tenant_id)

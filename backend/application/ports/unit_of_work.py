@@ -17,7 +17,9 @@ from .repositories import (
     AIReviewArtifactRepository,
     CareTaskRepository,
     CareTeamMemberRepository,
+    CaregiverRelationshipRepository,
     GlucoseObservationRepository,
+    IdentityPatientMappingRepository,
     MealObservationRepository,
     MedicationPlanRepository,
     PatientRepository,
@@ -33,6 +35,8 @@ class UnitOfWork(Protocol):
     medication_plans: MedicationPlanRepository
     care_tasks: CareTaskRepository
     ai_artifacts: AIReviewArtifactRepository
+    caregiver_relationships: CaregiverRelationshipRepository
+    identity_mappings: IdentityPatientMappingRepository
 
     def commit(self) -> None: ...
 
