@@ -1,5 +1,4 @@
-"""HTTP interface boundary (Gate 02B placeholder).
+"""HTTP interface boundary (Gate 07).
 
-The v1 API remains live through ``app/server/main.py``; the target v2 API will
-be authored here in a later gate.
+Thin FastAPI adapter layer. Business logic lives in application/domain layers.
 """

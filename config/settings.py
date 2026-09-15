@@ -48,6 +48,7 @@ class IdentityConfig(BaseModel):
 
 class WhatsAppConfig(BaseModel):
     verify_token: str = Field(default="", description="Meta webhook verify token (empty default)")
+    app_secret: str = Field(default="", description="Meta app secret used to verify X-Hub-Signature-256")
     access_token: str = Field(default="")
     phone_number_id: str = Field(default="")
     api_version: str = Field(default="v21.0")
