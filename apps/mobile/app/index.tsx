@@ -1,75 +1,52 @@
 import React from "react";
-import { router } from "expo-router";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { AppCard } from "../src/components/primitives/AppCard";
-import { roleLabel, ROLES, type Role } from "../src/authz/roles";
-import { useUiStore } from "../src/store/uiStore";
-import { colors, spacing, typography } from "../src/theming/tokens";
+import { Redirect } from "expo-router";
+import { LoadingState } from "../src/components/primitives/LoadingState";
+import { useAuth } from "../src/auth/AuthProvider";
+import { readApiConfig } from "../src/services/api/config";
+
+const apiConfig = readApiConfig();
 
 /**
- * Gate 10B placeholder entry: choose the shell preview mode. Authentication
- * and automatic role resolution from AuthVerify land in Gate 10C; this screen
- * exercises the role-aware shell without faking an identity.
+ * Root route.  Redirects to the appropriate area based on the current
+ * authentication state, or holds a loading screen during bootstrap to
+ * prevent unauthenticated protected views from flashing.
  */
-export default function ModeSelectScreen() {
-  const setActiveRoleMode = useUiStore((state) => state.setActiveRoleMode);
+export default function RootIndex() {
+  if (!apiConfig.authEnabled) {
+    return <Redirect href="/(auth)/not-configured" />;
+  }
 
-  const chooseRole = (role: Role) => {
-    setActiveRoleMode(role);
-    router.push("/shell");
-  };
-
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title} allowFontScaling>
-        THALI x P.L.A.T.E.
-      </Text>
-      <Text style={styles.subtitle} allowFontScaling>
-        Gate 10B foundation — choose a role to preview the role-aware shell.
-        Authentication wiring is deferred to Gate 10C.
-      </Text>
-
-      <View style={styles.roles}>
-        {ROLES.map((role) => (
-          <AppCard
-            key={role}
-            accessibilityLabel={`Preview ${roleLabel(role)} mode`}
-            onPress={() => chooseRole(role)}
-          >
-            <Text style={styles.roleLabel} allowFontScaling>
-              {roleLabel(role)}
-            </Text>
-          </AppCard>
-        ))}
-      </View>
-    </ScrollView>
-  );
+  return <AuthDrivenIndex />;
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  content: {
-    padding: spacing.lg,
-    gap: spacing.lg,
-  },
-  title: {
-    fontSize: typography.fontSize.display,
-    fontWeight: "700",
-    color: colors.primary,
-  },
-  subtitle: {
-    fontSize: typography.fontSize.body,
-    color: colors.textSecondary,
-  },
-  roles: {
-    gap: spacing.sm,
-  },
-  roleLabel: {
-    fontSize: typography.fontSize.body,
-    fontWeight: "600",
-    color: colors.textPrimary,
-  },
-});
+function AuthDrivenIndex() {
+  const { state } = useAuth();
+
+  switch (state.name) {
+    case "unknown":
+    case "bootstrapping":
+      return <LoadingState label="Preparing application…" />;
+
+    case "authenticating":
+      return <LoadingState label="Signing in…" />;
+
+    case "authenticated":
+      return <Redirect href="/(app)/shell" />;
+
+    case "session_expired":
+    case "failed":
+    case "unauthenticated":
+      return <Redirect href="/(auth)/login" />;
+
+    case "access_denied":
+    case "deactivated":
+      return <Redirect href="/(app)/access-denied" />;
+
+    case "session_expiring":
+    case "refreshing":
+      return <LoadingState label="Restoring session…" />;
+
+    default:
+      return <LoadingState label="Preparing application…" />;
+  }
+}

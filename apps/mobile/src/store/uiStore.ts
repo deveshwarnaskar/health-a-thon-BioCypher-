@@ -15,6 +15,8 @@ type UiState = {
   modalKey: string | null;
   openModal: (key: string) => void;
   closeModal: () => void;
+
+  reset: () => void;
 };
 
 export const useUiStore = create<UiState>((set) => ({
@@ -24,4 +26,6 @@ export const useUiStore = create<UiState>((set) => ({
   modalKey: null,
   openModal: (key) => set({ modalKey: key }),
   closeModal: () => set({ modalKey: null }),
+
+  reset: () => set({ activeRoleMode: null, modalKey: null }),
 }));

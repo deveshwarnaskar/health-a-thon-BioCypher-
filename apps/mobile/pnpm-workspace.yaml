@@ -2,3 +2,9 @@
 # No `packages` field: this is a self-contained app, not a monorepo workspace.
 allowBuilds:
   unrs-resolver: true
+minimumReleaseAgeExclude:
+  - '@expo/cli@57.0.25'
+  - '@expo/router-server@57.0.10'
+  - '@types/node@24.13.5'
+  - babel-preset-expo@57.0.12
+  - expo@57.0.23
