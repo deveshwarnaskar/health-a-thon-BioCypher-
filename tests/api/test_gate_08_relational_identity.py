@@ -20,6 +20,7 @@ from uuid import uuid4
 
 import pytest
 
+from backend.domain.entities import CareTeamMember, CareTeamRole
 from backend.infrastructure.persistence.uow.sqlalchemy_uow import SqlAlchemyUnitOfWork
 from tests.api.conftest import (
     bearer,
@@ -85,6 +86,28 @@ class TestIdentityMappingAdmin:
             json={"user_id": _uid(), "patient_id": str(patient_id)},
             headers=bearer(token),
         )
+        assert resp.status_code == 403
+
+    def test_identity_admin_cannot_access_clinical_data(self, db_client):
+        c, sf = db_client
+        tid, fid, admin_id, patient_id = uuid4(), uuid4(), uuid4(), uuid4()
+        seed_org(sf, tid, "adm-clin")
+        seed_facility(sf, tid, fid, "F")
+        seed_patient(sf, tid, patient_id, facility_id=fid, name="Clinical")
+        seed_glucose(sf, tid, patient_id, value=120)
+
+        admin_token = make_jwt(sub=str(admin_id), tenant_id=str(tid), roles=["admin"])
+
+        # Identity-administrative authority IS held: admin can manage mappings.
+        created = c.post(
+            "/api/v2/admin/identity-mappings",
+            json={"user_id": str(uuid4()), "patient_id": str(patient_id)},
+            headers=bearer(admin_token),
+        )
+        assert created.status_code == 201
+
+        # ...but it must NOT confer clinical patient-data authority.
+        resp = c.get(f"/api/v2/clinical/observations?patient_id={patient_id}", headers=bearer(admin_token))
         assert resp.status_code == 403
 
     def test_deactivate_mapping_revokes_patient_self_access(self, db_client):
@@ -354,6 +377,35 @@ class TestCareTeamMemberFacilityAuthority:
         token = make_jwt(sub=str(actor_id), tenant_id=str(tid), roles=["doctor"], facility_id=str(fid_b))
         resp = c.get(f"/api/v2/clinical/observations?patient_id={patient_id}", headers=bearer(token))
         assert resp.status_code == 403
+
+    def test_deactivated_clinician_denied_immediately(self, db_client):
+        c, sf = db_client
+        tid, fid, actor_id, patient_id = uuid4(), uuid4(), uuid4(), uuid4()
+        seed_org(sf, tid, "inactive-member")
+        seed_facility(sf, tid, fid, "F")
+        seed_patient(sf, tid, patient_id, facility_id=fid, name="InFacility")
+        seed_glucose(sf, tid, patient_id, value=130)
+
+        # Current (only) membership row is deactivated server-side. The JWT
+        # carries a valid doctor role and a matching facility_id, but the JWT
+        # must NOT override the authoritative membership state.
+        with SqlAlchemyUnitOfWork(sf, tid) as uow:
+            uow.care_team_members.add(
+                CareTeamMember(
+                    id=uuid4(),
+                    user_id=actor_id,
+                    role=CareTeamRole.DOCTOR,
+                    facility_id=fid,
+                    display_name="Deactivated",
+                    active=False,
+                )
+            )
+            uow.commit()
+
+        token = make_jwt(sub=str(actor_id), tenant_id=str(tid), roles=["doctor"], facility_id=str(fid))
+        resp = c.get(f"/api/v2/clinical/observations?patient_id={patient_id}", headers=bearer(token))
+        assert resp.status_code == 403
+        assert resp.json()["error"]["code"] == "AUTHORIZATION_DENIED"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ database.
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import uuid4
 
 import pytest
@@ -92,6 +93,37 @@ class TestCaregiverRelationshipLifecycle:
         world["app"].verify_caregiver.handle(VerifyCaregiverRelationship(relationship_id=reg.relationship_id))
         with pytest.raises(InvalidStateTransition):
             world["app"].verify_caregiver.handle(VerifyCaregiverRelationship(relationship_id=reg.relationship_id))
+
+    def test_verified_expires_via_domain_transition(self, world):
+        cg = uuid4()
+        reg = world["app"].register_caregiver.handle(
+            RegisterCaregiverRelationship(
+                patient_id=PATIENT_ID, caregiver_user_id=cg, relationship_label="x"
+            )
+        )
+        world["app"].verify_caregiver.handle(VerifyCaregiverRelationship(relationship_id=reg.relationship_id))
+        rel = world["uow"].caregiver_relationships.get(reg.relationship_id)
+        assert rel.status is CaregiverRelationshipStatus.VERIFIED
+
+        rel.expire()
+
+        assert rel.status is CaregiverRelationshipStatus.EXPIRED
+        assert not rel.active
+        assert rel.verified_at is not None
+        assert not rel.is_granted_at(datetime.utcnow())
+
+    def test_expire_guarded_rejects_revoked_relationship(self, world):
+        cg = uuid4()
+        reg = world["app"].register_caregiver.handle(
+            RegisterCaregiverRelationship(
+                patient_id=PATIENT_ID, caregiver_user_id=cg, relationship_label="x"
+            )
+        )
+        world["app"].revoke_caregiver.handle(RevokeCaregiverRelationship(relationship_id=reg.relationship_id))
+        rel = world["uow"].caregiver_relationships.get(reg.relationship_id)
+        with pytest.raises(InvalidStateTransition):
+            rel.expire()
+        assert rel.status is CaregiverRelationshipStatus.REVOKED
 
     def test_revoke_denies_access_lifecycle(self, world):
         cg = uuid4()
