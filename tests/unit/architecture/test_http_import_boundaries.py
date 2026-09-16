@@ -26,6 +26,8 @@ _ALLOWED_PKG = {
     "collections.abc", "datetime", "pathlib", "sys", "os", "abc",
     "copy", "functools", "itertools", "typing_extensions",
     "__future__",
+    # Gate 10C-R: RS256 signature verification + Keycloak JWKS retrieval.
+    "jwt", "cryptography", "httpx",
 }
 
 # Forbidden import path prefixes (within backend)

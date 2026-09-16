@@ -46,8 +46,16 @@ class StorageConfig(BaseModel):
 class IdentityConfig(BaseModel):
     issuer_url: str = Field(default="", description="Keycloak/OIDC issuer (integration deferred)")
     realm: str = Field(default="")
-    client_id: str = Field(default="")
+    client_id: str = Field(default="", description="backend client/resource identifier; also the expected JWT audience")
     client_secret: str = Field(default="", description="never commit real secrets")
+    allowed_algorithms: str = Field(
+        default="RS256",
+        description="comma-separated allow-list of JWT algorithms accepted at the trust boundary; RS256 (Keycloak JWKS) is the production policy, HS256 is development/testing only",
+    )
+    jwks_uri: str = Field(
+        default="",
+        description="explicit JWKS endpoint; when empty, OIDC discovery metadata from the issuer is used",
+    )
 
 
 class WhatsAppConfig(BaseModel):

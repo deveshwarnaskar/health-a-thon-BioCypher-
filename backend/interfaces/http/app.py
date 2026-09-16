@@ -76,7 +76,12 @@ def create_app() -> FastAPI:
                 "type": "http",
                 "scheme": "bearer",
                 "bearerFormat": "JWT",
-                "description": "Gate 06/07 verified HS256 JWT (Authorization: Bearer <token>)",
+                "description": (
+                    "Keycloak-issued OIDC access token. Verified against the "
+                    "configured trust boundary: RS256 via JWKS with issuer and "
+                    "audience validation (HS256 accepted in development/testing "
+                    "configurations only). Use Authorization: Bearer <token>."
+                ),
             }
         return schema
 

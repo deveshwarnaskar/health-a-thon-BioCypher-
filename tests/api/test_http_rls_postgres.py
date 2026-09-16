@@ -13,11 +13,15 @@ Skips automatically when local PostgreSQL is unavailable.
 
 from __future__ import annotations
 
+import base64
+import time
 from uuid import uuid4
 
+import jwt as pyjwt
 import pytest
 from alembic import command
 from alembic.config import Config
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import Depends
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -30,9 +34,13 @@ from backend.interfaces.http.dependencies import (
     get_authenticated_context,
     get_event_publisher,
     get_unit_of_work,
+    reset_config_cache,
 )
+from backend.interfaces.http.v2.security import jwks as jwks_module
 from backend.interfaces.http.v2.security.authorization import AuthenticatedContext
 from tests.api.conftest import (
+    TEST_CLIENT_ID,
+    TEST_ISSUER,
     bearer,
     make_jwt,
     seed_facility,
@@ -173,3 +181,118 @@ class TestHTTPToRLSChain:
             )
             result_b = conn.execute(text("SELECT count(*) FROM patients")).scalar()
             assert result_b == 1, "RLS must expose exactly tenant B's patient"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Gate 10C-R: RS256 (Keycloak JWKS) → HTTP → UoW → PostgreSQL RLS
+# ─────────────────────────────────────────────────────────────────────────────
+
+RSA_PRIVATE = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+RSA_PUBLIC = RSA_PRIVATE.public_key()
+RS256_KID = "pg-rs256-kid"
+RS256_JWKS_URL = "https://pg-rs256.example/jwks"
+
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def _make_jwk() -> dict:
+    nums = RSA_PUBLIC.public_numbers()
+    n_bytes = nums.n.to_bytes((nums.n.bit_length() + 7) // 8, "big")
+    e_bytes = nums.e.to_bytes((nums.e.bit_length() + 7) // 8, "big")
+    return {
+        "kty": "RSA",
+        "use": "sig",
+        "alg": "RS256",
+        "kid": RS256_KID,
+        "n": _b64url(n_bytes),
+        "e": _b64url(e_bytes),
+    }
+
+
+def _rs256_token(*, sub, tenant_id, roles=None, facility_id=None, private_key=None):
+    payload: dict = {
+        "iss": TEST_ISSUER,
+        "aud": TEST_CLIENT_ID,
+        "sub": str(sub),
+        "tenant_id": str(tenant_id),
+        "exp": int(time.time()) + 3600,
+    }
+    if roles:
+        payload["realm_access"] = {"roles": roles}
+    if facility_id:
+        payload["facility_id"] = str(facility_id)
+    return pyjwt.encode(payload, private_key or RSA_PRIVATE, algorithm="RS256", headers={"kid": RS256_KID})
+
+
+@pytest.fixture
+def rs256_policy(monkeypatch):
+    """RS256-only trust boundary with a deterministic fake JWKS endpoint."""
+    monkeypatch.setenv("THALI_IDENTITY__ALLOWED_ALGORITHMS", "RS256")
+    monkeypatch.setenv("THALI_IDENTITY__JWKS_URI", RS256_JWKS_URL)
+    reset_config_cache()
+
+    async def fake_fetch(url: str):
+        return {"keys": [_make_jwk()]}
+
+    monkeypatch.setattr(jwks_module, "fetch_json", fake_fetch)
+    reset_config_cache()
+    yield fake_fetch
+    reset_config_cache()
+
+
+class TestHTTPToRLSChainRs256:
+    """Gate 10C-R RS256 chain proof against real PostgreSQL RLS."""
+
+    def test_rs256_tenant_reads_own_data_over_http(self, postgres_db, rs256_policy):
+        session_factory, _ = postgres_db
+        client = _build_app(session_factory)
+
+        tid = uuid4()
+        fid = uuid4()
+        actor_id = uuid4()
+        patient_id = uuid4()
+
+        seed_org(session_factory, tid, f"pg-rs256-a-{tid.hex[:6]}")
+        seed_facility(session_factory, tid, fid, "Facility A")
+        seed_patient(session_factory, tid, patient_id, facility_id=fid, name="Alpha")
+        seed_member(session_factory, tid, user_id=actor_id, role="doctor", facility_id=fid)
+        seed_glucose(session_factory, tid, patient_id, value=125)
+
+        token = _rs256_token(sub=actor_id, tenant_id=tid, roles=["doctor"], facility_id=fid)
+        resp = client.get(f"/api/v2/clinical/observations?patient_id={patient_id}", headers=bearer(token))
+        assert resp.status_code == 200
+        items = resp.json()["items"]
+        assert any(i.get("value_mg_dl") == 125 for i in items if i.get("kind") == "glucose")
+
+    def test_rs256_cross_tenant_blocked_by_rls(self, postgres_db, rs256_policy):
+        session_factory, _ = postgres_db
+        client = _build_app(session_factory)
+
+        tid_a = uuid4()
+        tid_b = uuid4()
+        fid = uuid4()
+        actor_a = uuid4()
+        patient_b_id = uuid4()
+
+        seed_org(session_factory, tid_a, f"pg-rs256-a-{tid_a.hex[:6]}")
+        seed_org(session_factory, tid_b, f"pg-rs256-b-{tid_b.hex[:6]}")
+        seed_facility(session_factory, tid_b, fid, "Facility B")
+        seed_patient(session_factory, tid_b, patient_b_id, facility_id=fid, name="Beta")
+        seed_member(session_factory, tid_a, user_id=actor_a, role="doctor", facility_id=fid)
+
+        token = _rs256_token(sub=actor_a, tenant_id=tid_a, roles=["doctor"], facility_id=fid)
+        resp = client.get(f"/api/v2/clinical/observations?patient_id={patient_b_id}", headers=bearer(token))
+        assert resp.status_code in (403, 404)
+
+    def test_rs256_bad_signature_rejected_before_touching_rls(self, rs256_policy):
+        """An RS256 token signed by an unknown key must never reach the DB."""
+        other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        client = TestClient(create_app(), raise_server_exceptions=False)
+
+        tid = uuid4()
+        actor_id = uuid4()
+        token = _rs256_token(sub=actor_id, tenant_id=tid, roles=["admin"], private_key=other)
+        resp = client.get("/api/v2/auth/verify", headers=bearer(token))
+        assert resp.status_code == 401

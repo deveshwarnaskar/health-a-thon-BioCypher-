@@ -45,6 +45,7 @@ from backend.interfaces.http.v2.security.authorization import AuthenticatedConte
 
 TEST_SECRET = "test-secret"
 TEST_ISSUER = "http://test-issuer"
+TEST_CLIENT_ID = "test-backend-client"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -56,6 +57,12 @@ TEST_ISSUER = "http://test-issuer"
 def _test_config(monkeypatch):
     monkeypatch.setenv("THALI_IDENTITY__CLIENT_SECRET", TEST_SECRET)
     monkeypatch.setenv("THALI_IDENTITY__ISSUER_URL", TEST_ISSUER)
+    # Audience is validated against client_id at the trust boundary.
+    monkeypatch.setenv("THALI_IDENTITY__CLIENT_ID", TEST_CLIENT_ID)
+    # These legacy HS256 boundary tests stay on the development-only HS256
+    # algorithm via an EXPLICIT per-test override — RS256 remains the default.
+    monkeypatch.setenv("THALI_IDENTITY__ALLOWED_ALGORITHMS", "HS256")
+    monkeypatch.setenv("THALI_IDENTITY__JWKS_URI", "")
     monkeypatch.setenv("THALI_APP__ENV", "development")
     monkeypatch.setenv("THALI_DATABASE__URL", "")
     reset_config_cache()
@@ -80,15 +87,21 @@ def make_jwt(
     facility_id: str | None = None,
     exp: float | None = None,
     iss: str | None = None,
+    aud: str | None = None,
     secret: str = TEST_SECRET,
     extra: dict | None = None,
 ) -> str:
-    """Build an HS256-signed JWT for testing (deterministic, no external libs)."""
+    """Build an HS256-signed JWT for testing (deterministic, no external libs).
+
+    ``aud`` defaults to the configured test audience; pass ``aud=None`` and
+    override via ``extra`` to craft audience-mismatch cases.
+    """
     header = {"alg": "HS256", "typ": "JWT"}
     payload: dict[str, Any] = {
         "sub": sub or str(uuid4()),
         "tenant_id": tenant_id or str(uuid4()),
         "iss": iss if iss is not None else TEST_ISSUER,
+        "aud": aud if aud is not None else TEST_CLIENT_ID,
         "exp": exp if exp is not None else int(time.time()) + 3600,
     }
     if roles is not None:

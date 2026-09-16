@@ -1,15 +1,17 @@
-"""FastAPI dependency injection functions (Gate 07).
+"""FastAPI dependency injection functions (Gate 07 + Gate 10C-R).
 
 All dependencies are request-scoped. No global mutable singletons carry
 request-specific actor/tenant/patient/role data.
 
-Authentication pipeline:
+Authentication pipeline (production trust boundary):
 
     Authorization: Bearer <token>
         → extract token
-        → cryptographic verification (Gate 06 HS256 primitive)
+        → algorithm allow-list policy (default RS256; HS256 development-only)
+        → RS256: Keycloak JWKS signature verification (kid-selected key)
+          HS256: stdlib HMAC verification (explicit dev/test config)
+        → issuer/audience/expiry validation (configured values, never token)
         → trusted claims
-        → issuer/expiry validation
         → principal construction
         → AuthenticatedContext
 
@@ -27,7 +29,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Annotated, AsyncGenerator
+from typing import TYPE_CHECKING, Annotated, Any, AsyncGenerator
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException
@@ -42,7 +44,14 @@ from backend.interfaces.http.v2.security.authorization import (
     DefaultAuthorizationPolicy,
     RelationshipAuthorizationPolicy,
 )
-from backend.interfaces.http.v2.security.jwt import JwtSignatureError, verify_hs256
+from backend.interfaces.http.v2.security.jwt import (
+    JwtSignatureError,
+    TokenVerificationError,
+    jwt_header,
+    verify_hs256,
+    verify_rs256,
+)
+from backend.interfaces.http.v2.security.jwks import JwksClient
 from backend.interfaces.http.v2.security.roles import role_tokens
 
 if TYPE_CHECKING:
@@ -52,6 +61,7 @@ logger = logging.getLogger(__name__)
 
 _config_cache: dict = {}
 _engine_cache: dict[str, Engine] = {}
+_jwks_client: JwksClient | None = None
 
 
 def _load_config() -> dict:
@@ -65,12 +75,25 @@ def _load_config() -> dict:
         _config_cache["whatsapp_verify_token"] = settings.whatsapp.verify_token or "thali-dev-verify-token"
         _config_cache["whatsapp_app_secret"] = settings.whatsapp.app_secret or "dev-webhook-secret-change-in-production"
         _config_cache["app_env"] = settings.app.env
+        # Gate 10C-R trust-boundary policy: explicit allow-list (default RS256).
+        # HS256 is development/testing ONLY and is never active without an
+        # explicit THALI_IDENTITY__ALLOWED_ALGORITHMS override.
+        configured = (settings.identity.allowed_algorithms or "RS256").split(",")
+        _config_cache["allowed_algorithms"] = {
+            a.strip().upper() for a in configured if a.strip()
+        } or {"RS256"}
+        _config_cache["jwks_uri"] = (settings.identity.jwks_uri or "").strip()
+        # Expected JWT audience == the configured backend client/resource
+        # identifier. Empty => audience validation fails closed.
+        _config_cache["audience"] = (settings.identity.client_id or "").strip()
     return _config_cache
 
 
 def reset_config_cache() -> None:
     """Clear cached configuration (used by tests)."""
+    global _jwks_client
     _config_cache.clear()
+    _jwks_client = None
 
 
 def get_jwt_secret() -> str:
@@ -97,9 +120,119 @@ def get_app_env() -> str:
     return _load_config()["app_env"]
 
 
+def get_allowed_algorithms() -> set[str]:
+    return set(_load_config()["allowed_algorithms"])
+
+
+def get_jwks_uri() -> str:
+    return _load_config()["jwks_uri"]
+
+
+def get_expected_audience() -> str:
+    return _load_config()["audience"]
+
+
+def _build_jwks_client() -> JwksClient:
+    cfg = _load_config()
+    return JwksClient(issuer_url=cfg["issuer_url"], jwks_uri=cfg["jwks_uri"])
+
+
+def _get_jwks_client() -> JwksClient:
+    global _jwks_client
+    if _jwks_client is None:
+        _jwks_client = _build_jwks_client()
+    return _jwks_client
+
+
 def get_authorization_policy() -> RelationshipAuthorizationPolicy:
     """Return the Gate 08 policy: coarse RBAC + relational identity grants."""
     return RelationshipAuthorizationPolicy()
+
+
+def _audience_matches(aud: Any, expected: str) -> bool:
+    return aud == expected or (isinstance(aud, list) and expected in aud)
+
+
+async def verify_access_token(token: str) -> dict:
+    """Verify a bearer token against the configured trust boundary.
+
+    Enforces the configured algorithm allow-list (never the token's own button),
+    then dispatches to RS256 (Keycloak JWKS) or HS256 (dev/test-only) signature
+    verification, and finally applies issuer/audience/expiry/subject/tenant
+    claim validation using configured values only.
+
+    Returns the verified claims dict. Raises ``TokenVerificationError`` with a
+    safe, non-sensitive message on any failure.
+    """
+    cfg = _load_config()
+    try:
+        header = jwt_header(token)
+    except JwtSignatureError as exc:
+        raise TokenVerificationError("authentication credentials are invalid") from exc
+
+    alg = header.get("alg")
+    allowed = cfg["allowed_algorithms"]
+    if not isinstance(alg, str) or alg not in allowed:
+        raise TokenVerificationError("unsupported token algorithm")
+
+    if alg == "HS256":
+        try:
+            result = verify_hs256(token, cfg["jwt_secret"])
+        except JwtSignatureError as exc:
+            raise TokenVerificationError("authentication credentials are invalid") from exc
+        payload = result.payload
+    elif alg == "RS256":
+        kid = header.get("kid")
+        if not isinstance(kid, str) or not kid:
+            raise TokenVerificationError("token is missing a key id")
+        try:
+            signing_key = await _get_jwks_client().signing_key(kid)
+            payload = verify_rs256(
+                token,
+                signing_key.public_key,
+                algorithms=[alg],
+                audience=cfg["audience"],
+                issuer=cfg["issuer_url"],
+            )
+        except TokenVerificationError:
+            raise
+        except (JwtSignatureError, Exception) as exc:
+            raise TokenVerificationError("authentication credentials are invalid") from exc
+    else:
+        raise TokenVerificationError("unsupported token algorithm")
+
+    # Common claims validation — uses configured values ONLY, never claims that
+    # the token itself asserts as authoritative (defense in depth for both paths).
+    expected_iss = cfg["issuer_url"]
+    if expected_iss:
+        iss = payload.get("iss")
+        if not isinstance(iss, str) or iss != expected_iss:
+            raise TokenVerificationError("invalid issuer")
+
+    expected_aud = cfg["audience"]
+    if not expected_aud:
+        raise TokenVerificationError("audience is not configured")
+    if not _audience_matches(payload.get("aud"), expected_aud):
+        raise TokenVerificationError("token audience mismatch")
+
+    exp = payload.get("exp")
+    if exp is not None:
+        if not isinstance(exp, (int, float)) or time.time() > exp:
+            raise TokenVerificationError("authentication token has expired")
+
+    sub = payload.get("sub")
+    if not isinstance(sub, str) or not sub:
+        raise TokenVerificationError("token missing subject claim")
+
+    tenant_id_claim = payload.get("tenant_id")
+    if not tenant_id_claim:
+        raise TokenVerificationError("token missing tenant_id claim")
+    try:
+        UUID(str(tenant_id_claim))
+    except (ValueError, TypeError) as exc:
+        raise TokenVerificationError("malformed tenant identifier") from exc
+
+    return payload
 
 
 async def get_verified_claims(
@@ -108,49 +241,18 @@ async def get_verified_claims(
     """Extract and cryptographically verify the JWT from the Authorization header.
 
     Never authorizes using an unverified token. Rejects expired, malformed,
-    invalid-signature, unsupported-algorithm, wrong-issuer, missing-subject and
-    missing-tenant tokens.
+    invalid-signature, unsupported-algorithm, wrong-issuer, wrong-audience,
+    missing-subject and missing-tenant tokens.
     """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Bearer token is required")
 
     token = authorization[len("Bearer "):]
-    secret = get_jwt_secret()
 
     try:
-        result = verify_hs256(token, secret)
-    except JwtSignatureError as exc:
-        raise HTTPException(status_code=401, detail="Authentication credentials are invalid") from exc
-    except Exception as exc:
-        # Any structurally-malformed token (non-dict header, bad segments, etc.)
-        # must fail closed as 401, never as a server error.
-        raise HTTPException(status_code=401, detail="Authentication credentials are invalid") from exc
-
-    payload = result.payload
-
-    exp = payload.get("exp")
-    if exp is not None and time.time() > exp:
-        raise HTTPException(status_code=401, detail="Authentication token has expired")
-
-    expected_iss = get_issuer_url()
-    if expected_iss:
-        iss = payload.get("iss")
-        if not iss or iss != expected_iss:
-            raise HTTPException(status_code=401, detail="Invalid issuer")
-
-    sub = payload.get("sub")
-    if not sub:
-        raise HTTPException(status_code=401, detail="Token missing subject claim")
-
-    tenant_id_claim = payload.get("tenant_id")
-    if not tenant_id_claim:
-        raise HTTPException(status_code=401, detail="Token missing tenant_id claim")
-    try:
-        UUID(str(tenant_id_claim))
-    except (ValueError, TypeError) as exc:
-        raise HTTPException(status_code=401, detail="Malformed tenant identifier") from exc
-
-    return payload
+        return await verify_access_token(token)
+    except TokenVerificationError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
 async def get_authenticated_context(

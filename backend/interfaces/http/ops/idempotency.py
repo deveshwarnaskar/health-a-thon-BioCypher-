@@ -29,10 +29,13 @@ from typing import Any
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
-from backend.interfaces.http.dependencies import _get_engine, get_db_url
+from backend.interfaces.http.dependencies import (
+    _get_engine,
+    get_db_url,
+    verify_access_token,
+)
 from backend.infrastructure.config.database import create_session_factory
 from backend.infrastructure.persistence.ops.idempotency_store import SqlAlchemyIdempotencyStore
-from backend.interfaces.http.v2.security.jwt import verify_hs256
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +83,7 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         if not _KEY_RE.match(key):
             return self._error(request, 400, "INVALID_IDEMPOTENCY_KEY", "Idempotency-Key header is malformed")
 
-        claims = self._safe_claims(request)
+        claims = await self._safe_claims(request)
         if claims is None:
             return await call_next(request)
 
@@ -165,15 +168,22 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             "Idempotency-Key was reused with a different request payload",
         )
 
-    def _safe_claims(self, request: Request) -> dict | None:
+    async def _safe_claims(self, request: Request) -> dict | None:
+        """Best-effort tenant/actor claims via the shared trust boundary.
+
+        Uses the SAME configured verification/algorithm policy as the main
+        authentication boundary (``dependencies.verify_access_token``) — there
+        is no independent legacy crypto path here. Any failure yields None and
+        the route's own authentication dependency produces the 401.
+        """
         authorization = request.headers.get("authorization")
         if not authorization or not authorization.startswith("Bearer "):
             return None
         token = authorization[len("Bearer "):]
         try:
-            payload = verify_hs256(token, self._secret).payload
-            actor_id = uuid.UUID(str(payload.get("sub")))
-            tenant_id = uuid.UUID(str(payload.get("tenant_id")))
+            payload = await verify_access_token(token)
+            actor_id = uuid.UUID(str(payload["sub"]))
+            tenant_id = uuid.UUID(str(payload["tenant_id"]))
         except Exception:
             return None
         return {"actor_id": actor_id, "tenant_id": tenant_id}
