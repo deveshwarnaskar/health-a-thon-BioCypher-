@@ -1,6 +1,7 @@
 """Domain events (Gate 03)."""
 
 from .base import DomainEvent
+from .channel import ChannelMessageQueued
 from .clinical import (
     AIArtifactGenerated,
     AIArtifactReviewed,
@@ -22,6 +23,7 @@ from .identity import (
 
 __all__ = [
     "DomainEvent",
+    "ChannelMessageQueued",
     "GlucoseObservationRecorded",
     "MealObservationRecorded",
     "MealObservationConfirmed",

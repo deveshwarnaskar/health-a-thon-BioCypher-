@@ -25,6 +25,10 @@ class DatabaseConfig(BaseModel):
 
 
 class RedisConfig(BaseModel):
+    enabled: bool = Field(
+        default=False,
+        description="enable distributed rate-limit coordination (default OFF preserves the offline test baseline)",
+    )
     host: str = Field(default="localhost")
     port: int = Field(default=6379, ge=1, le=65535)
     password: str | None = Field(default=None, description="leave unset; never commit real passwords")

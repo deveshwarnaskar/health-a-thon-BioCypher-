@@ -41,3 +41,6 @@ class UnitOfWork(Protocol):
     def commit(self) -> None: ...
 
     def rollback(self) -> None: ...
+
+    def close(self) -> None:
+        """Release the underlying transaction resources (no-op for in-memory fakes)."""

@@ -12,6 +12,7 @@ from .observation_models import GlucoseObservationModel, MealObservationModel
 from .plan_models import CareTaskModel, MedicationPlanModel
 from .ai_models import AIReviewArtifactModel
 from .outbox_models import DomainEventOutboxModel
+from .ops_models import AuditEventModel, IdempotencyRecordModel, WebhookReceiptModel
 
 __all__ = [
     "Base",
@@ -27,4 +28,7 @@ __all__ = [
     "CareTaskModel",
     "AIReviewArtifactModel",
     "DomainEventOutboxModel",
+    "IdempotencyRecordModel",
+    "WebhookReceiptModel",
+    "AuditEventModel",
 ]

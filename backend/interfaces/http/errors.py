@@ -19,6 +19,11 @@ from backend.application.exceptions import (
     DuplicateIdentityMapping,
     ReviewerNotAuthorized,
 )
+from backend.application.ops.errors import (
+    IdempotentReplay,
+    OpsError,
+    RateLimitExceeded,
+)
 from backend.domain.exceptions import (
     DomainError,
     EntityNotFound,
@@ -113,6 +118,47 @@ async def _domain_error_handler(request: Request, exc: DomainError) -> JSONRespo
     return _error_response(400, "DOMAIN_ERROR", "The request violates a business rule", request)
 
 
+async def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    response = _error_response(
+        429,
+        "RATE_LIMIT_EXCEEDED",
+        "Too many requests",
+        request,
+    )
+    result = exc.result
+    response.headers["Retry-After"] = str(result.retry_after_seconds)
+    response.headers["X-RateLimit-Limit"] = str(result.limit)
+    response.headers["X-RateLimit-Remaining"] = str(result.remaining)
+    response.headers["X-RateLimit-Reset"] = str(result.reset_epoch)
+    return response
+
+
+async def _idempotent_replay_handler(request: Request, exc: IdempotentReplay) -> JSONResponse:
+    from fastapi.responses import JSONResponse as JSONResponseImpl
+
+    headers = dict(getattr(exc, "headers", None) or {})
+    headers["Idempotent-Replayed"] = "true"
+    content = {"status": "ok"}
+    if getattr(exc, "body", ""):
+        try:
+            import json
+
+            parsed = json.loads(exc.body)
+            if isinstance(parsed, dict):
+                content = parsed
+        except (ValueError, TypeError):
+            content = {"error": {"code": "REPLAY", "message": "replayed response"}}
+    return JSONResponseImpl(
+        status_code=getattr(exc, "status_code", 200) or 200,
+        content=content,
+        headers=headers,
+    )
+
+
+async def _ops_error_handler(request: Request, exc: OpsError) -> JSONResponse:
+    return _error_response(400, "OPERATIONAL_ERROR", "The request could not be processed", request)
+
+
 async def _application_error_handler(request: Request, exc: ApplicationError) -> JSONResponse:
     return _error_response(400, "APPLICATION_ERROR", "The request could not be processed", request)
 
@@ -165,4 +211,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(VerifyTokenError, _verify_token_handler)
     app.add_exception_handler(DomainError, _domain_error_handler)
     app.add_exception_handler(ApplicationError, _application_error_handler)
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_exception_handler(IdempotentReplay, _idempotent_replay_handler)
+    app.add_exception_handler(OpsError, _ops_error_handler)
     app.add_exception_handler(Exception, _generic_error_handler)

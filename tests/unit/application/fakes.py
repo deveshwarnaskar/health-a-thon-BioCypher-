@@ -199,6 +199,9 @@ class InMemoryUnitOfWork:
         self._stage.clear()
         self.rollbacks += 1
 
+    def close(self) -> None:
+        pass
+
 
 def seed_patient(uow: InMemoryUnitOfWork, patient_id: UUID, phone=None) -> Patient:
     from backend.domain.value_objects import PhoneNumber, UHID

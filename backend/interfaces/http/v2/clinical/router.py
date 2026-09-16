@@ -18,9 +18,10 @@ from __future__ import annotations
 import uuid as _uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from backend.application.commands import CreateMedicationPlan, IngestGlucoseReading, ReviewAIArtifact
+from backend.application.ops.contracts import AuditAction
 from backend.application.ports.clock import Clock
 from backend.application.ports.events import DomainEventPublisher
 from backend.application.ports.id_generation import IdGenerator
@@ -40,6 +41,8 @@ from backend.interfaces.http.dependencies import (
     get_id_generator,
     get_unit_of_work,
 )
+from backend.interfaces.http.ops.audit import audit_dependency, json_field, path_param
+from backend.interfaces.http.ops.rate_limit import TIERS, apply_rate_limit, get_rate_limiter
 from backend.interfaces.http.v2.schemas import (
     CreateMedicationPlanRequest,
     CreateMedicationPlanResponse,
@@ -73,14 +76,33 @@ def _correlation_id(request: Request) -> _uuid.UUID | None:
         return None
 
 
-@clinical_router.get("/observations", response_model=PatientObservationFeedResponse)
+async def _patient_query_param(request: Request) -> str | None:
+    return request.query_params.get("patient_id")
+
+
+@clinical_router.get(
+    "/observations",
+    response_model=PatientObservationFeedResponse,
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.READ,
+                resource_type="patient.observation_feed",
+                resource_id_from=_patient_query_param,
+                atomic=False,
+            )
+        )
+    ],
+)
 async def get_observations(
     request: Request,
+    response: Response,
     patient_id: str,
     limit: int = 50,
     ctx: AuthenticatedContext = Depends(get_authenticated_context),
     policy: AuthorizationPolicy = Depends(get_authorization_policy),
     uow: UnitOfWork = Depends(get_unit_of_work),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
 ) -> PatientObservationFeedResponse:
     """Read the patient-facing observation feed for ONE scoped patient.
 
@@ -88,6 +110,8 @@ async def get_observations(
     identity policy. Clinicians require an active CareTeamMember record whose
     facility matches the patient's facility.
     """
+    apply_rate_limit(request=request, response=response, tier=TIERS["read"], limiter=limiter, ctx=ctx)
+
     try:
         patient_uuid = _uuid.UUID(patient_id)
     except ValueError:
@@ -104,9 +128,22 @@ async def get_observations(
     return PatientObservationFeedResponse(patient_id=str(patient_uuid), items=items)
 
 
-@clinical_router.post("/observations", response_model=IngestGlucoseResponse)
+@clinical_router.post(
+    "/observations",
+    response_model=IngestGlucoseResponse,
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.CREATE,
+                resource_type="patient.observation",
+                resource_id_from=lambda request: json_field(request, "patient_id"),
+            )
+        )
+    ],
+)
 async def ingest_observations(
     request: Request,
+    response: Response,
     body: IngestGlucoseRequest,
     ctx: AuthenticatedContext = Depends(get_authenticated_context),
     policy: AuthorizationPolicy = Depends(get_authorization_policy),
@@ -114,12 +151,15 @@ async def ingest_observations(
     events: DomainEventPublisher = Depends(get_event_publisher),
     clock: Clock = Depends(get_clock),
     id_gen: IdGenerator = Depends(get_id_generator),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
 ) -> IngestGlucoseResponse:
     """Record a glucose observation for a scoped patient.
 
     Proxy roles (patient/caregiver) are authorized through the relational
     identity policy; proxy access to write requires the corresponding grant.
     """
+    apply_rate_limit(request=request, response=response, tier=TIERS["clinical_write"], limiter=limiter, ctx=ctx)
+
     authorize_patient_operation(
         ctx, policy, Operation.WRITE_OBSERVATIONS, body.patient_id, uow
     )
@@ -141,15 +181,29 @@ async def ingest_observations(
     )
 
 
-@clinical_router.post("/medication-plans", response_model=CreateMedicationPlanResponse)
+@clinical_router.post(
+    "/medication-plans",
+    response_model=CreateMedicationPlanResponse,
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.CREATE,
+                resource_type="patient.medication_plan",
+                resource_id_from=lambda request: json_field(request, "patient_id"),
+            )
+        )
+    ],
+)
 async def create_medication_plan(
     request: Request,
+    response: Response,
     body: CreateMedicationPlanRequest,
     ctx: AuthenticatedContext = Depends(get_authenticated_context),
     policy: AuthorizationPolicy = Depends(get_authorization_policy),
     uow: UnitOfWork = Depends(get_unit_of_work),
     clock: Clock = Depends(get_clock),
     id_gen: IdGenerator = Depends(get_id_generator),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
 ) -> CreateMedicationPlanResponse:
     """Author a MedicationPlan. Clinician-authorized ONLY (domain invariant).
 
@@ -157,6 +211,8 @@ async def create_medication_plan(
     value. Patient, caregiver, AI, generic system process, and administrator
     are denied. The domain enforces ``CareTeamRole.can_author_medication``.
     """
+    apply_rate_limit(request=request, response=response, tier=TIERS["clinical_write"], limiter=limiter, ctx=ctx)
+
     authorize_patient_operation(
         ctx, policy, Operation.WRITE_MEDICATION_PLANS, body.patient_id, uow
     )
@@ -175,9 +231,22 @@ async def create_medication_plan(
     )
 
 
-@clinical_router.post("/ai-artifacts/{artifact_id}/review", response_model=ReviewAIArtifactResponse)
+@clinical_router.post(
+    "/ai-artifacts/{artifact_id}/review",
+    response_model=ReviewAIArtifactResponse,
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.REVIEW,
+                resource_type="ai_artifact.review",
+                resource_id_from=lambda request: path_param(request, "artifact_id"),
+            )
+        )
+    ],
+)
 async def review_ai_artifact(
     request: Request,
+    response: Response,
     artifact_id: str,
     body: ReviewAIArtifactRequest,
     ctx: AuthenticatedContext = Depends(get_authenticated_context),
@@ -186,6 +255,7 @@ async def review_ai_artifact(
     events: DomainEventPublisher = Depends(get_event_publisher),
     clock: Clock = Depends(get_clock),
     id_gen: IdGenerator = Depends(get_id_generator),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
 ) -> ReviewAIArtifactResponse:
     """Licensed clinician review of a pending AI artifact.
 
@@ -193,6 +263,8 @@ async def review_ai_artifact(
     value. Only doctor/nurse/dietitian roles hold REVIEW_AI_ARTIFACT. There is
     NO endpoint through which AI itself can approve or execute an artifact.
     """
+    apply_rate_limit(request=request, response=response, tier=TIERS["ai"], limiter=limiter, ctx=ctx)
+
     authorize_or_403(ctx, policy, Operation.REVIEW_AI_ARTIFACT)
 
     try:

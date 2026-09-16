@@ -1,21 +1,26 @@
-"""Persistence layer (Gate 05).
+"""Persistence layer (Gate 05, extended Gate 09).
 
 Provides SQLAlchemy 2.x persistence models, repository implementations,
-Unit of Work coordination, and transactional outbox.
+Unit of Work coordination, transactional outbox, and the Gate 09 operational
+stores (idempotency, provider replay, immutable audit, outbox worker, channel
+tenant resolution).
 """
 
 from .models import (
     AIReviewArtifactModel,
+    AuditEventModel,
     Base,
     CareTaskModel,
     CareTeamMemberModel,
     DomainEventOutboxModel,
     FacilityModel,
     GlucoseObservationModel,
+    IdempotencyRecordModel,
     MealObservationModel,
     MedicationPlanModel,
     OrganizationModel,
     PatientModel,
+    WebhookReceiptModel,
 )
 from .repositories import (
     SqlAlchemyAIReviewArtifactRepository,
@@ -40,6 +45,9 @@ __all__ = [
     "CareTaskModel",
     "AIReviewArtifactModel",
     "DomainEventOutboxModel",
+    "IdempotencyRecordModel",
+    "WebhookReceiptModel",
+    "AuditEventModel",
     "SqlAlchemyPatientRepository",
     "SqlAlchemyCareTeamMemberRepository",
     "SqlAlchemyGlucoseObservationRepository",

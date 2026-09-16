@@ -241,6 +241,23 @@ def get_event_publisher(
     return SqlAlchemyOutboxDomainEventPublisher(uow.session, uow.tenant_id)
 
 
+async def get_ops_session() -> AsyncGenerator["Session", None]:
+    """Open a tenant-neutral session for operational stores (Gate 09).
+
+    Used where no authenticated tenant exists yet (e.g. webhook receipt +
+    outbox enqueue), scoped only to operational tables.
+    """
+    from sqlalchemy.orm import Session
+
+    engine = _get_engine(get_db_url())
+    session_factory = create_session_factory(engine)
+    session: Session = session_factory()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
 def get_clock() -> SystemClock:
     return SystemClock()
 

@@ -138,12 +138,26 @@ def db_session_factory(db_engine):
 
 @pytest.fixture
 def client() -> TestClient:
+    _ensure_app_schema()
     return TestClient(create_app(), raise_server_exceptions=False)
+
+
+def _ensure_app_schema() -> None:
+    """Create the operational schema on the app's engine.
+
+    The idempotency middleware, webhook replay store, and ops sessions run on
+    the shared app engine (``dependencies._engine_cache``); tests must give it
+    the same schema the migration 0003 owns in production.
+    """
+    from backend.interfaces.http.dependencies import get_engine
+
+    Base.metadata.create_all(get_engine())
 
 
 @pytest.fixture
 def db_client(db_session_factory):
     """App with database-backed UnitOfWork (for tenant and scoping integration tests)."""
+    _ensure_app_schema()
     app = create_app()
 
     async def override_uow(

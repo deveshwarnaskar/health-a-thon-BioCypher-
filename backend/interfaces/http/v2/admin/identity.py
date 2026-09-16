@@ -16,12 +16,13 @@ from __future__ import annotations
 import uuid as _uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from backend.application.commands import (
     CreateIdentityMapping,
     DeactivateIdentityMapping,
 )
+from backend.application.ops.contracts import AuditAction
 from backend.application.ports.clock import Clock
 from backend.application.ports.events import DomainEventPublisher
 from backend.application.ports.id_generation import IdGenerator
@@ -36,6 +37,8 @@ from backend.interfaces.http.dependencies import (
     get_id_generator,
     get_unit_of_work,
 )
+from backend.interfaces.http.ops.audit import audit_dependency, json_field
+from backend.interfaces.http.ops.rate_limit import TIERS, apply_rate_limit, get_rate_limiter
 from backend.interfaces.http.v2.schemas import (
     CreateIdentityMappingRequest,
     IdentityMappingResponse,
@@ -70,9 +73,23 @@ def _to_response(mapping) -> IdentityMappingResponse:
     )
 
 
-@admin_router.post("/identity-mappings", response_model=IdentityMappingResponse, status_code=201)
+@admin_router.post(
+    "/identity-mappings",
+    response_model=IdentityMappingResponse,
+    status_code=201,
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.CREATE,
+                resource_type="identity_mapping",
+                resource_id_from=lambda request: json_field(request, "user_id"),
+            )
+        )
+    ],
+)
 async def create_identity_mapping(
     request: Request,
+    response: Response,
     body: CreateIdentityMappingRequest,
     ctx: AuthenticatedContext = Depends(get_authenticated_context),
     policy: AuthorizationPolicy = Depends(get_authorization_policy),
@@ -80,11 +97,14 @@ async def create_identity_mapping(
     events: DomainEventPublisher = Depends(get_event_publisher),
     clock: Clock = Depends(get_clock),
     id_gen: IdGenerator = Depends(get_id_generator),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
 ) -> IdentityMappingResponse:
     """Bind a platform identity (user_id) to a tenant patient.
 
     Administrator-only. The mapping is the sole source of patient self-access.
     """
+    apply_rate_limit(request=request, response=response, tier=TIERS["admin"], limiter=limiter, ctx=ctx)
+
     authorize_or_403(ctx, policy, Operation.MANAGE_IDENTITY_MAPPINGS)
 
     result = CreateIdentityMappingHandler(uow, events, clock, id_gen).handle(

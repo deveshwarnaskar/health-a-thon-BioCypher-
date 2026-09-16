@@ -102,6 +102,16 @@ def create_app() -> FastAPI:
             return error
         return await call_next(request)
 
+    # Idempotency-key middleware (Gate 09). Added FIRST so it sits beneath the
+    # correlation/security middleware: outer layers still stamp headers on the
+    # responses it short-circuits (replay / 409 / 400).
+    from backend.interfaces.http.ops.idempotency import IdempotencyMiddleware
+
+    app.add_middleware(
+        IdempotencyMiddleware,
+        secret=settings.identity.client_secret or "dev-secret-change-in-production",
+    )
+
     # Middleware: correlation IDs + security headers
     register_middleware(app)
 

@@ -16,13 +16,14 @@ from __future__ import annotations
 import uuid as _uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from backend.application.commands import (
     RegisterCaregiverRelationship,
     RevokeCaregiverRelationship,
     VerifyCaregiverRelationship,
 )
+from backend.application.ops.contracts import AuditAction
 from backend.application.ports.clock import Clock
 from backend.application.ports.events import DomainEventPublisher
 from backend.application.ports.id_generation import IdGenerator
@@ -38,6 +39,8 @@ from backend.interfaces.http.dependencies import (
     get_id_generator,
     get_unit_of_work,
 )
+from backend.interfaces.http.ops.audit import audit_dependency
+from backend.interfaces.http.ops.rate_limit import TIERS, apply_rate_limit, get_rate_limiter
 from backend.interfaces.http.v2.schemas import (
     CaregiverRelationshipListResponse,
     CaregiverRelationshipResponse,
@@ -51,6 +54,12 @@ from backend.interfaces.http.v2.security.authorization import (
 from backend.interfaces.http.v2.security.scoping import authorize_patient_operation
 
 patients_router = APIRouter()
+
+_audit_registered = audit_dependency(
+    action=AuditAction.CREATE,
+    resource_type="caregiver",
+    resource_id_from=lambda request: request.path_params.get("patient_id"),
+)
 
 
 def _correlation_id(request: Request) -> _uuid.UUID | None:
@@ -78,9 +87,15 @@ def _to_response(rel) -> CaregiverRelationshipResponse:
     )
 
 
-@patients_router.post("/{patient_id}/caregivers", response_model=CaregiverRelationshipResponse, status_code=201)
+@patients_router.post(
+    "/{patient_id}/caregivers",
+    response_model=CaregiverRelationshipResponse,
+    status_code=201,
+    dependencies=[Depends(_audit_registered)],
+)
 async def register_caregiver(
     request: Request,
+    response: Response,
     patient_id: str,
     body: RegisterCaregiverRequest,
     ctx: AuthenticatedContext = Depends(get_authenticated_context),
@@ -89,6 +104,7 @@ async def register_caregiver(
     events: DomainEventPublisher = Depends(get_event_publisher),
     clock: Clock = Depends(get_clock),
     id_gen: IdGenerator = Depends(get_id_generator),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
 ) -> CaregiverRelationshipResponse:
     """Register a caregiver relationship for a scoped patient (PENDING).
 
@@ -96,6 +112,8 @@ async def register_caregiver(
     coordinator must belong to the same facility as the patient. The granted
     capabilities are explicit; everything else is denied at policy time.
     """
+    apply_rate_limit(request=request, response=response, tier=TIERS["clinical_write"], limiter=limiter, ctx=ctx)
+
     try:
         patient_uuid = _uuid.UUID(patient_id)
     except ValueError:

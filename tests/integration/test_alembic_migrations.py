@@ -44,6 +44,9 @@ def test_alembic_migration_upgrade_and_downgrade_sqlite():
             "care_tasks",
             "ai_review_artifacts",
             "domain_event_outbox",
+            "idempotency_records",
+            "webhook_receipts",
+            "audit_events",
             "alembic_version",
         }
         assert expected_tables.issubset(tables), f"Missing tables: {expected_tables - tables}"
