@@ -11,6 +11,8 @@ from ..ports.clock import Clock
 from ..ports.id_generation import IdGenerator
 from ..ports.unit_of_work import UnitOfWork
 from ...domain.events import MealObservationConfirmed
+from ...domain.exceptions import DomainError
+from ...domain.services.carbohydrate_calculator import CarbohydrateCalculator
 from ._transaction import in_transaction
 
 
@@ -21,11 +23,13 @@ class ConfirmMealObservationHandler:
         events: DomainEventPublisher,
         clock: Clock,
         id_gen: IdGenerator,
+        calculator: CarbohydrateCalculator | None = None,
     ) -> None:
         self._uow = uow
         self._events = events
         self._clock = clock
         self._id_gen = id_gen
+        self._calculator = calculator or CarbohydrateCalculator()
 
     def handle(self, cmd: ConfirmMealObservation) -> MealObservationConfirmedResult:
         return in_transaction(self._uow, lambda: self._run(cmd))
@@ -38,6 +42,13 @@ class ConfirmMealObservationHandler:
             observation.correct(description, portion)
         else:
             observation.confirm(cmd.confirmed_by)
+        if observation.portion is not None:
+            try:
+                calc = self._calculator.calculate_for_portion(observation.portion)
+                observation.carbs_grams = calc.carbs_grams
+                observation.glycemic_index = calc.glycemic_index
+            except DomainError:
+                pass
         self._uow.meal_observations.save(observation)
         self._events.publish(
             MealObservationConfirmed(

@@ -43,8 +43,20 @@ class CareTaskCreated(DomainEvent):
 
 
 @dataclass(frozen=True)
+class CareTaskStarted(DomainEvent):
+    event_type: str = "care_task.started"
+    care_task_id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(frozen=True)
 class CareTaskCompleted(DomainEvent):
     event_type: str = "care_task.completed"
+    care_task_id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(frozen=True)
+class CareTaskReassigned(DomainEvent):
+    event_type: str = "care_task.reassigned"
     care_task_id: UUID = field(default_factory=uuid4)
 
 

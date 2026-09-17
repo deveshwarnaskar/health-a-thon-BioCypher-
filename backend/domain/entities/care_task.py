@@ -33,6 +33,7 @@ class CareTask:
     assigned_to_user_id: UUID = field(default_factory=uuid4)
     description: str = ""
     status: CareTaskStatus = CareTaskStatus.OPEN
+    due_at: datetime | None = None
     created_at: datetime = field(default_factory=datetime.utcnow)
     completed_at: datetime | None = None
 
@@ -53,3 +54,10 @@ class CareTask:
 
     def cancel(self) -> None:
         self._transition(CareTaskStatus.CANCELLED)
+
+    def reassign(self, new_user_id: UUID) -> None:
+        if self.status in {CareTaskStatus.COMPLETED, CareTaskStatus.CANCELLED}:
+            raise InvalidStateTransition(
+                f"cannot reassign a {self.status.value} task"
+            )
+        self.assigned_to_user_id = new_user_id

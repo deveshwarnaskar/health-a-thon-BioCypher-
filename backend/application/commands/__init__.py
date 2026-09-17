@@ -20,8 +20,10 @@ from .link_patient_phone import LinkPatientPhone
 from .log_meal_draft import LogMealDraft
 from .record_medication_administration import RecordMedicationAdministration
 from .register_caregiver_relationship import RegisterCaregiverRelationship
+from .reassign_care_task import ReassignCareTask
 from .revoke_caregiver_relationship import RevokeCaregiverRelationship
 from .review_ai_artifact import ReviewAIArtifact, ReviewDecision
+from .start_care_task import StartCareTask
 from .verify_caregiver_relationship import VerifyCaregiverRelationship
 
 __all__ = [
@@ -39,9 +41,11 @@ __all__ = [
     "LinkPatientPhone",
     "LogMealDraft",
     "RecordMedicationAdministration",
+    "ReassignCareTask",
     "RegisterCaregiverRelationship",
     "RevokeCaregiverRelationship",
     "ReviewAIArtifact",
     "ReviewDecision",
+    "StartCareTask",
     "VerifyCaregiverRelationship",
 ]

@@ -181,6 +181,45 @@ class InMemoryAIReviewArtifactStore(InMemoryRepository[T]):
         return [e for e in self.list() if e.state is state]
 
 
+class InMemoryCareTaskStore(InMemoryRepository[T]):
+    """In-memory care task repository (Gate 10J-B)."""
+
+    def __init__(
+        self,
+        stage: dict,
+        committed: dict,
+        kind: str,
+        patients_repo: InMemoryRepository | None = None,
+    ) -> None:
+        super().__init__(stage, committed, kind)
+        self._patients_repo = patients_repo
+
+    def list_for_patient(self, patient_id: UUID, status=None) -> list[T]:
+        items = [e for e in self.list() if e.patient_id == patient_id]
+        if status is not None:
+            items = [e for e in items if e.status == status]
+        return items
+
+    def list_for_assignee(self, assigned_to_user_id: UUID, status=None) -> list[T]:
+        items = [e for e in self.list() if e.assigned_to_user_id == assigned_to_user_id]
+        if status is not None:
+            items = [e for e in items if e.status == status]
+        return items
+
+    def list_for_facility(self, facility_id: UUID, status=None) -> list[T]:
+        items = []
+        for e in self.list():
+            if self._patients_repo is not None:
+                p = self._patients_repo._find(e.patient_id)
+                if p and getattr(p, "facility_id", None) == facility_id:
+                    if status is None or e.status == status:
+                        items.append(e)
+            else:
+                if status is None or e.status == status:
+                    items.append(e)
+        return items
+
+
 class InMemoryUnitOfWork:
     def __init__(self) -> None:
         self._stage: dict = {}
@@ -194,7 +233,7 @@ class InMemoryUnitOfWork:
         self.glucose_observations = InMemoryRepository(self._stage, self._committed, "glucose_observations")
         self.meal_observations = InMemoryRepository(self._stage, self._committed, "meal_observations")
         self.medication_plans = InMemoryRepository(self._stage, self._committed, "medication_plans")
-        self.care_tasks = InMemoryRepository(self._stage, self._committed, "care_tasks")
+        self.care_tasks = InMemoryCareTaskStore(self._stage, self._committed, "care_tasks", self.patients)
         self.ai_artifacts = InMemoryAIReviewArtifactStore(self._stage, self._committed, "ai_artifacts")
 
     def commit(self) -> None:

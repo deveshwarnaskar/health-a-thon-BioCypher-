@@ -58,7 +58,9 @@ class Operation(str, Enum):
     WRITE_MEDICATION_ADMINISTRATION = "write_medication_administration"
     READ_CARE_TASKS = "read_care_tasks"
     CREATE_CARE_TASK = "create_care_task"
+    START_CARE_TASK = "start_care_task"
     COMPLETE_CARE_TASK = "complete_care_task"
+    REASSIGN_CARE_TASK = "reassign_care_task"
     PROVISION_PATIENT = "provision_patient"
     MANAGE_CARE_TEAM = "manage_care_team"
 
@@ -78,7 +80,9 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.WRITE_MEAL_OBSERVATIONS,
         Operation.READ_CARE_TASKS,
         Operation.CREATE_CARE_TASK,
+        Operation.START_CARE_TASK,
         Operation.COMPLETE_CARE_TASK,
+        Operation.REASSIGN_CARE_TASK,
     }),
     "nurse": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -91,7 +95,9 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.WRITE_MEAL_OBSERVATIONS,
         Operation.READ_CARE_TASKS,
         Operation.CREATE_CARE_TASK,
+        Operation.START_CARE_TASK,
         Operation.COMPLETE_CARE_TASK,
+        Operation.REASSIGN_CARE_TASK,
     }),
     "dietitian": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -104,7 +110,9 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.WRITE_MEAL_OBSERVATIONS,
         Operation.READ_CARE_TASKS,
         Operation.CREATE_CARE_TASK,
+        Operation.START_CARE_TASK,
         Operation.COMPLETE_CARE_TASK,
+        Operation.REASSIGN_CARE_TASK,
     }),
     "care_coordinator": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -115,7 +123,9 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.MANAGE_CAREGIVER_RELATIONSHIPS,
         Operation.READ_CARE_TASKS,
         Operation.CREATE_CARE_TASK,
+        Operation.START_CARE_TASK,
         Operation.COMPLETE_CARE_TASK,
+        Operation.REASSIGN_CARE_TASK,
     }),
     "field_health_worker": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -123,6 +133,7 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.READ_PATIENT,
         Operation.WRITE_MEAL_OBSERVATIONS,
         Operation.READ_CARE_TASKS,
+        Operation.START_CARE_TASK,
         Operation.COMPLETE_CARE_TASK,
     }),
     "patient": frozenset({

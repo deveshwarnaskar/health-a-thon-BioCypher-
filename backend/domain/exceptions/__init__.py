@@ -39,3 +39,11 @@ class InvalidRelationship(DomainValidationError):
 
 class UnauthorizedMedicationPlanMutation(DomainError):
     """Attempt to create or modify a MedicationPlan by a non-clinician or by AI."""
+
+
+class UnknownFoodItemError(DomainValidationError):
+    """Food item is not recognized in the standard nutrition catalog."""
+
+
+class InvalidPortionQuantityError(DomainValidationError):
+    """Portion quantity must be strictly positive."""

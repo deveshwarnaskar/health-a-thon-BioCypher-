@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 
 _STRICT = ConfigDict(extra="forbid")
@@ -383,7 +383,7 @@ class RecordMedicationAdministrationResponse(BaseModel):
     administered_at: datetime
 
 
-# ─── Care Tasks (Gate 10H-B) ────────────────────────────────────────────────
+# ─── Care Tasks (Gate 10H-B, Gate 10J-B) ────────────────────────────────────
 
 
 class CareTaskResponse(BaseModel):
@@ -393,13 +393,21 @@ class CareTaskResponse(BaseModel):
     assigned_to_user_id: str
     description: str
     status: str
+    due_at: datetime | None = None
     created_at: datetime
     completed_at: datetime | None = None
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler):
+        data = handler(self)
+        if data.get("due_at") is None:
+            data.pop("due_at", None)
+        return data
 
 
 class CareTaskListResponse(BaseModel):
     model_config = _STRICT
-    patient_id: str
+    patient_id: str | None = None
     task_count: int
     items: list[CareTaskResponse]
 
@@ -409,6 +417,13 @@ class CreateCareTaskRequest(BaseModel):
     patient_id: UUID
     assigned_to_user_id: UUID
     description: str = Field(min_length=1)
+    due_at: datetime | None = None
+
+
+class StartCareTaskResponse(BaseModel):
+    model_config = _STRICT
+    care_task_id: str
+    status: str
 
 
 class CompleteCareTaskResponse(BaseModel):
@@ -416,6 +431,19 @@ class CompleteCareTaskResponse(BaseModel):
     care_task_id: str
     status: str
     completed_at: datetime
+
+
+class ReassignCareTaskRequest(BaseModel):
+    model_config = _STRICT
+    new_user_id: UUID
+
+
+class ReassignCareTaskResponse(BaseModel):
+    model_config = _STRICT
+    care_task_id: str
+    assigned_to_user_id: str
+    status: str
+
 
 
 # ─── Administrative Provisioning (Gate 10H-B) ──────────────────────────────

@@ -29,8 +29,10 @@ from .list_patients import ListPatientsHandler
 from .log_meal_draft import LogMealDraftHandler
 from .record_medication_administration import RecordMedicationAdministrationHandler
 from .register_caregiver import RegisterCaregiverHandler
+from .reassign_care_task import ReassignCareTaskHandler
 from .review_ai_artifact import ReviewAIArtifactHandler
 from .revoke_caregiver import RevokeCaregiverHandler
+from .start_care_task import StartCareTaskHandler
 from .verify_caregiver import VerifyCaregiverHandler
 
 __all__ = [
@@ -58,8 +60,10 @@ __all__ = [
     "ListPatientsHandler",
     "LogMealDraftHandler",
     "RecordMedicationAdministrationHandler",
+    "ReassignCareTaskHandler",
     "RegisterCaregiverHandler",
     "ReviewAIArtifactHandler",
     "RevokeCaregiverHandler",
+    "StartCareTaskHandler",
     "VerifyCaregiverHandler",
 ]

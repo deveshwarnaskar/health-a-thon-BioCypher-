@@ -47,6 +47,20 @@ class CareTaskCreatedResult:
     care_task_id: UUID
     patient_id: UUID
     status: str
+    due_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class CareTaskStartedResult:
+    care_task_id: UUID
+    status: str
+
+
+@dataclass(frozen=True)
+class CareTaskReassignedResult:
+    care_task_id: UUID
+    assigned_to_user_id: UUID
+    status: str
 
 
 @dataclass(frozen=True)

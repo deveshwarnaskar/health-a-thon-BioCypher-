@@ -215,6 +215,7 @@ def care_task_to_domain(model: CareTaskModel) -> CareTask:
         assigned_to_user_id=model.assigned_to_user_id,
         description=model.description,
         status=CareTaskStatus(model.status),
+        due_at=model.due_at,
         created_at=model.created_at,
         completed_at=model.completed_at,
     )
@@ -228,6 +229,7 @@ def care_task_to_model(entity: CareTask, tenant_id: UUID) -> CareTaskModel:
         assigned_to_user_id=entity.assigned_to_user_id,
         description=entity.description,
         status=entity.status.value,
+        due_at=entity.due_at,
         created_at=entity.created_at,
         completed_at=entity.completed_at,
     )

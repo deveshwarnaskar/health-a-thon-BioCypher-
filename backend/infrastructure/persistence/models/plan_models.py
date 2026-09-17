@@ -64,6 +64,10 @@ class CareTaskModel(Base):
     assigned_to_user_id: Mapped[UUID] = mapped_column(nullable=False, index=True)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="open", nullable=False)
+    due_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -77,4 +81,5 @@ class CareTaskModel(Base):
     __table_args__ = (
         Index("ix_care_tasks_tenant_patient", "tenant_id", "patient_id"),
         Index("ix_care_tasks_tenant_assigned", "tenant_id", "assigned_to_user_id"),
+        Index("ix_care_tasks_tenant_assigned_status", "tenant_id", "assigned_to_user_id", "status"),
     )

@@ -34,6 +34,7 @@ class CreateCareTaskHandler:
             patient_id=cmd.patient_id,
             assigned_to_user_id=cmd.assigned_to_user_id,
             description=cmd.description,
+            due_at=cmd.due_at,
             created_at=self._clock.now(),
         )
         self._uow.care_tasks.add(task)
@@ -50,4 +51,5 @@ class CreateCareTaskHandler:
             care_task_id=task.id,
             patient_id=cmd.patient_id,
             status=task.status.value,
+            due_at=task.due_at,
         )
