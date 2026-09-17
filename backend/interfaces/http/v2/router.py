@@ -8,6 +8,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from backend.interfaces.http.v2.admin.audit import admin_audit_router
+from backend.interfaces.http.v2.admin.documents import admin_documents_router
 from backend.interfaces.http.v2.admin.facilities import admin_facilities_router
 from backend.interfaces.http.v2.admin.identity import admin_router
 from backend.interfaces.http.v2.admin.patients import admin_patients_router
@@ -32,5 +33,7 @@ api_v2_router.include_router(admin_audit_router, prefix="/admin", tags=["Admin"]
 api_v2_router.include_router(admin_provisioning_router, prefix="/admin", tags=["Admin"])
 api_v2_router.include_router(admin_facilities_router, prefix="/admin", tags=["Admin"])
 api_v2_router.include_router(admin_patients_router, prefix="/admin", tags=["Admin"])
+api_v2_router.include_router(admin_documents_router, prefix="/admin", tags=["Admin"])
 api_v2_router.include_router(webhook_router, prefix="/webhooks", tags=["Webhooks"])
+
 

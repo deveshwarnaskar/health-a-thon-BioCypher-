@@ -1,4 +1,12 @@
-"""Reporting adapters boundary (ReportLab PDF, Matplotlib, HTML preview).
+"""Reporting adapters (Gate 10N).
 
-No renderers are implemented at Gate 02B; the live stack is ``app/report/*``.
+Provides deterministic PDF and PNG renderers conforming to IDocumentRenderer.
 """
+
+from .report_renderer import ClinicalPdfRenderer, PatientPdfRenderer, PngChartRenderer
+
+__all__ = [
+    "ClinicalPdfRenderer",
+    "PatientPdfRenderer",
+    "PngChartRenderer",
+]

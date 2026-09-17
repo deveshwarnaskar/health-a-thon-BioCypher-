@@ -349,3 +349,39 @@ def seed_caregiver_relationship(
             )
         )
         s.commit()
+
+
+def seed_document_reference(
+    session_factory,
+    tenant_id,
+    patient_id,
+    facility_id=None,
+    kind=None,
+    storage_key="",
+    mime_type="application/pdf",
+    filename="test_report.pdf",
+    file_size_bytes=1024,
+    created_by_user_id=None,
+):
+    from backend.domain.entities import DocumentKind, DocumentReference
+
+    kind_val = kind or DocumentKind.CLINICAL_REPORT
+    key = storage_key or f"tenants/{tenant_id}/patients/{patient_id}/{kind_val.value}/{uuid4()}.pdf"
+    doc_ref = DocumentReference(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        patient_id=patient_id,
+        facility_id=facility_id,
+        kind=kind_val,
+        storage_key=key,
+        mime_type=mime_type,
+        filename=filename,
+        file_size_bytes=file_size_bytes,
+        created_by_user_id=created_by_user_id,
+        created_at=datetime.now(timezone.utc),
+    )
+    with SqlAlchemyUnitOfWork(session_factory, tenant_id) as uow:
+        uow.document_references.add(doc_ref)
+        uow.commit()
+    return doc_ref
+

@@ -15,6 +15,7 @@ from ..repositories import (
     SqlAlchemyCareTaskRepository,
     SqlAlchemyCareTeamMemberRepository,
     SqlAlchemyCaregiverRelationshipRepository,
+    SqlAlchemyDocumentReferenceRepository,
     SqlAlchemyFacilityRepository,
     SqlAlchemyGlucoseObservationRepository,
     SqlAlchemyIdentityPatientMappingRepository,
@@ -60,6 +61,8 @@ class SqlAlchemyUnitOfWork:
         self.care_tasks = SqlAlchemyCareTaskRepository(self.session, self.tenant_id)
         self.ai_artifacts = SqlAlchemyAIReviewArtifactRepository(self.session, self.tenant_id)
         self.notifications = SqlAlchemyNotificationRepository(self.session, self.tenant_id)
+        self.document_references = SqlAlchemyDocumentReferenceRepository(self.session, self.tenant_id)
+
 
     def _apply_tenant_context(self) -> None:
         """Set local session configuration for PostgreSQL RLS if dialect is postgresql."""

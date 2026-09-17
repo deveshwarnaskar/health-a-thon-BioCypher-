@@ -91,9 +91,11 @@ def _load_config() -> dict:
 
 def reset_config_cache() -> None:
     """Clear cached configuration (used by tests)."""
-    global _jwks_client
+    global _jwks_client, _storage_instance
     _config_cache.clear()
     _jwks_client = None
+    _storage_instance = None
+
 
 
 def get_jwt_secret() -> str:
@@ -366,3 +368,28 @@ def get_clock() -> SystemClock:
 
 def get_id_generator() -> Uuid4IdGenerator:
     return Uuid4IdGenerator()
+
+
+def get_object_storage():
+    """Build or retrieve the application object storage provider."""
+    global _storage_instance
+    if _storage_instance is None:
+        from config.settings import Settings
+        from backend.infrastructure.storage.s3_storage import S3ObjectStorage
+
+        settings = Settings()
+        storage_cfg = getattr(settings, "storage", None)
+        bucket = (getattr(storage_cfg, "bucket", "") or "").strip() or "thali-documents"
+        endpoint_url = (getattr(storage_cfg, "endpoint_url", "") or "").strip() or None
+        region = (getattr(storage_cfg, "region", "") or "").strip() or None
+        access_key = (getattr(storage_cfg, "access_key_id", "") or "").strip() or None
+        secret_key = (getattr(storage_cfg, "secret_access_key", "") or "").strip() or None
+
+        _storage_instance = S3ObjectStorage(
+            bucket=bucket,
+            endpoint_url=endpoint_url,
+            region=region,
+            access_key_id=access_key,
+            secret_access_key=secret_key,
+        )
+    return _storage_instance

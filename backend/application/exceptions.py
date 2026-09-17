@@ -35,3 +35,11 @@ class AIGenerationFailed(ApplicationError):
         super().__init__(message or f"AI generation failed: {error_code}")
         self.error_code = error_code or "AI_GENERATION_FAILED"
         self.retryable = retryable
+
+
+class InactivePatientError(ApplicationError):
+    """Operation requested on a deactivated patient."""
+
+
+class InvalidReportFormatError(ApplicationError):
+    """Unsupported report format or report type requested."""

@@ -14,6 +14,7 @@ from .medication_plan_repo import SqlAlchemyMedicationPlanRepository
 from .care_task_repo import SqlAlchemyCareTaskRepository
 from .ai_artifact_repo import SqlAlchemyAIReviewArtifactRepository
 from .notification_repo import SqlAlchemyNotificationRepository
+from .document_reference_repo import SqlAlchemyDocumentReferenceRepository
 
 __all__ = [
     "SqlAlchemyPatientRepository",
@@ -27,4 +28,5 @@ __all__ = [
     "SqlAlchemyCareTaskRepository",
     "SqlAlchemyAIReviewArtifactRepository",
     "SqlAlchemyNotificationRepository",
+    "SqlAlchemyDocumentReferenceRepository",
 ]

@@ -18,6 +18,7 @@ from .repositories import (
     CareTaskRepository,
     CareTeamMemberRepository,
     CaregiverRelationshipRepository,
+    DocumentReferenceRepository,
     FacilityRepository,
     GlucoseObservationRepository,
     IdentityPatientMappingRepository,
@@ -41,6 +42,8 @@ class UnitOfWork(Protocol):
     caregiver_relationships: CaregiverRelationshipRepository
     identity_mappings: IdentityPatientMappingRepository
     notifications: NotificationRepository
+    document_references: DocumentReferenceRepository
+
 
     def commit(self) -> None: ...
 

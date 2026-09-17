@@ -15,6 +15,7 @@ Gate 08 identity/relationship contracts exist.
 
 from __future__ import annotations
 
+import base64
 import uuid as _uuid
 from typing import Annotated, Any
 
@@ -24,12 +25,19 @@ from backend.application.commands import (
     ConfirmMealObservation,
     CreateMedicationPlan,
     GenerateAIReviewArtifact,
+    GenerateReport,
     IngestGlucoseReading,
     LogMealDraft,
     RecordMedicationAdministration,
     ReviewAIArtifact,
+    UploadDocument,
 )
-from backend.application.exceptions import AIGenerationFailed, ReviewerNotAuthorized
+from backend.application.exceptions import (
+    AIGenerationFailed,
+    InactivePatientError,
+    InvalidReportFormatError,
+    ReviewerNotAuthorized,
+)
 from backend.application.ops.contracts import AuditAction
 from backend.application.ports.clock import Clock
 from backend.application.ports.events import DomainEventPublisher
@@ -59,7 +67,11 @@ from backend.application.services.record_medication_administration import (
     RecordMedicationAdministrationHandler,
 )
 from backend.application.services.review_ai_artifact import ReviewAIArtifactHandler
+from backend.application.services.generate_report import GenerateReportHandler
+from backend.application.services.upload_document import UploadDocumentHandler
+
 from backend.application.dtos.clinical import ClinicalGlucoseRecord, ClinicalMealRecord
+from backend.domain.entities import DocumentKind
 from backend.domain.exceptions import EntityNotFound, InvalidStateTransition
 from backend.domain.value_objects import GlucoseValue, KatoriVolume, MealPortion, ReadingTag
 from backend.infrastructure.ai import DeterministicDemoProvider, ProductionModelProvider
@@ -70,6 +82,7 @@ from backend.interfaces.http.dependencies import (
     get_clock,
     get_event_publisher,
     get_id_generator,
+    get_object_storage,
     get_unit_of_work,
 )
 from backend.interfaces.http.ops.audit import audit_dependency, json_field, path_param
@@ -83,8 +96,12 @@ from backend.interfaces.http.v2.schemas import (
     ConfirmMealResponse,
     CreateMedicationPlanRequest,
     CreateMedicationPlanResponse,
+    DocumentDownloadResponse,
+    DocumentReferenceListResponse,
+    DocumentReferenceResponse,
     GenerateAIArtifactRequest,
     GenerateAIArtifactResponse,
+    GenerateReportRequest,
     IngestGlucoseRequest,
     IngestGlucoseResponse,
     LogMealRequest,
@@ -96,6 +113,7 @@ from backend.interfaces.http.v2.schemas import (
     RecordMedicationAdministrationResponse,
     ReviewAIArtifactRequest,
     ReviewAIArtifactResponse,
+    UploadDocumentRequest,
 )
 from backend.interfaces.http.v2.security.authorization import (
     AuthenticatedContext,
@@ -976,4 +994,371 @@ async def record_medication_administration(
         medication_plan_id=str(result.medication_plan_id),
         patient_id=str(result.patient_id),
         administered_at=result.administered_at,
+    )
+
+
+# ─── Reports & Documents (Gate 10N) ─────────────────────────────────────────
+
+
+@clinical_router.post(
+    "/reports/generate",
+    response_model=DocumentReferenceResponse,
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.CREATE,
+                resource_type="clinical.report",
+                resource_id_from=lambda request: json_field(request, "patient_id"),
+            )
+        )
+    ],
+)
+async def generate_report(
+    request: Request,
+    response: Response,
+    body: GenerateReportRequest,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    storage=Depends(get_object_storage),
+    events: DomainEventPublisher = Depends(get_event_publisher),
+    clock: Clock = Depends(get_clock),
+    id_gen: IdGenerator = Depends(get_id_generator),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> DocumentReferenceResponse:
+    """Generate a server-authoritative clinical or patient report (PDF / PNG).
+
+    Enforces:
+    - Operation.GENERATE_REPORT (doctor/nurse/dietitian only; proxy/unauthorized denied)
+    - Patient facility matches clinician active facility
+    - Patient is active (deactivated -> 403)
+    - Deterministic ReportBuilder compilation
+    - Output saved to private S3 object storage
+    - DocumentReference record created with RLS
+    """
+    apply_rate_limit(request=request, response=response, tier=TIERS["clinical_write"], limiter=limiter, ctx=ctx)
+
+    authorize_or_403(ctx, policy, Operation.GENERATE_REPORT)
+
+    try:
+        patient = uow.patients.get(body.patient_id)
+    except EntityNotFound:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    if not getattr(patient, "active", True):
+        raise HTTPException(status_code=403, detail="Patient is deactivated")
+
+    assert_authorized_clinician_facility(ctx, uow, patient)
+
+    cmd = GenerateReport(
+        patient_id=body.patient_id,
+        tenant_id=ctx.tenant_id,
+        requester_user_id=ctx.actor_id,
+        report_type=body.report_type,
+        format=body.format,
+        facility_id=patient.facility_id,
+        correlation_id=_correlation_id(request),
+    )
+
+    try:
+        doc_ref = GenerateReportHandler(uow, storage, events, clock, id_gen).handle(cmd)
+    except InactivePatientError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except InvalidReportFormatError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Report generation failed: {e}")
+
+    try:
+        download_url = storage.generate_presigned_url(doc_ref.storage_key, expires_in=300)
+    except Exception:
+        download_url = None
+
+    return DocumentReferenceResponse(
+        id=str(doc_ref.id),
+        patient_id=str(doc_ref.patient_id),
+        kind=doc_ref.kind.value if hasattr(doc_ref.kind, "value") else str(doc_ref.kind),
+        filename=doc_ref.filename,
+        mime_type=doc_ref.mime_type,
+        file_size_bytes=doc_ref.file_size_bytes,
+        created_at=doc_ref.created_at,
+        download_url=download_url,
+    )
+
+
+@clinical_router.get(
+    "/patients/{patient_id}/documents",
+    response_model=DocumentReferenceListResponse,
+)
+async def list_patient_documents(
+    request: Request,
+    response: Response,
+    patient_id: str,
+    kind: str | None = None,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    storage=Depends(get_object_storage),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> DocumentReferenceListResponse:
+    """List document references for an authorized patient."""
+    apply_rate_limit(request=request, response=response, tier=TIERS["read"], limiter=limiter, ctx=ctx)
+
+    if patient_id.lower() == "me":
+        mapping = uow.identity_mappings.get_by_user_id(ctx.actor_id)
+        if mapping is None or not mapping.active:
+            raise HTTPException(status_code=403, detail="No active patient mapping found")
+        patient_uuid = mapping.patient_id
+    else:
+        try:
+            patient_uuid = _uuid.UUID(patient_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid patient_id")
+
+    patient = authorize_patient_operation(
+        ctx, policy, Operation.READ_DOCUMENTS, patient_uuid, uow
+    )
+    if not getattr(patient, "active", True):
+        raise HTTPException(status_code=403, detail="Patient is deactivated")
+
+    doc_kind = None
+    if kind:
+        try:
+            doc_kind = DocumentKind(kind.strip().lower())
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid document kind: {kind}")
+
+    docs = uow.document_references.list_for_patient(patient_uuid, kind=doc_kind)
+
+    items = []
+    for d in docs:
+        try:
+            url = storage.generate_presigned_url(d.storage_key, expires_in=300)
+        except Exception:
+            url = None
+        items.append(
+            DocumentReferenceResponse(
+                id=str(d.id),
+                patient_id=str(d.patient_id),
+                kind=d.kind.value if hasattr(d.kind, "value") else str(d.kind),
+                filename=d.filename,
+                mime_type=d.mime_type,
+                file_size_bytes=d.file_size_bytes,
+                created_at=d.created_at,
+                download_url=url,
+            )
+        )
+
+    return DocumentReferenceListResponse(total=len(items), items=items)
+
+
+@clinical_router.get(
+    "/documents/{document_id}",
+    response_model=DocumentReferenceResponse,
+)
+async def get_document_reference(
+    request: Request,
+    response: Response,
+    document_id: str,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    storage=Depends(get_object_storage),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> DocumentReferenceResponse:
+    """Retrieve metadata for a specific document reference."""
+    apply_rate_limit(request=request, response=response, tier=TIERS["read"], limiter=limiter, ctx=ctx)
+
+    try:
+        doc_uuid = _uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document_id")
+
+    try:
+        doc_ref = uow.document_references.get(doc_uuid)
+    except EntityNotFound:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    patient = authorize_patient_operation(
+        ctx, policy, Operation.READ_DOCUMENTS, doc_ref.patient_id, uow
+    )
+    if not getattr(patient, "active", True):
+        raise HTTPException(status_code=403, detail="Patient is deactivated")
+
+    try:
+        url = storage.generate_presigned_url(doc_ref.storage_key, expires_in=300)
+    except Exception:
+        url = None
+
+    return DocumentReferenceResponse(
+        id=str(doc_ref.id),
+        patient_id=str(doc_ref.patient_id),
+        kind=doc_ref.kind.value if hasattr(doc_ref.kind, "value") else str(doc_ref.kind),
+        filename=doc_ref.filename,
+        mime_type=doc_ref.mime_type,
+        file_size_bytes=doc_ref.file_size_bytes,
+        created_at=doc_ref.created_at,
+        download_url=url,
+    )
+
+
+@clinical_router.get(
+    "/documents/{document_id}/download",
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.READ,
+                resource_type="clinical.document",
+                resource_id_from=lambda request: path_param(request, "document_id"),
+                atomic=False,
+            )
+        )
+    ],
+)
+async def download_document(
+    request: Request,
+    response: Response,
+    document_id: str,
+    signed_url: bool = False,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    storage=Depends(get_object_storage),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+):
+    """Download document payload directly or generate a short-lived presigned URL."""
+    apply_rate_limit(request=request, response=response, tier=TIERS["read"], limiter=limiter, ctx=ctx)
+
+    try:
+        doc_uuid = _uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document_id")
+
+    try:
+        doc_ref = uow.document_references.get(doc_uuid)
+    except EntityNotFound:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    patient = authorize_patient_operation(
+        ctx, policy, Operation.READ_DOCUMENTS, doc_ref.patient_id, uow
+    )
+    if not getattr(patient, "active", True):
+        raise HTTPException(status_code=403, detail="Patient is deactivated")
+
+    if signed_url:
+        try:
+            url = storage.generate_presigned_url(doc_ref.storage_key, expires_in=300)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Document payload not found in storage")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to generate signed url: {e}")
+        return DocumentDownloadResponse(
+            download_url=url,
+            expires_in=300,
+            filename=doc_ref.filename,
+            mime_type=doc_ref.mime_type,
+        )
+
+    try:
+        payload = storage.get(doc_ref.storage_key)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Document payload not found in storage")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve document: {e}")
+
+    return Response(
+        content=payload,
+        media_type=doc_ref.mime_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{doc_ref.filename}"',
+            "Content-Type": doc_ref.mime_type,
+        },
+    )
+
+
+@clinical_router.post(
+    "/patients/{patient_id}/documents/upload",
+    response_model=DocumentReferenceResponse,
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.CREATE,
+                resource_type="clinical.document",
+                resource_id_from=lambda request: path_param(request, "patient_id"),
+            )
+        )
+    ],
+)
+async def upload_document(
+    request: Request,
+    response: Response,
+    patient_id: str,
+    body: UploadDocumentRequest,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    storage=Depends(get_object_storage),
+    clock: Clock = Depends(get_clock),
+    id_gen: IdGenerator = Depends(get_id_generator),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> DocumentReferenceResponse:
+    """Upload an external document or chart image to private storage."""
+    apply_rate_limit(request=request, response=response, tier=TIERS["clinical_write"], limiter=limiter, ctx=ctx)
+
+    try:
+        patient_uuid = _uuid.UUID(patient_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid patient_id")
+
+    patient = authorize_patient_operation(
+        ctx, policy, Operation.UPLOAD_DOCUMENT, patient_uuid, uow
+    )
+    if not getattr(patient, "active", True):
+        raise HTTPException(status_code=403, detail="Patient is deactivated")
+
+    try:
+        doc_kind = DocumentKind(body.kind.strip().lower())
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid document kind: {body.kind}")
+
+    try:
+        content = base64.b64decode(body.content_base64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Malformed base64 document content")
+
+    cmd = UploadDocument(
+        patient_id=patient_uuid,
+        tenant_id=ctx.tenant_id,
+        uploader_user_id=ctx.actor_id,
+        facility_id=patient.facility_id,
+        filename=body.filename,
+        mime_type=body.mime_type,
+        payload=content,
+        kind=doc_kind,
+        correlation_id=_correlation_id(request),
+    )
+
+    try:
+        doc_ref = UploadDocumentHandler(uow, storage, clock, id_gen).handle(cmd)
+    except InactivePatientError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        if "exceeds maximum" in str(e).lower():
+            raise HTTPException(status_code=413, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+
+    try:
+        url = storage.generate_presigned_url(doc_ref.storage_key, expires_in=300)
+    except Exception:
+        url = None
+
+    return DocumentReferenceResponse(
+        id=str(doc_ref.id),
+        patient_id=str(doc_ref.patient_id),
+        kind=doc_ref.kind.value if hasattr(doc_ref.kind, "value") else str(doc_ref.kind),
+        filename=doc_ref.filename,
+        mime_type=doc_ref.mime_type,
+        file_size_bytes=doc_ref.file_size_bytes,
+        created_at=doc_ref.created_at,
+        download_url=url,
     )

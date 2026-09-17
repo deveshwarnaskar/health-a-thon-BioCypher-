@@ -66,6 +66,9 @@ class Operation(str, Enum):
     MANAGE_FACILITIES = "manage_facilities"
     READ_NOTIFICATIONS = "read_notifications"
     MANAGE_NOTIFICATIONS = "manage_notifications"
+    GENERATE_REPORT = "generate_report"
+    READ_DOCUMENTS = "read_documents"
+    UPLOAD_DOCUMENT = "upload_document"
 
 
 # Role → permitted operations mapping (DENY-BY-DEFAULT: unlisted = denied)
@@ -87,6 +90,9 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.COMPLETE_CARE_TASK,
         Operation.REASSIGN_CARE_TASK,
         Operation.READ_NOTIFICATIONS,
+        Operation.GENERATE_REPORT,
+        Operation.READ_DOCUMENTS,
+        Operation.UPLOAD_DOCUMENT,
     }),
     "nurse": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -104,6 +110,9 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.COMPLETE_CARE_TASK,
         Operation.REASSIGN_CARE_TASK,
         Operation.READ_NOTIFICATIONS,
+        Operation.GENERATE_REPORT,
+        Operation.READ_DOCUMENTS,
+        Operation.UPLOAD_DOCUMENT,
     }),
     "dietitian": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -121,6 +130,9 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.COMPLETE_CARE_TASK,
         Operation.REASSIGN_CARE_TASK,
         Operation.READ_NOTIFICATIONS,
+        Operation.GENERATE_REPORT,
+        Operation.READ_DOCUMENTS,
+        Operation.UPLOAD_DOCUMENT,
     }),
     "care_coordinator": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -136,6 +148,7 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.REASSIGN_CARE_TASK,
         Operation.READ_NOTIFICATIONS,
         Operation.MANAGE_NOTIFICATIONS,
+        Operation.READ_DOCUMENTS,
     }),
     "field_health_worker": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -146,6 +159,7 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.START_CARE_TASK,
         Operation.COMPLETE_CARE_TASK,
         Operation.READ_NOTIFICATIONS,
+        Operation.READ_DOCUMENTS,
     }),
     "patient": frozenset({
         # Patient self-access: DENIED until Gate 08 identity mapping exists.
@@ -164,8 +178,10 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.MANAGE_FACILITIES,
         Operation.READ_NOTIFICATIONS,
         Operation.MANAGE_NOTIFICATIONS,
+        Operation.READ_DOCUMENTS,
     }),
 }
+
 
 
 @runtime_checkable
@@ -273,7 +289,7 @@ class RelationshipAuthorizationPolicy(DefaultAuthorizationPolicy):
     ) -> bool:
         from .capabilities import caregiver_required_capabilities
 
-        if operation is Operation.READ_NOTIFICATIONS:
+        if operation in (Operation.READ_NOTIFICATIONS, Operation.READ_DOCUMENTS):
             relationship = uow.caregiver_relationships.get_verified_for_patient(
                 ctx.actor_id, patient_id
             )
@@ -325,6 +341,7 @@ class RelationshipAuthorizationPolicy(DefaultAuthorizationPolicy):
             Operation.CONFIRM_MEAL_OBSERVATION,
             Operation.WRITE_MEDICATION_ADMINISTRATION,
             Operation.READ_NOTIFICATIONS,
+            Operation.READ_DOCUMENTS,
         }
         if operation not in self_capable:
             return False

@@ -1,7 +1,7 @@
-"""BuildClinicalReportContext query placeholder (Gate 02B).
+"""BuildClinicalReportContext query (Gate 02B, extended Gate 10N).
 
-Target home for the two-page lab-grade clinical report aggregation currently
-implemented in ``app/core/report.py`` + ``app/report/*``.
+Aggregates patient glycemic observations, meals, medication plans, care tasks,
+and AI review artifacts into a structured report context.
 """
 
 from dataclasses import dataclass, field
@@ -12,4 +12,5 @@ from uuid import UUID, uuid4
 class BuildClinicalReportContext:
     query_id: UUID = field(default_factory=uuid4)
     patient_id: UUID | None = None
-    window_id: UUID | None = None
+    facility_id: UUID | None = None
+    report_type: str = "clinical_summary"  # "clinical_summary" or "patient_summary"

@@ -19,6 +19,7 @@ from .deactivate_facility import DeactivateFacility
 from .deactivate_identity_mapping import DeactivateIdentityMapping
 from .evaluate_escalations import EvaluateEscalations
 from .generate_ai_review_artifact import GenerateAIReviewArtifact
+from .generate_report import GenerateReport
 from .ingest_glucose_reading import IngestGlucoseReading
 from .link_patient_phone import LinkPatientPhone
 from .log_meal_draft import LogMealDraft
@@ -30,6 +31,7 @@ from .review_ai_artifact import ReviewAIArtifact, ReviewDecision
 from .start_care_task import StartCareTask
 from .update_care_team_member import UpdateCareTeamMember
 from .update_facility import UpdateFacility
+from .upload_document import UploadDocument
 from .verify_caregiver_relationship import VerifyCaregiverRelationship
 
 __all__ = [
@@ -47,6 +49,7 @@ __all__ = [
     "DeactivateIdentityMapping",
     "EvaluateEscalations",
     "GenerateAIReviewArtifact",
+    "GenerateReport",
     "IngestGlucoseReading",
     "LinkPatientPhone",
     "LogMealDraft",
@@ -59,5 +62,6 @@ __all__ = [
     "StartCareTask",
     "UpdateCareTeamMember",
     "UpdateFacility",
+    "UploadDocument",
     "VerifyCaregiverRelationship",
 ]

@@ -81,3 +81,10 @@ class PatientProvisioned(DomainEvent):
 @dataclass(frozen=True)
 class CareTeamMemberProvisioned(DomainEvent):
     event_type: str = "care_team_member.provisioned"
+
+
+@dataclass(frozen=True)
+class ClinicalReportGenerated(DomainEvent):
+    event_type: str = "clinical_report.generated"
+    document_id: UUID = field(default_factory=uuid4)
+    patient_id: UUID = field(default_factory=uuid4)

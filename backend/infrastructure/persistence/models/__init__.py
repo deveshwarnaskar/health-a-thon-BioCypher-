@@ -14,6 +14,7 @@ from .ai_models import AIReviewArtifactModel
 from .outbox_models import DomainEventOutboxModel
 from .ops_models import AuditEventModel, IdempotencyRecordModel, WebhookReceiptModel
 from .notification_models import NotificationModel
+from .document_models import DocumentReferenceModel
 
 __all__ = [
     "Base",
@@ -33,4 +34,6 @@ __all__ = [
     "WebhookReceiptModel",
     "AuditEventModel",
     "NotificationModel",
+    "DocumentReferenceModel",
 ]
+

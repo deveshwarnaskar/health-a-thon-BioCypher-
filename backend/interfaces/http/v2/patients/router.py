@@ -36,12 +36,14 @@ from backend.application.services.list_patients import ListPatientsHandler
 from backend.application.services.register_caregiver import RegisterCaregiverHandler
 from backend.application.services.revoke_caregiver import RevokeCaregiverHandler
 from backend.application.services.verify_caregiver import VerifyCaregiverHandler
+from backend.domain.entities import DocumentKind
 from backend.interfaces.http.dependencies import (
     get_authenticated_context,
     get_authorization_policy,
     get_clock,
     get_event_publisher,
     get_id_generator,
+    get_object_storage,
     get_unit_of_work,
 )
 from backend.interfaces.http.ops.audit import audit_dependency
@@ -49,6 +51,8 @@ from backend.interfaces.http.ops.rate_limit import TIERS, apply_rate_limit, get_
 from backend.interfaces.http.v2.schemas import (
     CaregiverRelationshipListResponse,
     CaregiverRelationshipResponse,
+    DocumentReferenceListResponse,
+    DocumentReferenceResponse,
     PatientListResponse,
     PatientSummaryResponse,
     ProvisionPatientRequest,
@@ -58,6 +62,7 @@ from backend.interfaces.http.v2.schemas import (
 from backend.interfaces.http.v2.security.authorization import (
     AuthenticatedContext,
     AuthorizationPolicy,
+
     Operation,
 )
 from backend.interfaces.http.v2.security.scoping import (
@@ -417,3 +422,69 @@ async def revoke_caregiver(
     )
     relationship = uow.caregiver_relationships.get(result.relationship_id)
     return _to_response(relationship)
+
+
+@patients_router.get(
+    "/{patient_id}/documents",
+    response_model=DocumentReferenceListResponse,
+)
+async def list_patient_documents_via_patients(
+    request: Request,
+    response: Response,
+    patient_id: str,
+    kind: str | None = None,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    storage=Depends(get_object_storage),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> DocumentReferenceListResponse:
+    """List documents for patient (via /patients/{patient_id}/documents)."""
+    apply_rate_limit(request=request, response=response, tier=TIERS["read"], limiter=limiter, ctx=ctx)
+
+    if patient_id.lower() == "me":
+        mapping = uow.identity_mappings.get_by_user_id(ctx.actor_id)
+        if mapping is None or not mapping.active:
+            raise HTTPException(status_code=403, detail="No active patient mapping found")
+        patient_uuid = mapping.patient_id
+    else:
+        try:
+            patient_uuid = _uuid.UUID(patient_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid patient_id")
+
+    patient = authorize_patient_operation(
+        ctx, policy, Operation.READ_DOCUMENTS, patient_uuid, uow
+    )
+    if not getattr(patient, "active", True):
+        raise HTTPException(status_code=403, detail="Patient is deactivated")
+
+    doc_kind = None
+    if kind:
+        try:
+            doc_kind = DocumentKind(kind.strip().lower())
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid document kind: {kind}")
+
+    docs = uow.document_references.list_for_patient(patient_uuid, kind=doc_kind)
+
+    items = []
+    for d in docs:
+        try:
+            url = storage.generate_presigned_url(d.storage_key, expires_in=300)
+        except Exception:
+            url = None
+        items.append(
+            DocumentReferenceResponse(
+                id=str(d.id),
+                patient_id=str(d.patient_id),
+                kind=d.kind.value if hasattr(d.kind, "value") else str(d.kind),
+                filename=d.filename,
+                mime_type=d.mime_type,
+                file_size_bytes=d.file_size_bytes,
+                created_at=d.created_at,
+                download_url=url,
+            )
+        )
+
+    return DocumentReferenceListResponse(total=len(items), items=items)

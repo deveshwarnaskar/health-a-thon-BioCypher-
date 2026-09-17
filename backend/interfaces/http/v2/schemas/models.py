@@ -622,6 +622,51 @@ class CreateNotificationRequest(BaseModel):
     scheduled_at: datetime | None = None
 
 
+# ─── Reports & Documents (Gate 10N) ─────────────────────────────────────────
+
+
+class GenerateReportRequest(BaseModel):
+    model_config = _STRICT
+    patient_id: UUID
+    report_type: str = "clinical_summary"
+    format: str = "pdf"
+
+
+class DocumentReferenceResponse(BaseModel):
+    model_config = _STRICT
+    id: str
+    patient_id: str
+    kind: str
+    filename: str
+    mime_type: str
+    file_size_bytes: int
+    created_at: datetime
+    download_url: str | None = None
+
+
+class DocumentReferenceListResponse(BaseModel):
+    model_config = _STRICT
+    total: int
+    items: list[DocumentReferenceResponse]
+
+
+class DocumentDownloadResponse(BaseModel):
+    model_config = _STRICT
+    download_url: str
+    expires_in: int
+    filename: str
+    mime_type: str
+
+
+class UploadDocumentRequest(BaseModel):
+    model_config = _STRICT
+    filename: str = Field(min_length=1, max_length=255)
+    mime_type: str = Field(min_length=1, max_length=64)
+    content_base64: str = Field(min_length=1)
+    kind: str = "chart_image"
+
+
+
 # ─── Error ──────────────────────────────────────────────────────────────────
 
 

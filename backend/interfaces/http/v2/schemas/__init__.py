@@ -62,6 +62,11 @@ from .models import (
     NotificationResponse,
     NotificationListResponse,
     CreateNotificationRequest,
+    GenerateReportRequest,
+    DocumentReferenceResponse,
+    DocumentReferenceListResponse,
+    DocumentDownloadResponse,
+    UploadDocumentRequest,
 )
 
 __all__ = [
@@ -125,4 +130,9 @@ __all__ = [
     "NotificationResponse",
     "NotificationListResponse",
     "CreateNotificationRequest",
+    "GenerateReportRequest",
+    "DocumentReferenceResponse",
+    "DocumentReferenceListResponse",
+    "DocumentDownloadResponse",
+    "UploadDocumentRequest",
 ]

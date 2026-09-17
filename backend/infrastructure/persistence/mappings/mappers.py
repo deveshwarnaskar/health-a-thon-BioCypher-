@@ -18,6 +18,8 @@ from backend.domain.entities import (
     CareTaskStatus,
     CaregiverRelationship,
     CaregiverRelationshipStatus,
+    DocumentKind,
+    DocumentReference,
     Facility,
     GlucoseObservation,
     IdentityPatientMapping,
@@ -45,6 +47,7 @@ from ..models import (
     CareTaskModel,
     CareTeamMemberModel,
     CaregiverRelationshipModel,
+    DocumentReferenceModel,
     FacilityModel,
     GlucoseObservationModel,
     IdentityPatientMappingModel,
@@ -416,4 +419,41 @@ def notification_to_model(entity: Notification, tenant_id: UUID) -> Notification
         correlation_id=entity.correlation_id,
         retry_count=entity.retry_count,
     )
+
+
+# --- DocumentReference Mapping ---
+
+def document_reference_to_domain(model: DocumentReferenceModel) -> DocumentReference:
+    return DocumentReference(
+        id=model.id,
+        tenant_id=model.tenant_id,
+        patient_id=model.patient_id,
+        facility_id=model.facility_id,
+        kind=DocumentKind(model.kind),
+        storage_key=model.storage_key,
+        mime_type=model.mime_type,
+        filename=model.filename,
+        file_size_bytes=model.file_size_bytes,
+        created_by_user_id=model.created_by_user_id,
+        correlation_id=model.correlation_id,
+        created_at=model.created_at,
+    )
+
+
+def document_reference_to_model(entity: DocumentReference, tenant_id: UUID) -> DocumentReferenceModel:
+    return DocumentReferenceModel(
+        id=entity.id,
+        tenant_id=tenant_id,
+        patient_id=entity.patient_id,
+        facility_id=entity.facility_id,
+        kind=entity.kind.value if hasattr(entity.kind, "value") else str(entity.kind),
+        storage_key=entity.storage_key,
+        mime_type=entity.mime_type,
+        filename=entity.filename,
+        file_size_bytes=entity.file_size_bytes,
+        created_by_user_id=entity.created_by_user_id,
+        correlation_id=entity.correlation_id,
+        created_at=entity.created_at,
+    )
+
 

@@ -253,6 +253,25 @@ class InMemoryNotificationStore(InMemoryRepository[T]):
         return len(self.list_for_tenant(status=status, limit=10000))
 
 
+class InMemoryDocumentReferenceStore(InMemoryRepository[T]):
+    """In-memory document reference repository (Gate 10N)."""
+
+    def list_for_patient(self, patient_id: UUID, kind=None) -> list[T]:
+        items = [e for e in self.list() if getattr(e, "patient_id", None) == patient_id]
+        if kind is not None:
+            kind_val = kind.value if hasattr(kind, "value") else str(kind)
+            items = [e for e in items if (e.kind.value if hasattr(e.kind, "value") else str(e.kind)) == kind_val]
+        return items
+
+    def list_for_tenant(self, limit: int = 50, offset: int = 0) -> list[T]:
+        return self.list()[offset : offset + limit]
+
+    def delete(self, document_id: UUID) -> None:
+        key = (self._kind, document_id)
+        self._stage.pop(key, None)
+        self._committed.pop(key, None)
+
+
 class InMemoryUnitOfWork:
     def __init__(self) -> None:
         self._stage: dict = {}
@@ -270,6 +289,8 @@ class InMemoryUnitOfWork:
         self.care_tasks = InMemoryCareTaskStore(self._stage, self._committed, "care_tasks", self.patients)
         self.ai_artifacts = InMemoryAIReviewArtifactStore(self._stage, self._committed, "ai_artifacts")
         self.notifications = InMemoryNotificationStore(self._stage, self._committed, "notifications")
+        self.document_references = InMemoryDocumentReferenceStore(self._stage, self._committed, "document_references")
+
 
     def commit(self) -> None:
         self._committed.update(self._stage)

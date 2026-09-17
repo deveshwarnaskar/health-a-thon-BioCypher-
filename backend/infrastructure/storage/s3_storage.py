@@ -89,3 +89,44 @@ class S3ObjectStorage:
             except Exception:
                 return False
         return clean_key in self._in_memory_store
+
+    def delete(self, key: str) -> None:
+        clean_key = self._sanitize_key(key)
+        if self._client is not None:
+            try:
+                self._client.delete_object(Bucket=self.bucket, Key=clean_key)
+            except Exception as e:
+                raise KeyError(f"Failed to delete {clean_key}: {e}")
+        else:
+            self._in_memory_store.pop(clean_key, None)
+
+    def generate_presigned_url(self, key: str, expires_in: int = 300) -> str:
+        clean_key = self._sanitize_key(key)
+        if not self.exists(clean_key):
+            raise KeyError(f"Object {clean_key} not found in storage")
+        if self._client is not None:
+            return self._client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": self.bucket, "Key": clean_key},
+                ExpiresIn=expires_in,
+            )
+        endpoint = self.endpoint_url or "https://s3.local"
+        return f"{endpoint.rstrip('/')}/{self.bucket}/{clean_key}?expires={expires_in}"
+
+
+def build_storage_key(
+    tenant_id: Any,
+    patient_id: Any,
+    kind: str,
+    document_id: Any,
+    extension: str,
+) -> str:
+    """Build a deterministic, server-authoritative storage key.
+
+    Enforces path structure:
+        tenants/{tenant_id}/patients/{patient_id}/{kind}/{document_id}.{extension}
+    Never accepts client-controlled directory paths.
+    """
+    clean_ext = extension.lstrip(".").strip().lower()
+    clean_kind = kind.strip().lower()
+    return f"tenants/{tenant_id}/patients/{patient_id}/{clean_kind}/{document_id}.{clean_ext}"
