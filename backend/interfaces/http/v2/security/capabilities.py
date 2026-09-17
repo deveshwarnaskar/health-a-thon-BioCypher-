@@ -38,6 +38,19 @@ _CAREGIVER_OPERATION_REQUIREMENTS: dict[Operation, FrozenSet[CaregiverCapability
     Operation.WRITE_OBSERVATIONS: frozenset({
         CaregiverCapability.CREATE_GLUCOSE,
     }),
+    # Gate 10H-B caregiver mutation grants. Only the declared operations are
+    # wired; everything else (including CONFIRM_MEAL_OBSERVATION and
+    # WRITE_MEDICATION_ADMINISTRATION, which are patient-authority-only) stays
+    # unlisted and is denied for caregivers.
+    Operation.WRITE_MEAL_OBSERVATIONS: frozenset({
+        CaregiverCapability.CREATE_MEAL,
+    }),
+    Operation.READ_CARE_TASKS: frozenset({
+        CaregiverCapability.READ_CARE_TASKS,
+    }),
+    Operation.COMPLETE_CARE_TASK: frozenset({
+        CaregiverCapability.COMPLETE_CARE_TASKS,
+    }),
 }
 
 

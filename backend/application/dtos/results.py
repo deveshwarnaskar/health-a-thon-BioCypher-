@@ -110,3 +110,23 @@ class IdentityMappingDeactivated:
     mapping_id: UUID
     user_id: UUID
     active: bool
+
+
+@dataclass(frozen=True)
+class PatientProvisionedResult:
+    patient_id: UUID
+    uh_id: str
+    name: str
+    facility_id: UUID | None
+    active: bool
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class CareTeamMemberProvisionedResult:
+    member_id: UUID
+    user_id: UUID
+    role: str
+    display_name: str
+    facility_id: UUID | None
+    active: bool

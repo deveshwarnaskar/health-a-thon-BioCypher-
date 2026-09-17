@@ -20,7 +20,14 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from backend.application.commands import CreateMedicationPlan, IngestGlucoseReading, ReviewAIArtifact
+from backend.application.commands import (
+    ConfirmMealObservation,
+    CreateMedicationPlan,
+    IngestGlucoseReading,
+    LogMealDraft,
+    RecordMedicationAdministration,
+    ReviewAIArtifact,
+)
 from backend.application.ops.contracts import AuditAction
 from backend.application.ports.clock import Clock
 from backend.application.ports.events import DomainEventPublisher
@@ -34,6 +41,7 @@ from backend.application.queries import (
     ListAIReviewArtifacts,
     ListMedicationPlans,
 )
+from backend.application.services.confirm_meal_observation import ConfirmMealObservationHandler
 from backend.application.services.create_medication_plan import CreateMedicationPlanHandler
 from backend.application.services.get_ai_review_artifact import GetAIReviewArtifactHandler
 from backend.application.services.get_clinical_observation_feed import GetClinicalObservationFeedHandler
@@ -42,10 +50,14 @@ from backend.application.services.get_patient_observation_feed import GetPatient
 from backend.application.services.ingest_glucose import IngestGlucoseHandler
 from backend.application.services.list_ai_review_artifacts import ListAIReviewArtifactsHandler
 from backend.application.services.list_medication_plans import ListMedicationPlansHandler
+from backend.application.services.log_meal_draft import LogMealDraftHandler
+from backend.application.services.record_medication_administration import (
+    RecordMedicationAdministrationHandler,
+)
 from backend.application.services.review_ai_artifact import ReviewAIArtifactHandler
 from backend.application.dtos.clinical import ClinicalGlucoseRecord, ClinicalMealRecord
 from backend.domain.exceptions import EntityNotFound
-from backend.domain.value_objects import GlucoseValue, ReadingTag
+from backend.domain.value_objects import GlucoseValue, KatoriVolume, MealPortion, ReadingTag
 from backend.interfaces.http.dependencies import (
     get_authenticated_context,
     get_authorization_policy,
@@ -60,13 +72,19 @@ from backend.interfaces.http.v2.schemas import (
     AIArtifactListResponse,
     AIArtifactResponse,
     ClinicalObservationFeedResponse,
+    ConfirmMealRequest,
+    ConfirmMealResponse,
     CreateMedicationPlanRequest,
     CreateMedicationPlanResponse,
     IngestGlucoseRequest,
     IngestGlucoseResponse,
+    LogMealRequest,
+    LogMealResponse,
     MedicationPlanListResponse,
     MedicationPlanResponse,
     PatientObservationFeedResponse,
+    RecordMedicationAdministrationRequest,
+    RecordMedicationAdministrationResponse,
     ReviewAIArtifactRequest,
     ReviewAIArtifactResponse,
 )
@@ -638,4 +656,204 @@ async def get_medication_plan(
         active=result.active,
         prescribed_by_role=result.prescribed_by_role,
         created_at=result.created_at,
+    )
+
+
+def _meal_portion(body_portion) -> MealPortion | None:
+    """Build the canonical MealPortion VO from a validated request schema."""
+    if body_portion is None:
+        return None
+    return MealPortion(
+        food_key=body_portion.food_key,
+        katori=KatoriVolume(body_portion.katori_volume_ml),
+        quantity=body_portion.quantity,
+    )
+
+
+@clinical_router.post(
+    "/meals",
+    response_model=LogMealResponse,
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.CREATE,
+                resource_type="patient.meal",
+                resource_id_from=lambda request: json_field(request, "patient_id"),
+            )
+        )
+    ],
+)
+async def log_meal_draft(
+    request: Request,
+    response: Response,
+    body: LogMealRequest,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    events: DomainEventPublisher = Depends(get_event_publisher),
+    clock: Clock = Depends(get_clock),
+    id_gen: IdGenerator = Depends(get_id_generator),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> LogMealResponse:
+    """Draft a meal observation for a scoped patient (unconfirmed).
+
+    Patient self-access and caregiver CREATE_MEAL grants flow through the
+    relational policy; clinicians require an active facility-matching
+    membership. The patient-facing DTO carries description/portion only —
+    analytic interpretation (carbs/GI) is never produced here.
+    """
+    apply_rate_limit(request=request, response=response, tier=TIERS["clinical_write"], limiter=limiter, ctx=ctx)
+
+    patient = authorize_patient_operation(
+        ctx, policy, Operation.WRITE_MEAL_OBSERVATIONS, body.patient_id, uow
+    )
+    if not getattr(patient, "active", True):
+        # Deactivated-patient invariant: proxies are already denied at the
+        # policy boundary; the clinician path enforces it here too.
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    cmd = LogMealDraft(
+        patient_id=body.patient_id,
+        description=body.description,
+        recorded_at=body.recorded_at or clock.now(),
+        portion=_meal_portion(body.portion),
+        correlation_id=_correlation_id(request),
+    )
+    result = LogMealDraftHandler(uow, events, clock, id_gen).handle(cmd)
+    observation = uow.meal_observations.get(result.meal_observation_id)
+    return LogMealResponse(
+        meal_observation_id=str(result.meal_observation_id),
+        patient_id=str(result.patient_id),
+        portion_label=observation.portion.katori.label if observation.portion else None,
+        quantity=observation.portion.quantity if observation.portion else None,
+    )
+
+
+@clinical_router.post(
+    "/meals/{meal_observation_id}/confirm",
+    response_model=ConfirmMealResponse,
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.UPDATE,
+                resource_type="patient.meal",
+                resource_id_from=lambda request: path_param(request, "meal_observation_id"),
+            )
+        )
+    ],
+)
+async def confirm_meal_observation(
+    request: Request,
+    response: Response,
+    meal_observation_id: str,
+    body: ConfirmMealRequest,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    events: DomainEventPublisher = Depends(get_event_publisher),
+    clock: Clock = Depends(get_clock),
+    id_gen: IdGenerator = Depends(get_id_generator),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> ConfirmMealResponse:
+    """Patient confirmation/correction of a pending meal observation.
+
+    Confirmation authority is PATIENT-ONLY (Domain Gate 03): the confirmed_by
+    phone is resolved from the authoritative patient record, never from the
+    request body. A patient without a bound phone cannot confirm (409).
+    """
+    apply_rate_limit(request=request, response=response, tier=TIERS["clinical_write"], limiter=limiter, ctx=ctx)
+
+    try:
+        meal_uuid = _uuid.UUID(meal_observation_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid meal_observation_id")
+
+    try:
+        observation = uow.meal_observations.get(meal_uuid)
+    except EntityNotFound:
+        raise HTTPException(status_code=404, detail="Meal observation not found")
+
+    patient = authorize_patient_operation(
+        ctx, policy, Operation.CONFIRM_MEAL_OBSERVATION, observation.patient_id, uow
+    )
+    if patient.phone is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Patient phone is required to confirm a meal observation",
+        )
+
+    cmd = ConfirmMealObservation(
+        meal_observation_id=meal_uuid,
+        confirmed_by=patient.phone,
+        corrected_description=body.corrected_description,
+        corrected_portion=_meal_portion(body.corrected_portion),
+        correlation_id=_correlation_id(request),
+    )
+    result = ConfirmMealObservationHandler(uow, events, clock, id_gen).handle(cmd)
+    return ConfirmMealResponse(
+        meal_observation_id=str(result.meal_observation_id),
+        patient_id=str(observation.patient_id),
+        confirmation=result.confirmation,
+    )
+
+
+@clinical_router.post(
+    "/medication-administrations",
+    response_model=RecordMedicationAdministrationResponse,
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.CREATE,
+                resource_type="patient.medication_administration",
+                resource_id_from=lambda request: json_field(request, "medication_plan_id"),
+            )
+        )
+    ],
+)
+async def record_medication_administration(
+    request: Request,
+    response: Response,
+    body: RecordMedicationAdministrationRequest,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    events: DomainEventPublisher = Depends(get_event_publisher),
+    clock: Clock = Depends(get_clock),
+    id_gen: IdGenerator = Depends(get_id_generator),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> RecordMedicationAdministrationResponse:
+    """Record a PATIENT adherence event against an active clinician-authored plan.
+
+    Medication authority stays clinician-only: the plan is loaded read-only and
+    never created or modified here. Self-access is confined to the patient whose
+    active identity mapping matches the plan's patient. The recorded_by phone is
+    the authoritative patient record's phone (409 if unbound).
+    """
+    apply_rate_limit(request=request, response=response, tier=TIERS["clinical_write"], limiter=limiter, ctx=ctx)
+
+    try:
+        plan = uow.medication_plans.get(body.medication_plan_id)
+    except EntityNotFound:
+        raise HTTPException(status_code=404, detail="Medication plan not found")
+
+    patient = authorize_patient_operation(
+        ctx, policy, Operation.WRITE_MEDICATION_ADMINISTRATION, plan.patient_id, uow
+    )
+    if patient.phone is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Patient phone is required to record a medication administration",
+        )
+
+    cmd = RecordMedicationAdministration(
+        medication_plan_id=plan.id,
+        administered_at=body.administered_at or clock.now(),
+        recorded_by=patient.phone,
+        correlation_id=_correlation_id(request),
+    )
+    result = RecordMedicationAdministrationHandler(uow, events, clock, id_gen).handle(cmd)
+    return RecordMedicationAdministrationResponse(
+        medication_plan_id=str(result.medication_plan_id),
+        patient_id=str(result.patient_id),
+        administered_at=result.administered_at,
     )

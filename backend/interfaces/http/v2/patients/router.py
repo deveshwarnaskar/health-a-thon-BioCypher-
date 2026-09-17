@@ -19,6 +19,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from backend.application.commands import (
+    CreatePatient,
     RegisterCaregiverRelationship,
     RevokeCaregiverRelationship,
     VerifyCaregiverRelationship,
@@ -29,6 +30,7 @@ from backend.application.ports.events import DomainEventPublisher
 from backend.application.ports.id_generation import IdGenerator
 from backend.application.ports.unit_of_work import UnitOfWork
 from backend.application.queries import GetPatient, ListPatients
+from backend.application.services.create_patient import CreatePatientHandler
 from backend.application.services.get_patient import GetPatientHandler
 from backend.application.services.list_patients import ListPatientsHandler
 from backend.application.services.register_caregiver import RegisterCaregiverHandler
@@ -49,6 +51,8 @@ from backend.interfaces.http.v2.schemas import (
     CaregiverRelationshipResponse,
     PatientListResponse,
     PatientSummaryResponse,
+    ProvisionPatientRequest,
+    ProvisionPatientResponse,
     RegisterCaregiverRequest,
 )
 from backend.interfaces.http.v2.security.authorization import (
@@ -63,6 +67,7 @@ from backend.interfaces.http.v2.security.scoping import (
     authorize_patient_operation,
 )
 from backend.domain.exceptions import EntityNotFound
+from backend.domain.value_objects import PhoneNumber, UHID
 
 patients_router = APIRouter()
 
@@ -106,6 +111,65 @@ def _to_patient_response(record) -> PatientSummaryResponse:
         facility_id=str(record.facility_id) if record.facility_id else None,
         active=record.active,
         created_at=record.created_at,
+    )
+
+
+@patients_router.post(
+    "",
+    response_model=ProvisionPatientResponse,
+    status_code=201,
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.CREATE,
+                resource_type="patient.provision",
+                resource_id_from=None,
+                atomic=False,
+            )
+        )
+    ],
+)
+async def provision_patient(
+    request: Request,
+    response: Response,
+    body: ProvisionPatientRequest,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    events: DomainEventPublisher = Depends(get_event_publisher),
+    clock: Clock = Depends(get_clock),
+    id_gen: IdGenerator = Depends(get_id_generator),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> ProvisionPatientResponse:
+    """Provision a tenant patient record (administrator-only).
+
+    The tenant is the authenticated JWT tenant — never a client field. The
+    patient is created active and facility-scoped; no clinical authority, role,
+    or observation surface is created here.
+    """
+    apply_rate_limit(request=request, response=response, tier=TIERS["admin"], limiter=limiter, ctx=ctx)
+
+    authorize_or_403(ctx, policy, Operation.PROVISION_PATIENT)
+
+    uh_id = UHID(body.uh_id) if body.uh_id else UHID("UNASSIGNED")
+    phone = PhoneNumber(body.phone) if body.phone else None
+
+    result = CreatePatientHandler(uow, events, clock, id_gen).handle(
+        CreatePatient(
+            name=body.name,
+            facility_id=body.facility_id,
+            uh_id=uh_id,
+            phone=phone,
+            correlation_id=_correlation_id(request),
+        )
+    )
+    return ProvisionPatientResponse(
+        patient_id=str(result.patient_id),
+        uh_id=result.uh_id,
+        name=result.name,
+        facility_id=str(result.facility_id) if result.facility_id else None,
+        active=result.active,
+        created_at=result.created_at,
     )
 
 

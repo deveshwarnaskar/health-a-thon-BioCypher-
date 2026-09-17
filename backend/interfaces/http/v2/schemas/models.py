@@ -322,6 +322,156 @@ class IdentityMappingResponse(BaseModel):
     created_at: datetime
 
 
+# ─── Meal Documentation (Gate 10H-B) ─────────────────────────────────────────
+
+
+class MealPortionRequest(BaseModel):
+    """Canonical Aahaar volumetric portion vocabulary (Gate 10H-B).
+
+    Patient-facing: description/portion ONLY. NEVER carries carbohydrate grams
+    or glycemic index — that analytic interpretation remains clinician-scoped.
+    """
+
+    model_config = _STRICT
+    food_key: str = Field(min_length=1)
+    katori_volume_ml: Literal[150, 220, 350]
+    quantity: float = Field(default=1.0, ge=0.1, le=100)
+
+
+class LogMealRequest(BaseModel):
+    model_config = _STRICT
+    patient_id: UUID
+    description: str = Field(min_length=1)
+    portion: MealPortionRequest | None = None
+    recorded_at: datetime | None = None
+
+
+class LogMealResponse(BaseModel):
+    model_config = _STRICT
+    meal_observation_id: str
+    patient_id: str
+    portion_label: str | None = None
+    quantity: float | None = None
+
+
+class ConfirmMealRequest(BaseModel):
+    model_config = _STRICT
+    corrected_description: str | None = None
+    corrected_portion: MealPortionRequest | None = None
+
+
+class ConfirmMealResponse(BaseModel):
+    model_config = _STRICT
+    meal_observation_id: str
+    patient_id: str
+    confirmation: str
+
+
+# ─── Medication Administration (Gate 10H-B) ─────────────────────────────────
+
+
+class RecordMedicationAdministrationRequest(BaseModel):
+    model_config = _STRICT
+    medication_plan_id: UUID
+    administered_at: datetime | None = None
+
+
+class RecordMedicationAdministrationResponse(BaseModel):
+    model_config = _STRICT
+    medication_plan_id: str
+    patient_id: str
+    administered_at: datetime
+
+
+# ─── Care Tasks (Gate 10H-B) ────────────────────────────────────────────────
+
+
+class CareTaskResponse(BaseModel):
+    model_config = _STRICT
+    care_task_id: str
+    patient_id: str
+    assigned_to_user_id: str
+    description: str
+    status: str
+    created_at: datetime
+    completed_at: datetime | None = None
+
+
+class CareTaskListResponse(BaseModel):
+    model_config = _STRICT
+    patient_id: str
+    task_count: int
+    items: list[CareTaskResponse]
+
+
+class CreateCareTaskRequest(BaseModel):
+    model_config = _STRICT
+    patient_id: UUID
+    assigned_to_user_id: UUID
+    description: str = Field(min_length=1)
+
+
+class CompleteCareTaskResponse(BaseModel):
+    model_config = _STRICT
+    care_task_id: str
+    status: str
+    completed_at: datetime
+
+
+# ─── Administrative Provisioning (Gate 10H-B) ──────────────────────────────
+
+
+class ProvisionPatientRequest(BaseModel):
+    """Administrator provisioning of a tenant patient record.
+
+    ``facility_id`` is accepted as a well-formed UUID. The authoritative
+    tenant remains the JWT claim — never a client field. The platform has no
+    facility repository port, so facility existence is NOT verified here
+    (fail-closed posture documented; unknown facilities yield an unscoped
+    patient that no clinician can reach).
+    """
+
+    model_config = _STRICT
+    name: str = Field(min_length=1)
+    uh_id: str | None = Field(default=None, max_length=64)
+    facility_id: UUID
+    phone: str | None = None
+
+
+class ProvisionPatientResponse(BaseModel):
+    model_config = _STRICT
+    patient_id: str
+    uh_id: str
+    name: str
+    facility_id: str | None = None
+    active: bool
+    created_at: datetime
+
+
+class ProvisionCareTeamMemberRequest(BaseModel):
+    model_config = _STRICT
+    user_id: UUID
+    role: Literal[
+        "doctor",
+        "nurse",
+        "care_coordinator",
+        "dietitian",
+        "field_health_worker",
+    ]
+    display_name: str = Field(min_length=1)
+    facility_id: UUID
+
+
+class CareTeamMemberResponse(BaseModel):
+    model_config = _STRICT
+    member_id: str
+    user_id: str
+    role: str
+    display_name: str
+    facility_id: str | None = None
+    active: bool
+
+
 # ─── Error ──────────────────────────────────────────────────────────────────
 
 

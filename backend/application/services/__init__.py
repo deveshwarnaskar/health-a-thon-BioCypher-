@@ -5,11 +5,13 @@ domain, and application ports. Infrastructure implementations are injected
 through ports; they are never imported here.
 """
 
+from .add_care_team_member import AddCareTeamMemberHandler
 from .complete_care_task import CompleteCareTaskHandler
 from .confirm_meal_observation import ConfirmMealObservationHandler
 from .create_care_task import CreateCareTaskHandler
 from .create_identity_mapping import CreateIdentityMappingHandler
 from .create_medication_plan import CreateMedicationPlanHandler
+from .create_patient import CreatePatientHandler
 from .deactivate_identity_mapping import DeactivateIdentityMappingHandler
 from .generate_ai_artifact import GenerateAIReviewArtifactHandler
 from .get_ai_review_artifact import GetAIReviewArtifactHandler
@@ -32,11 +34,13 @@ from .revoke_caregiver import RevokeCaregiverHandler
 from .verify_caregiver import VerifyCaregiverHandler
 
 __all__ = [
+    "AddCareTeamMemberHandler",
     "CompleteCareTaskHandler",
     "ConfirmMealObservationHandler",
     "CreateCareTaskHandler",
     "CreateIdentityMappingHandler",
     "CreateMedicationPlanHandler",
+    "CreatePatientHandler",
     "DeactivateIdentityMappingHandler",
     "GenerateAIReviewArtifactHandler",
     "GetAIReviewArtifactHandler",

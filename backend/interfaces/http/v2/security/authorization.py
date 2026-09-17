@@ -47,6 +47,20 @@ class Operation(str, Enum):
     MANAGE_IDENTITY_MAPPINGS = "manage_identity_mappings"
     LIST_CAREGIVER_PATIENTS = "list_caregiver_patients"
     ADMIN = "admin"
+    # Gate 10H-B mutation contracts. READ_WRITE separation is explicit:
+    # WRITE_MEAL_OBSERVATIONS (draft), CONFIRM_MEAL_OBSERVATION (patient
+    # confirmation/correction authority), WRITE_MEDICATION_ADMINISTRATION
+    # (patient adherence event), READ/CREATE/COMPLETE_CARE_TASK (care-team
+    # workflow), PROVISION_PATIENT + MANAGE_CARE_TEAM (administrator-only
+    # provisioning).
+    WRITE_MEAL_OBSERVATIONS = "write_meal_observations"
+    CONFIRM_MEAL_OBSERVATION = "confirm_meal_observation"
+    WRITE_MEDICATION_ADMINISTRATION = "write_medication_administration"
+    READ_CARE_TASKS = "read_care_tasks"
+    CREATE_CARE_TASK = "create_care_task"
+    COMPLETE_CARE_TASK = "complete_care_task"
+    PROVISION_PATIENT = "provision_patient"
+    MANAGE_CARE_TEAM = "manage_care_team"
 
 
 # Role → permitted operations mapping (DENY-BY-DEFAULT: unlisted = denied)
@@ -61,6 +75,10 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.REVIEW_AI_ARTIFACT,
         Operation.READ_PATIENT,
         Operation.WRITE_PATIENT,
+        Operation.WRITE_MEAL_OBSERVATIONS,
+        Operation.READ_CARE_TASKS,
+        Operation.CREATE_CARE_TASK,
+        Operation.COMPLETE_CARE_TASK,
     }),
     "nurse": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -70,6 +88,10 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.READ_AI_ARTIFACTS,
         Operation.REVIEW_AI_ARTIFACT,
         Operation.READ_PATIENT,
+        Operation.WRITE_MEAL_OBSERVATIONS,
+        Operation.READ_CARE_TASKS,
+        Operation.CREATE_CARE_TASK,
+        Operation.COMPLETE_CARE_TASK,
     }),
     "dietitian": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -79,6 +101,10 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.READ_AI_ARTIFACTS,
         Operation.REVIEW_AI_ARTIFACT,
         Operation.READ_PATIENT,
+        Operation.WRITE_MEAL_OBSERVATIONS,
+        Operation.READ_CARE_TASKS,
+        Operation.CREATE_CARE_TASK,
+        Operation.COMPLETE_CARE_TASK,
     }),
     "care_coordinator": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -87,24 +113,32 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.READ_PATIENT,
         Operation.WRITE_PATIENT,
         Operation.MANAGE_CAREGIVER_RELATIONSHIPS,
+        Operation.READ_CARE_TASKS,
+        Operation.CREATE_CARE_TASK,
+        Operation.COMPLETE_CARE_TASK,
     }),
     "field_health_worker": frozenset({
         Operation.READ_OBSERVATIONS,
         Operation.WRITE_OBSERVATIONS,
         Operation.READ_PATIENT,
+        Operation.WRITE_MEAL_OBSERVATIONS,
+        Operation.READ_CARE_TASKS,
+        Operation.COMPLETE_CARE_TASK,
     }),
     "patient": frozenset({
         # Patient self-access: DENIED until Gate 08 identity mapping exists.
-        # Empty set = deny all.
+        # Empty set = deny all; self ops resolve exclusively via _is_self_allowed.
     }),
     "caregiver": frozenset({
         # Caregiver access: DENIED until Gate 08 relationship contracts exist.
-        # Empty set = deny all.
+        # Empty set = deny all; caregiver ops resolve via capabilities.
     }),
     "admin": frozenset({
         Operation.ADMIN,
         Operation.MANAGE_CAREGIVER_RELATIONSHIPS,
         Operation.MANAGE_IDENTITY_MAPPINGS,
+        Operation.PROVISION_PATIENT,
+        Operation.MANAGE_CARE_TEAM,
     }),
 }
 
@@ -246,6 +280,9 @@ class RelationshipAuthorizationPolicy(DefaultAuthorizationPolicy):
             Operation.READ_OBSERVATIONS,
             Operation.WRITE_OBSERVATIONS,
             Operation.READ_PATIENT,
+            Operation.WRITE_MEAL_OBSERVATIONS,
+            Operation.CONFIRM_MEAL_OBSERVATION,
+            Operation.WRITE_MEDICATION_ADMINISTRATION,
         }
         if operation not in self_capable:
             return False

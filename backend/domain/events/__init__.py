@@ -7,10 +7,12 @@ from .clinical import (
     AIArtifactReviewed,
     CareTaskCompleted,
     CareTaskCreated,
+    CareTeamMemberProvisioned,
     GlucoseObservationRecorded,
     MealObservationConfirmed,
     MealObservationRecorded,
     MedicationAdministrationRecorded,
+    PatientProvisioned,
 )
 from .identity import (
     CaregiverRelationshipCreated,
@@ -38,4 +40,6 @@ __all__ = [
     "CaregiverRelationshipVerified",
     "CaregiverRelationshipRevoked",
     "CaregiverRelationshipExpired",
+    "PatientProvisioned",
+    "CareTeamMemberProvisioned",
 ]

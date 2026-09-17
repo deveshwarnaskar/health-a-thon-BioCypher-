@@ -59,3 +59,13 @@ class AIArtifactReviewed(DomainEvent):
     event_type: str = "ai_artifact.reviewed"
     artifact_id: UUID = field(default_factory=uuid4)
     review_state: str = "approved"
+
+
+@dataclass(frozen=True)
+class PatientProvisioned(DomainEvent):
+    event_type: str = "patient.provisioned"
+
+
+@dataclass(frozen=True)
+class CareTeamMemberProvisioned(DomainEvent):
+    event_type: str = "care_team_member.provisioned"

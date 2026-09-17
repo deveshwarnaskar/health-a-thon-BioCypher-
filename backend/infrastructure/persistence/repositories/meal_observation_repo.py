@@ -39,6 +39,23 @@ class SqlAlchemyMealObservationRepository:
             raise EntityNotFound(f"meal_observation {observation_id} not found")
         return meal_observation_to_domain(model)
 
+    def save(self, observation: MealObservation) -> None:
+        stmt = select(MealObservationModel).where(
+            MealObservationModel.id == observation.id,
+            MealObservationModel.tenant_id == self.tenant_id,
+        )
+        model = self.session.scalars(stmt).first()
+        if model is None:
+            raise EntityNotFound(f"meal_observation {observation.id} not found")
+        model.description = observation.description
+        model.portion_food_key = observation.portion.food_key if observation.portion else None
+        model.portion_volume_ml = observation.portion.katori.volume_ml if observation.portion else None
+        model.portion_quantity = observation.portion.quantity if observation.portion else None
+        model.carbs_grams = observation.carbs_grams
+        model.glycemic_index = observation.glycemic_index
+        model.confirmation = observation.confirmation.value
+        model.confirmed_by = observation.confirmed_by.value if observation.confirmed_by else None
+
     def list_for_patient(self, patient_id: UUID) -> list[MealObservation]:
         stmt = (
             select(MealObservationModel)
