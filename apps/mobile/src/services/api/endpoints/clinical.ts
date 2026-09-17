@@ -1,7 +1,9 @@
 import {
+  clinicianObservationFeedSchema,
   ingestGlucoseRequestSchema,
   ingestGlucoseResponseSchema,
   patientObservationFeedSchema,
+  type ClinicianObservationFeedResponse,
   type IngestGlucoseRequest,
   type IngestGlucoseResponse,
   type PatientObservationFeedResponse,
@@ -28,4 +30,11 @@ export const clinicalEndpoints = {
     requestSchema: ingestGlucoseRequestSchema,
     responseSchema: ingestGlucoseResponseSchema,
   } satisfies EndpointDefinition<IngestGlucoseResponse, IngestGlucoseRequest>,
+
+  clinicianFeed: {
+    method: "GET",
+    path: "/api/v2/clinical/clinical-observations",
+    requiresIdempotencyKey: false,
+    responseSchema: clinicianObservationFeedSchema,
+  } satisfies EndpointDefinition<ClinicianObservationFeedResponse, undefined>,
 } as const;

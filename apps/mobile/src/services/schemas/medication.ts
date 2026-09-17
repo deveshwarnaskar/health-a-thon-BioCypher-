@@ -35,3 +35,12 @@ export const medicationPlanResponseSchema = z
   .strict();
 
 export type MedicationPlanResponse = z.infer<typeof medicationPlanResponseSchema>;
+
+export const medicationPlanListResponseSchema = z
+  .object({
+    plan_count: z.number().int(),
+    items: z.array(medicationPlanResponseSchema),
+  })
+  .strict();
+
+export type MedicationPlanListResponse = z.infer<typeof medicationPlanListResponseSchema>;

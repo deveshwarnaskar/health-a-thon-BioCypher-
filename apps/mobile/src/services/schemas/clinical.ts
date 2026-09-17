@@ -124,3 +124,48 @@ export const clinicalMealObservationSchema = z
   .strict();
 
 export const PATIENT_FACING_FORBIDDEN_FIELDS = ["carbs_grams", "glycemic_index"] as const;
+
+// ─── Clinician-only observation feed (Gate 10F-B → Gate 10F-M) ────────────
+// VERIFIED contract: GET /api/v2/clinical/clinical-observations. These items
+// carry clinician-only analytical fields (carbs_grams, glycemic_index) and
+// observation lifecycle facts (observation_id, confirmation). They MUST NEVER
+// be routed to patient/caregiver screens — the patient-facing schemas above
+// remain untouched and continue to reject these fields.
+
+export const clinicianGlucoseObservationSchema = z
+  .object({
+    kind: z.literal("glucose"),
+    observation_id: z.string(),
+    value_mg_dl: z.number().int().nullable().optional(),
+    tag: z.string().nullable().optional(),
+    taken_at: z.string(),
+    confirmation: z.string(),
+  })
+  .strict();
+
+export const clinicianMealObservationSchema = z
+  .object({
+    kind: z.literal("meal"),
+    observation_id: z.string(),
+    description: z.string(),
+    portion_label: z.string().nullable().optional(),
+    quantity: z.number().nullable().optional(),
+    carbs_grams: z.number().nullable().optional(),
+    glycemic_index: z.string().nullable().optional(),
+    recorded_at: z.string(),
+    confirmation: z.string(),
+  })
+  .strict();
+
+export const clinicianObservationFeedSchema = z
+  .object({
+    patient_id: z.string(),
+    items: z.array(
+      z.union([clinicianGlucoseObservationSchema, clinicianMealObservationSchema]),
+    ),
+  })
+  .strict();
+
+export type ClinicianGlucoseObservation = z.infer<typeof clinicianGlucoseObservationSchema>;
+export type ClinicianMealObservation = z.infer<typeof clinicianMealObservationSchema>;
+export type ClinicianObservationFeedResponse = z.infer<typeof clinicianObservationFeedSchema>;

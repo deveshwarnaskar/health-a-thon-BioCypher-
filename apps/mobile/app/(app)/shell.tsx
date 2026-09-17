@@ -9,6 +9,7 @@ import { colors, spacing, typography } from "../../src/theming/tokens";
 import { LoadingState } from "../../src/components/primitives/LoadingState";
 import { PatientGlucoseScreen } from "../../src/features/glucose";
 import { CaregiverWorkflow } from "../../src/features/caregiver";
+import { DoctorWorkflow } from "../../src/features/doctor";
 
 /**
  * Protected, role-aware shell. Role derives exclusively from the verified
@@ -39,6 +40,16 @@ export default function ShellScreen() {
 
   if (role === "Caregiver" && selectedDestination === "patients") {
     return <CaregiverWorkflow onExit={() => setSelectedDestination(null)} />;
+  }
+
+  // Gate 10F-M: the Doctor vertical slice owns Review and Patients today;
+  // medication plans are reached inside the patient record (Create Plan).
+  if (role === "Doctor" && selectedDestination === "review") {
+    return <DoctorWorkflow flow="review" onHome={() => setSelectedDestination(null)} />;
+  }
+
+  if (role === "Doctor" && selectedDestination === "patients") {
+    return <DoctorWorkflow flow="patients" onHome={() => setSelectedDestination(null)} />;
   }
 
   return (

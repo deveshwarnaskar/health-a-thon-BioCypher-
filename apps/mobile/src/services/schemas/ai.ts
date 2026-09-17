@@ -34,3 +34,12 @@ export const aiArtifactResponseSchema = z
   .strict();
 
 export type AIArtifactResponse = z.infer<typeof aiArtifactResponseSchema>;
+
+export const aiArtifactListResponseSchema = z
+  .object({
+    artifact_count: z.number().int(),
+    items: z.array(aiArtifactResponseSchema),
+  })
+  .strict();
+
+export type AIArtifactListResponse = z.infer<typeof aiArtifactListResponseSchema>;
