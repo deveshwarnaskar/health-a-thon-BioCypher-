@@ -18,6 +18,7 @@ export interface IdempotencyKeyStore {
   get(mutationKey: string): string | undefined;
   set(mutationKey: string, key: string): void;
   remove(mutationKey: string): void;
+  clear(): void;
 }
 
 export class InMemoryIdempotencyKeyStore implements IdempotencyKeyStore {
@@ -33,6 +34,10 @@ export class InMemoryIdempotencyKeyStore implements IdempotencyKeyStore {
 
   remove(mutationKey: string): void {
     this.keys.delete(mutationKey);
+  }
+
+  clear(): void {
+    this.keys.clear();
   }
 }
 

@@ -24,6 +24,7 @@ import {
 import { buildAuthUser } from "./authenticatedUser";
 import { authLog } from "./authLog";
 import { toAuthenticatedContext } from "./types";
+import { decodeJwtPayload } from "./jwt";
 
 export type SessionManagerDependencies = {
   config: OidcConfig;
@@ -370,7 +371,15 @@ export class OidcSessionManager implements AuthSessionProvider {
         path: "/api/v2/auth/verify",
       });
 
-      return buildAuthUser(toAuthenticatedContext(verifyResponse));
+      const token = await this.tokenStore.getAccessToken();
+      const idToken = await this.tokenStore.getIdToken();
+      const claims = token ? decodeJwtPayload(token) : null;
+      const idClaims = idToken ? decodeJwtPayload(idToken) : null;
+      const patientId =
+        (typeof claims?.patient_id === "string" ? claims.patient_id : null) ??
+        (typeof idClaims?.patient_id === "string" ? idClaims.patient_id : null);
+
+      return buildAuthUser(toAuthenticatedContext(verifyResponse, patientId));
     } catch (cause) {
       const details = cause as ApiErrorDetails;
       if (isAuthExpiredSignal(details)) {

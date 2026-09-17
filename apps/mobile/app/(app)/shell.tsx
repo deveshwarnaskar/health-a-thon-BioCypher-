@@ -7,6 +7,7 @@ import { useAuth } from "../../src/auth/AuthProvider";
 import { roleLabel, type Role } from "../../src/authz/roles";
 import { colors, spacing, typography } from "../../src/theming/tokens";
 import { LoadingState } from "../../src/components/primitives/LoadingState";
+import { PatientGlucoseScreen } from "../../src/features/glucose";
 
 /**
  * Protected, role-aware shell. Role derives exclusively from the verified
@@ -25,6 +26,14 @@ export default function ShellScreen() {
   const role = state.user.role as Role | null;
   if (!role) {
     return <LoadingState label="Preparing your area…" />;
+  }
+
+  if (role === "Patient" && selectedDestination === "glucose") {
+    return (
+      <PatientGlucoseScreen
+        onBack={() => setSelectedDestination(null)}
+      />
+    );
   }
 
   return (

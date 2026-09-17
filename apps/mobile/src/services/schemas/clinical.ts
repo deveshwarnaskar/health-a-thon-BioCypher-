@@ -40,6 +40,26 @@ export type PatientMealObservation = z.infer<typeof patientMealObservationSchema
 
 // ─── Glucose ingestion (verified contract) ───────────────────────────────
 
+export const READING_TAGS = [
+  "fasting",
+  "premeal",
+  "postbreakfast",
+  "postlunch",
+  "postdinner",
+] as const;
+
+export type ReadingTag = (typeof READING_TAGS)[number];
+
+export const readingTagSchema = z.enum(READING_TAGS);
+
+export const READING_TAG_LABELS: Record<ReadingTag, string> = {
+  fasting: "Fasting",
+  premeal: "Pre-meal",
+  postbreakfast: "Post-breakfast",
+  postlunch: "Post-lunch",
+  postdinner: "Post-dinner",
+};
+
 export const ingestGlucoseRequestSchema = z
   .object({
     patient_id: z.string().uuid(),
@@ -50,6 +70,29 @@ export const ingestGlucoseRequestSchema = z
   .strict();
 
 export type IngestGlucoseRequest = z.infer<typeof ingestGlucoseRequestSchema>;
+
+export const glucoseFormInputSchema = z.object({
+  value_mg_dl: z.union([
+    z
+      .number()
+      .int("Reading must be a whole number.")
+      .min(20, "Reading must be at least 20 mg/dL.")
+      .max(600, "Reading must be at most 600 mg/dL."),
+    z
+      .string()
+      .min(1, "Please enter a glucose reading.")
+      .refine((val) => {
+        const num = Number(val);
+        return !Number.isNaN(num) && Number.isInteger(num);
+      }, "Reading must be a whole number.")
+      .refine((val) => Number(val) >= 20, "Reading must be at least 20 mg/dL.")
+      .refine((val) => Number(val) <= 600, "Reading must be at most 600 mg/dL."),
+  ]),
+  tag: readingTagSchema.nullable().optional(),
+  taken_at: z.string().optional(),
+});
+
+export type GlucoseFormInput = z.infer<typeof glucoseFormInputSchema>;
 
 export const ingestGlucoseResponseSchema = z
   .object({

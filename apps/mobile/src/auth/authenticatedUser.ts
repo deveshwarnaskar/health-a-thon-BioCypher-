@@ -15,6 +15,7 @@ export function buildAuthUser(ctx: AuthenticatedContext): AuthUser {
     actor_id: ctx.actor_id,
     tenant_id: ctx.tenant_id,
     facility_id: ctx.facility_id ?? null,
+    patient_id: ctx.patient_id ?? null,
     roles: [...ctx.roles],
     role,
     capabilities: role ? [...capabilitiesForRole(role)] : [],

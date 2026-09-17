@@ -21,6 +21,7 @@ export type AuthUser = {
   actor_id: string;
   tenant_id: string;
   facility_id: string | null;
+  patient_id?: string | null;
   role: string | null;
   capabilities: readonly string[];
   roles: string[];

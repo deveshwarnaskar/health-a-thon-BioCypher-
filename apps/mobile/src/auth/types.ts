@@ -9,6 +9,7 @@ export type AuthenticatedContext = {
   tenant_id: string;
   roles: string[];
   facility_id: string | null;
+  patient_id?: string | null;
 };
 
 export type AuthStatus =
@@ -16,11 +17,18 @@ export type AuthStatus =
   | { state: "authenticated"; context: AuthenticatedContext }
   | { state: "anonymous" };
 
-export function toAuthenticatedContext(verify: AuthVerifyResponse): AuthenticatedContext {
-  return {
+export function toAuthenticatedContext(
+  verify: AuthVerifyResponse,
+  patientId?: string | null
+): AuthenticatedContext {
+  const ctx: AuthenticatedContext = {
     actor_id: verify.actor_id,
     tenant_id: verify.tenant_id,
     roles: verify.roles,
     facility_id: verify.facility_id ?? null,
   };
+  if (patientId !== undefined) {
+    ctx.patient_id = patientId;
+  }
+  return ctx;
 }
