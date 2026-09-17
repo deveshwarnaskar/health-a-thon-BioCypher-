@@ -10,6 +10,7 @@ import { LoadingState } from "../../src/components/primitives/LoadingState";
 import { PatientGlucoseScreen } from "../../src/features/glucose";
 import { CaregiverWorkflow } from "../../src/features/caregiver";
 import { DoctorWorkflow } from "../../src/features/doctor";
+import { PatientMealScreen, DietitianWorkflow } from "../../src/features/meals";
 
 /**
  * Protected, role-aware shell. Role derives exclusively from the verified
@@ -38,6 +39,14 @@ export default function ShellScreen() {
     );
   }
 
+  if (role === "Patient" && selectedDestination === "food") {
+    return (
+      <PatientMealScreen
+        onBack={() => setSelectedDestination(null)}
+      />
+    );
+  }
+
   if (role === "Caregiver" && selectedDestination === "patients") {
     return <CaregiverWorkflow onExit={() => setSelectedDestination(null)} />;
   }
@@ -50,6 +59,15 @@ export default function ShellScreen() {
 
   if (role === "Doctor" && selectedDestination === "patients") {
     return <DoctorWorkflow flow="patients" onHome={() => setSelectedDestination(null)} />;
+  }
+
+  // Gate 10H-M: Dietitian meal & nutrition vertical slice
+  if (role === "Dietitian" && selectedDestination === "food") {
+    return <DietitianWorkflow flow="food" onHome={() => setSelectedDestination(null)} />;
+  }
+
+  if (role === "Dietitian" && selectedDestination === "patients") {
+    return <DietitianWorkflow flow="patients" onHome={() => setSelectedDestination(null)} />;
   }
 
   return (

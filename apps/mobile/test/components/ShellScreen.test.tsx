@@ -19,6 +19,14 @@ jest.mock("../../src/auth/AuthProvider", () => ({
   }),
 }));
 
+jest.mock("../../src/features/meals", () => {
+  const { Text } = require("react-native");
+  return {
+    PatientMealScreen: () => <Text>Mocked PatientMealScreen</Text>,
+    DietitianWorkflow: () => <Text>Mocked DietitianWorkflow</Text>,
+  };
+});
+
 const ALL_ROLES: Role[] = [
   "Patient",
   "Caregiver",
@@ -85,5 +93,27 @@ describe("ShellScreen (per-role × 7)", () => {
     mockAuthState = { name: "bootstrapping" };
     renderShell();
     expect(screen.getByText(/restoring session/i)).toBeTruthy();
+  });
+
+  it("mounts PatientMealScreen when Patient selects Food destination", () => {
+    mockAuthState = {
+      name: "authenticated",
+      user: { role: "Patient", actor_id: "a-1", capabilities: ["view_own_records"] },
+    };
+    renderShell();
+    const foodCard = screen.getByLabelText("Food (placeholder)");
+    fireEvent.press(foodCard);
+    expect(screen.getByText("Mocked PatientMealScreen")).toBeTruthy();
+  });
+
+  it("mounts DietitianWorkflow when Dietitian selects Food destination", () => {
+    mockAuthState = {
+      name: "authenticated",
+      user: { role: "Dietitian", actor_id: "a-1", capabilities: ["READ_OBSERVATIONS"] },
+    };
+    renderShell();
+    const foodCard = screen.getByLabelText("Food (placeholder)");
+    fireEvent.press(foodCard);
+    expect(screen.getByText("Mocked DietitianWorkflow")).toBeTruthy();
   });
 });
