@@ -193,4 +193,7 @@ no regressions. No backend linter is configured in the repository (checked).
 
 ## Commit
 
-Pending (filled at delivery).
+- `30f87ee04bf28b3f63a577b37bf06778d9c59ef5` — `feat(authz): add caregiver patient
+  discovery contract` (branch `feature/gate-10e-b-caregiver-patient-contract`,
+  parent `b0fff318d3a36fee66c243e55d4a7c4324f80e5e` = Gate 10D seal). No seal tag
+  for this gate.
