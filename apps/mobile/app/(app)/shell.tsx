@@ -8,6 +8,7 @@ import { roleLabel, type Role } from "../../src/authz/roles";
 import { colors, spacing, typography } from "../../src/theming/tokens";
 import { LoadingState } from "../../src/components/primitives/LoadingState";
 import { PatientGlucoseScreen } from "../../src/features/glucose";
+import { CaregiverWorkflow } from "../../src/features/caregiver";
 
 /**
  * Protected, role-aware shell. Role derives exclusively from the verified
@@ -34,6 +35,10 @@ export default function ShellScreen() {
         onBack={() => setSelectedDestination(null)}
       />
     );
+  }
+
+  if (role === "Caregiver" && selectedDestination === "patients") {
+    return <CaregiverWorkflow onExit={() => setSelectedDestination(null)} />;
   }
 
   return (
