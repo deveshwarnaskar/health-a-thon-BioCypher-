@@ -27,6 +27,7 @@ from backend.domain.entities import (
     CareTeamRole,
     GlucoseObservation,
     MealObservation,
+    MedicationPlan,
     Patient,
     ReviewAuthority,
     ReviewState,
@@ -254,13 +255,19 @@ def seed_meal(session_factory, tenant_id, patient_id, carbs=50.0, gi="medium"):
     return meal
 
 
-def seed_ai_artifact(session_factory, tenant_id, patient_id):
+def seed_ai_artifact(
+    session_factory,
+    tenant_id,
+    patient_id,
+    state=ReviewState.PENDING_REVIEW,
+    artifact_id=None,
+):
     artifact = AIReviewArtifact(
-        id=uuid4(),
+        id=artifact_id or uuid4(),
         patient_id=patient_id,
         artifact_kind="extracted_observation",
         authority=ReviewAuthority.CLINICIAN_REVIEW,
-        state=ReviewState.PENDING_REVIEW,
+        state=state,
         generated_by="ai",
         summary="test summary",
     )
@@ -268,6 +275,29 @@ def seed_ai_artifact(session_factory, tenant_id, patient_id):
         uow.ai_artifacts.add(artifact)
         uow.commit()
     return artifact
+
+
+def seed_medication_plan(
+    session_factory,
+    tenant_id,
+    patient_id,
+    medication="Metformin",
+    instruction="500 mg with meals",
+    active=True,
+):
+    plan = MedicationPlan(
+        id=uuid4(),
+        patient_id=patient_id,
+        prescribed_by_user_id=uuid4(),
+        prescribed_by_role=CareTeamRole.DOCTOR,
+        medication=medication,
+        instruction=instruction,
+        active=active,
+    )
+    with SqlAlchemyUnitOfWork(session_factory, tenant_id) as uow:
+        uow.medication_plans.add(plan)
+        uow.commit()
+    return plan
 
 
 def seed_identity_mapping(session_factory, tenant_id, user_id, patient_id, active=True):

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.domain.entities import AIReviewArtifact
+from backend.domain.entities.ai_artifact import ReviewState
 from backend.domain.exceptions import EntityNotFound
 from ..mappings.mappers import ai_artifact_to_domain, ai_artifact_to_model
 from ..models.ai_models import AIReviewArtifactModel
@@ -58,6 +59,24 @@ class SqlAlchemyAIReviewArtifactRepository:
                 AIReviewArtifactModel.patient_id == patient_id,
                 AIReviewArtifactModel.tenant_id == self.tenant_id,
             )
-            .order_by(AIReviewArtifactModel.created_at)
+            .order_by(AIReviewArtifactModel.created_at, AIReviewArtifactModel.id)
+        )
+        return [ai_artifact_to_domain(m) for m in self.session.scalars(stmt).all()]
+
+    def list_by_state(self, state: ReviewState) -> list[AIReviewArtifact]:
+        """Tenant-scoped artifacts in a given review state (Gate 10F-B).
+
+        Deterministically ordered by (created_at, id) so the pending-review
+        clinician queue is stable across calls. Facility scoping is applied at
+        the application layer against the authenticated member; this method
+        only guarantees tenant isolation (plus PostgreSQL RLS backstop).
+        """
+        stmt = (
+            select(AIReviewArtifactModel)
+            .where(
+                AIReviewArtifactModel.state == state.value,
+                AIReviewArtifactModel.tenant_id == self.tenant_id,
+            )
+            .order_by(AIReviewArtifactModel.created_at, AIReviewArtifactModel.id)
         )
         return [ai_artifact_to_domain(m) for m in self.session.scalars(stmt).all()]

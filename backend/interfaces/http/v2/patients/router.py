@@ -28,6 +28,9 @@ from backend.application.ports.clock import Clock
 from backend.application.ports.events import DomainEventPublisher
 from backend.application.ports.id_generation import IdGenerator
 from backend.application.ports.unit_of_work import UnitOfWork
+from backend.application.queries import GetPatient, ListPatients
+from backend.application.services.get_patient import GetPatientHandler
+from backend.application.services.list_patients import ListPatientsHandler
 from backend.application.services.register_caregiver import RegisterCaregiverHandler
 from backend.application.services.revoke_caregiver import RevokeCaregiverHandler
 from backend.application.services.verify_caregiver import VerifyCaregiverHandler
@@ -44,6 +47,8 @@ from backend.interfaces.http.ops.rate_limit import TIERS, apply_rate_limit, get_
 from backend.interfaces.http.v2.schemas import (
     CaregiverRelationshipListResponse,
     CaregiverRelationshipResponse,
+    PatientListResponse,
+    PatientSummaryResponse,
     RegisterCaregiverRequest,
 )
 from backend.interfaces.http.v2.security.authorization import (
@@ -51,7 +56,13 @@ from backend.interfaces.http.v2.security.authorization import (
     AuthorizationPolicy,
     Operation,
 )
-from backend.interfaces.http.v2.security.scoping import authorize_patient_operation
+from backend.interfaces.http.v2.security.scoping import (
+    assert_authorized_clinician_facility,
+    assert_clinician_facility_context,
+    authorize_or_403,
+    authorize_patient_operation,
+)
+from backend.domain.exceptions import EntityNotFound
 
 patients_router = APIRouter()
 
@@ -85,6 +96,113 @@ def _to_response(rel) -> CaregiverRelationshipResponse:
         expires_at=rel.expires_at,
         created_at=rel.created_at,
     )
+
+
+def _to_patient_response(record) -> PatientSummaryResponse:
+    return PatientSummaryResponse(
+        patient_id=str(record.patient_id),
+        uh_id=record.uh_id,
+        name=record.name,
+        facility_id=str(record.facility_id) if record.facility_id else None,
+        active=record.active,
+        created_at=record.created_at,
+    )
+
+
+@patients_router.get(
+    "",
+    response_model=PatientListResponse,
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.READ,
+                resource_type="patient.cohort",
+                resource_id_from=None,
+                atomic=False,
+            )
+        )
+    ],
+)
+async def list_patients(
+    request: Request,
+    response: Response,
+    limit: int = 50,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> PatientListResponse:
+    """Read the clinician's active patient cohort (facility-scoped).
+
+    The cohort is restricted to the authenticated member's facility by the
+    authoritative membership record — a client-supplied facility or UUID never
+    widens scope. Proxy roles hold no coarse READ_PATIENT grant and are denied
+    (a patient cannot enumerate other patients even in the same facility).
+    """
+    apply_rate_limit(request=request, response=response, tier=TIERS["read"], limiter=limiter, ctx=ctx)
+
+    authorize_or_403(ctx, policy, Operation.READ_PATIENT)
+    facility_id = assert_clinician_facility_context(ctx, uow)
+
+    result = ListPatientsHandler(uow).handle(
+        ListPatients(facility_id=facility_id, limit=min(limit, 200))
+    )
+    return PatientListResponse(
+        patient_count=result.patient_count,
+        items=[_to_patient_response(p) for p in result.items],
+    )
+
+
+@patients_router.get(
+    "/{patient_id}",
+    response_model=PatientSummaryResponse,
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.READ,
+                resource_type="patient",
+                resource_id_from=lambda request: request.path_params.get("patient_id"),
+                atomic=False,
+            )
+        )
+    ],
+)
+async def get_patient(
+    request: Request,
+    response: Response,
+    patient_id: str,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> PatientSummaryResponse:
+    """Read ONE patient record by id (facility-scoped clinician read).
+
+    Deny-by-default: proxy roles hold no coarse READ_PATIENT grant, so a
+    patient/caregiver can never reach this endpoint. Cross-facility,
+    cross-tenant, deactivated-patient, or missing patients never resolve.
+    """
+    apply_rate_limit(request=request, response=response, tier=TIERS["read"], limiter=limiter, ctx=ctx)
+
+    authorize_or_403(ctx, policy, Operation.READ_PATIENT)
+
+    try:
+        patient_uuid = _uuid.UUID(patient_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid patient_id")
+
+    try:
+        patient = uow.patients.get(patient_uuid)
+    except EntityNotFound:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    assert_authorized_clinician_facility(ctx, uow, patient)
+    if not getattr(patient, "active", True):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    result = GetPatientHandler(uow).handle(
+        GetPatient(patient_id=patient_uuid, facility_id=patient.facility_id)
+    )
+    return _to_patient_response(result)
 
 
 @patients_router.post(

@@ -124,6 +124,46 @@ def assert_authorized_clinician_facility(
         )
 
 
+def assert_clinician_facility_context(ctx, uow) -> uuid.UUID:
+    """Resolve and enforce the authenticated clinician's facility context.
+
+    Returns the authoritative member facility UUID used to scope clinician
+    READ LISTS (AI artifact queue, medication plans, patient cohort). The
+    member record is authoritative: a missing member, inactive member, member
+    without a facility, or a JWT facility conflicting with the member all DENY.
+    """
+    from backend.domain.exceptions import EntityNotFound
+
+    try:
+        member = uow.care_team_members.get(ctx.actor_id)
+    except EntityNotFound:
+        raise HTTPException(
+            status_code=403,
+            detail="No active care team membership for this tenant",
+        )
+
+    if getattr(member, "active", True) is False:
+        raise HTTPException(
+            status_code=403,
+            detail="Care team membership is inactive",
+        )
+
+    member_facility = getattr(member, "facility_id", None)
+    if member_facility is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Clinician facility context is required for patient access",
+        )
+
+    if ctx.facility_id is not None and ctx.facility_id != member_facility:
+        raise HTTPException(
+            status_code=403,
+            detail="Token facility conflicts with care team membership",
+        )
+
+    return member_facility
+
+
 def assert_tenant_scoped_patient(
     ctx: AuthenticatedContext,
     patient: object,

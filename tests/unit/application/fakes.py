@@ -174,6 +174,13 @@ class InMemoryIdentityMappingStore(InMemoryRepository[T]):
         return None
 
 
+class InMemoryAIReviewArtifactStore(InMemoryRepository[T]):
+    """In-memory AI review artifact repository (Gate 10F-B)."""
+
+    def list_by_state(self, state) -> list[T]:
+        return [e for e in self.list() if e.state is state]
+
+
 class InMemoryUnitOfWork:
     def __init__(self) -> None:
         self._stage: dict = {}
@@ -188,7 +195,7 @@ class InMemoryUnitOfWork:
         self.meal_observations = InMemoryRepository(self._stage, self._committed, "meal_observations")
         self.medication_plans = InMemoryRepository(self._stage, self._committed, "medication_plans")
         self.care_tasks = InMemoryRepository(self._stage, self._committed, "care_tasks")
-        self.ai_artifacts = InMemoryRepository(self._stage, self._committed, "ai_artifacts")
+        self.ai_artifacts = InMemoryAIReviewArtifactStore(self._stage, self._committed, "ai_artifacts")
 
     def commit(self) -> None:
         self._committed.update(self._stage)

@@ -249,6 +249,61 @@ class CaregiverPatientListResponse(BaseModel):
     items: list[CaregiverPatientListItemResponse]
 
 
+# ─── Clinician Read Contracts (Gate 10F-B) ───────────────────────────────────
+
+
+class AIArtifactListResponse(BaseModel):
+    """Clinician pending-review queue (Gate 10F-B).
+
+    List of AI review artifacts requiring human clinical review. Only
+    authorization-boundary + review-facts are exposed: no credentials, internal
+    audit fields, or generation internals.
+    """
+
+    model_config = _STRICT
+    artifact_count: int
+    items: list[AIArtifactResponse]
+
+
+class MedicationPlanListResponse(BaseModel):
+    """Clinician medication-plan list (Gate 10F-B).
+
+    Clinician-authored medication plans. Medical instructions are exposed ONLY
+    through authenticated clinician reads — patient-facing and caregiver-facing
+    schemas must never receive this type.
+    """
+
+    model_config = _STRICT
+    plan_count: int
+    items: list[MedicationPlanResponse]
+
+
+class PatientSummaryResponse(BaseModel):
+    """One patient record for a facility-scoped clinician read (Gate 10F-B).
+
+    Identity/lifecycle facts only: no observations, no clinical analytics,
+    no medication guidance, no AI-review artifacts, no audit or internal
+    fields. Deliberately excludes phone (PHI-light) so a cohort read exposes
+    the minimum surface required for patient selection.
+    """
+
+    model_config = _STRICT
+    patient_id: str
+    uh_id: str
+    name: str
+    facility_id: str | None = None
+    active: bool
+    created_at: datetime
+
+
+class PatientListResponse(BaseModel):
+    """Facility-scoped clinician patient cohort (Gate 10F-B)."""
+
+    model_config = _STRICT
+    patient_count: int
+    items: list[PatientSummaryResponse]
+
+
 # ─── Identity Patient Mapping (Gate 08) ─────────────────────────────────────
 
 

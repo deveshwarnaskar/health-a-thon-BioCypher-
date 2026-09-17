@@ -39,6 +39,14 @@ class SqlAlchemyMedicationPlanRepository:
             raise EntityNotFound(f"medication_plan {plan_id} not found")
         return medication_plan_to_domain(model)
 
+    def list(self) -> list[MedicationPlan]:
+        stmt = (
+            select(MedicationPlanModel)
+            .where(MedicationPlanModel.tenant_id == self.tenant_id)
+            .order_by(MedicationPlanModel.created_at, MedicationPlanModel.id)
+        )
+        return [medication_plan_to_domain(m) for m in self.session.scalars(stmt).all()]
+
     def list_for_patient(self, patient_id: UUID) -> list[MedicationPlan]:
         stmt = (
             select(MedicationPlanModel)
@@ -46,6 +54,6 @@ class SqlAlchemyMedicationPlanRepository:
                 MedicationPlanModel.patient_id == patient_id,
                 MedicationPlanModel.tenant_id == self.tenant_id,
             )
-            .order_by(MedicationPlanModel.created_at)
+            .order_by(MedicationPlanModel.created_at, MedicationPlanModel.id)
         )
         return [medication_plan_to_domain(m) for m in self.session.scalars(stmt).all()]
