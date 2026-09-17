@@ -18,6 +18,7 @@ from .repositories import (
     CareTaskRepository,
     CareTeamMemberRepository,
     CaregiverRelationshipRepository,
+    FacilityRepository,
     GlucoseObservationRepository,
     IdentityPatientMappingRepository,
     MealObservationRepository,
@@ -30,6 +31,7 @@ from .repositories import (
 class UnitOfWork(Protocol):
     patients: PatientRepository
     care_team_members: CareTeamMemberRepository
+    facilities: FacilityRepository
     glucose_observations: GlucoseObservationRepository
     meal_observations: MealObservationRepository
     medication_plans: MedicationPlanRepository

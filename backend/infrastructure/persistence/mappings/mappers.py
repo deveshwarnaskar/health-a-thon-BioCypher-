@@ -18,6 +18,7 @@ from backend.domain.entities import (
     CareTaskStatus,
     CaregiverRelationship,
     CaregiverRelationshipStatus,
+    Facility,
     GlucoseObservation,
     IdentityPatientMapping,
     MealObservation,
@@ -40,6 +41,7 @@ from ..models import (
     CareTaskModel,
     CareTeamMemberModel,
     CaregiverRelationshipModel,
+    FacilityModel,
     GlucoseObservationModel,
     IdentityPatientMappingModel,
     MealObservationModel,
@@ -330,3 +332,26 @@ def identity_patient_mapping_to_model(
         created_at=entity.created_at,
         updated_at=entity.updated_at,
     )
+
+
+# --- Facility Mapping ---
+
+def facility_to_domain(model: FacilityModel) -> Facility:
+    return Facility(
+        id=model.id,
+        tenant_id=model.tenant_id,
+        name=model.name,
+        active=model.active,
+        created_at=model.created_at,
+    )
+
+
+def facility_to_model(entity: Facility, tenant_id: UUID) -> FacilityModel:
+    return FacilityModel(
+        id=entity.id,
+        tenant_id=tenant_id,
+        name=entity.name,
+        active=entity.active,
+        created_at=entity.created_at,
+    )
+

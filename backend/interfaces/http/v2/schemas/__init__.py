@@ -1,6 +1,8 @@
 """HTTP schemas package (Gate 07)."""
 
 from .models import (
+    AdminPatientListResponse,
+    AdminPatientResponse,
     AIArtifactListResponse,
     AIArtifactResponse,
     AuthVerifyResponse,
@@ -10,7 +12,13 @@ from .models import (
     CaregiverRelationshipResponse,
     CareTaskListResponse,
     CareTaskResponse,
+    CareTeamMemberListResponse,
     CareTeamMemberResponse,
+    CreateFacilityRequest,
+    FacilityListResponse,
+    FacilityResponse,
+    UpdateCareTeamMemberRequest,
+    UpdateFacilityRequest,
     ClinicalGlucoseObservationResponse,
     ClinicalMealObservationResponse,
     ClinicalObservationFeedResponse,
@@ -53,6 +61,8 @@ from .models import (
 )
 
 __all__ = [
+    "AdminPatientListResponse",
+    "AdminPatientResponse",
     "AIArtifactListResponse",
     "AIArtifactResponse",
     "AuthVerifyResponse",
@@ -62,7 +72,13 @@ __all__ = [
     "CaregiverRelationshipResponse",
     "CareTaskListResponse",
     "CareTaskResponse",
+    "CareTeamMemberListResponse",
     "CareTeamMemberResponse",
+    "CreateFacilityRequest",
+    "FacilityListResponse",
+    "FacilityResponse",
+    "UpdateCareTeamMemberRequest",
+    "UpdateFacilityRequest",
     "ClinicalGlucoseObservationResponse",
     "ClinicalMealObservationResponse",
     "ClinicalObservationFeedResponse",

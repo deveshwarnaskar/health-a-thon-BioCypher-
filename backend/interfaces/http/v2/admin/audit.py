@@ -9,6 +9,7 @@ Responses are PHI-minimal by construction (see ``AuditEvent``).
 
 from __future__ import annotations
 
+from datetime import datetime
 import uuid as _uuid
 from typing import Annotated
 
@@ -58,6 +59,9 @@ async def list_audit_events(
     limit: int = Query(50, ge=1, le=200),
     actor_id: str | None = None,
     action: str | None = None,
+    resource_type: str | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
     limiter: Annotated[object, Depends(get_rate_limiter)] = None,
 ) -> list[AuditEventResponse]:
     """List the authenticated tenant's audit trail (administrator-only)."""
@@ -75,6 +79,9 @@ async def list_audit_events(
         limit=limit,
         actor_id=actor_uuid,
         action=action,
+        resource_type=resource_type,
+        start_time=start_time,
+        end_time=end_time,
     )
     return [
         AuditEventResponse(

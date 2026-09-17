@@ -7,12 +7,14 @@ Phase 1 role vocabulary.
 
 from ..commands import AddCareTeamMember
 from ..dtos.results import CareTeamMemberProvisionedResult
+from ..exceptions import DuplicateCareTeamMember
 from ..ports.clock import Clock
 from ..ports.events import DomainEventPublisher
 from ..ports.id_generation import IdGenerator
 from ..ports.unit_of_work import UnitOfWork
 from ...domain.entities import CareTeamMember
 from ...domain.events import CareTeamMemberProvisioned
+from ...domain.exceptions import EntityNotFound
 from ._transaction import in_transaction
 
 
@@ -33,6 +35,12 @@ class AddCareTeamMemberHandler:
         return in_transaction(self._uow, lambda: self._run(cmd))
 
     def _run(self, cmd: AddCareTeamMember) -> CareTeamMemberProvisionedResult:
+        try:
+            self._uow.care_team_members.get(cmd.user_id)
+            raise DuplicateCareTeamMember(f"Care team member already exists for user {cmd.user_id}")
+        except EntityNotFound:
+            pass
+
         member = CareTeamMember(
             id=self._id_gen.new_uuid(),
             user_id=cmd.user_id,

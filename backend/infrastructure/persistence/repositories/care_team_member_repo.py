@@ -39,6 +39,29 @@ class SqlAlchemyCareTeamMemberRepository:
             raise EntityNotFound(f"care_team_member with user_id {user_id} not found")
         return care_team_member_to_domain(model)
 
+    def get_by_id(self, member_id: UUID) -> CareTeamMember:
+        stmt = select(CareTeamMemberModel).where(
+            CareTeamMemberModel.id == member_id,
+            CareTeamMemberModel.tenant_id == self.tenant_id,
+        )
+        model = self.session.scalars(stmt).first()
+        if model is None:
+            raise EntityNotFound(f"care_team_member {member_id} not found")
+        return care_team_member_to_domain(model)
+
+    def save(self, member: CareTeamMember) -> None:
+        stmt = select(CareTeamMemberModel).where(
+            CareTeamMemberModel.id == member.id,
+            CareTeamMemberModel.tenant_id == self.tenant_id,
+        )
+        model = self.session.scalars(stmt).first()
+        if model is None:
+            raise EntityNotFound(f"care_team_member {member.id} not found")
+        model.role = member.role.value
+        model.display_name = member.display_name
+        model.facility_id = member.facility_id
+        model.active = member.active
+
     def list(self) -> list[CareTeamMember]:
         stmt = (
             select(CareTeamMemberModel)

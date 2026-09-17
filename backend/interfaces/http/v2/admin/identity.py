@@ -37,7 +37,7 @@ from backend.interfaces.http.dependencies import (
     get_id_generator,
     get_unit_of_work,
 )
-from backend.interfaces.http.ops.audit import audit_dependency, json_field
+from backend.interfaces.http.ops.audit import audit_dependency, json_field, path_param
 from backend.interfaces.http.ops.rate_limit import TIERS, apply_rate_limit, get_rate_limiter
 from backend.interfaces.http.v2.schemas import (
     CreateIdentityMappingRequest,
@@ -131,9 +131,22 @@ async def list_identity_mappings(
     return [_to_response(m) for m in mappings]
 
 
-@admin_router.post("/identity-mappings/{mapping_id}/deactivate", response_model=IdentityMappingResponse)
+@admin_router.post(
+    "/identity-mappings/{mapping_id}/deactivate",
+    response_model=IdentityMappingResponse,
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.REVOKE,
+                resource_type="identity_mapping",
+                resource_id_from=lambda request: path_param(request, "mapping_id"),
+            )
+        )
+    ],
+)
 async def deactivate_identity_mapping(
     request: Request,
+    response: Response,
     mapping_id: str,
     ctx: AuthenticatedContext = Depends(get_authenticated_context),
     policy: AuthorizationPolicy = Depends(get_authorization_policy),
@@ -141,8 +154,10 @@ async def deactivate_identity_mapping(
     events: DomainEventPublisher = Depends(get_event_publisher),
     clock: Clock = Depends(get_clock),
     id_gen: IdGenerator = Depends(get_id_generator),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
 ) -> IdentityMappingResponse:
     """Deactivate an identity mapping, revoking patient self-access."""
+    apply_rate_limit(request=request, response=response, tier=TIERS["admin"], limiter=limiter, ctx=ctx)
     authorize_or_403(ctx, policy, Operation.MANAGE_IDENTITY_MAPPINGS)
 
     try:

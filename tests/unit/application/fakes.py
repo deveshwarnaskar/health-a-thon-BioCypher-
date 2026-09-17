@@ -123,6 +123,12 @@ class InMemoryCareTeamMemberStore(InMemoryRepository[T]):
                 return entity
         raise EntityNotFound(f"care_team_member with user_id {user_id} not found")
 
+    def get_by_id(self, member_id: object) -> T:
+        for entity in self.list():
+            if entity.id == member_id:
+                return entity
+        raise EntityNotFound(f"care_team_member with id {member_id} not found")
+
 
 class InMemoryCaregiverRelationshipStore(InMemoryRepository[T]):
     """In-memory caregiver relationship repository (Gate 08)."""
@@ -227,6 +233,7 @@ class InMemoryUnitOfWork:
         self.commits = 0
         self.rollbacks = 0
         self.patients = InMemoryRepository(self._stage, self._committed, "patients")
+        self.facilities = InMemoryRepository(self._stage, self._committed, "facilities")
         self.care_team_members = InMemoryCareTeamMemberStore(self._stage, self._committed, "care_team_members")
         self.caregiver_relationships = InMemoryCaregiverRelationshipStore(self._stage, self._committed, "caregiver_relationships")
         self.identity_mappings = InMemoryIdentityMappingStore(self._stage, self._committed, "identity_patient_mappings")

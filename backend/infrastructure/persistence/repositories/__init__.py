@@ -4,6 +4,7 @@ Exports concrete SQLAlchemy repository implementations.
 """
 
 from .patient_repo import SqlAlchemyPatientRepository
+from .facility_repo import SqlAlchemyFacilityRepository
 from .care_team_member_repo import SqlAlchemyCareTeamMemberRepository
 from .caregiver_relationship_repo import SqlAlchemyCaregiverRelationshipRepository
 from .identity_patient_mapping_repo import SqlAlchemyIdentityPatientMappingRepository
@@ -15,6 +16,7 @@ from .ai_artifact_repo import SqlAlchemyAIReviewArtifactRepository
 
 __all__ = [
     "SqlAlchemyPatientRepository",
+    "SqlAlchemyFacilityRepository",
     "SqlAlchemyCareTeamMemberRepository",
     "SqlAlchemyCaregiverRelationshipRepository",
     "SqlAlchemyIdentityPatientMappingRepository",

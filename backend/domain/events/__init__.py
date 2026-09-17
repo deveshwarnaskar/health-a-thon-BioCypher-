@@ -1,5 +1,13 @@
 """Domain events (Gate 03)."""
 
+from .admin import (
+    CareTeamMemberDeactivated,
+    CareTeamMemberUpdated,
+    FacilityCreated,
+    FacilityDeactivated,
+    FacilityUpdated,
+    PatientDeactivated,
+)
 from .base import DomainEvent
 from .channel import ChannelMessageQueued
 from .clinical import (
@@ -46,4 +54,10 @@ __all__ = [
     "CaregiverRelationshipExpired",
     "PatientProvisioned",
     "CareTeamMemberProvisioned",
+    "FacilityCreated",
+    "FacilityUpdated",
+    "FacilityDeactivated",
+    "CareTeamMemberUpdated",
+    "CareTeamMemberDeactivated",
+    "PatientDeactivated",
 ]

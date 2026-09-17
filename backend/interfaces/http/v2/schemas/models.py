@@ -500,6 +500,75 @@ class CareTeamMemberResponse(BaseModel):
     active: bool
 
 
+class CareTeamMemberListResponse(BaseModel):
+    model_config = _STRICT
+    total: int
+    items: list[CareTeamMemberResponse]
+
+
+class UpdateCareTeamMemberRequest(BaseModel):
+    model_config = _STRICT
+    role: Literal[
+        "doctor",
+        "nurse",
+        "care_coordinator",
+        "dietitian",
+        "field_health_worker",
+    ] | None = None
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
+    facility_id: UUID | None = None
+    active: bool | None = None
+
+
+# ─── Admin Facilities ─────────────────────────────────────────────────────────
+
+
+class CreateFacilityRequest(BaseModel):
+    model_config = _STRICT
+    name: str = Field(min_length=1, max_length=255)
+
+
+class UpdateFacilityRequest(BaseModel):
+    model_config = _STRICT
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    active: bool | None = None
+
+
+class FacilityResponse(BaseModel):
+    model_config = _STRICT
+    facility_id: str
+    name: str
+    active: bool
+    created_at: datetime
+
+
+class FacilityListResponse(BaseModel):
+    model_config = _STRICT
+    total: int
+    items: list[FacilityResponse]
+
+
+# ─── Admin Patients (PHI-minimized) ──────────────────────────────────────────
+
+
+class AdminPatientResponse(BaseModel):
+    model_config = _STRICT
+    patient_id: str
+    uh_id: str
+    name: str
+    facility_id: str | None = None
+    phone: str | None = None
+    active: bool
+    has_active_mapping: bool
+    created_at: datetime
+
+
+class AdminPatientListResponse(BaseModel):
+    model_config = _STRICT
+    total: int
+    items: list[AdminPatientResponse]
+
+
 # ─── Error ──────────────────────────────────────────────────────────────────
 
 

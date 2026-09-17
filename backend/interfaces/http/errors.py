@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from backend.application.exceptions import (
     ApplicationError,
     DuplicateCaregiverRelationship,
+    DuplicateCareTeamMember,
     DuplicateIdentityMapping,
     ReviewerNotAuthorized,
 )
@@ -100,6 +101,13 @@ async def _duplicate_caregiver_relationship_handler(
     request: Request, exc: DuplicateCaregiverRelationship
 ) -> JSONResponse:
     return _error_response(409, "CAREGIVER_RELATIONSHIP_CONFLICT", "An active caregiver relationship already exists", request)
+
+
+async def _duplicate_care_team_member_handler(
+    request: Request, exc: DuplicateCareTeamMember
+) -> JSONResponse:
+    return _error_response(409, "CARE_TEAM_MEMBER_CONFLICT", "A care team member already exists for this user in this tenant", request)
+
 
 
 async def _jwt_signature_handler(request: Request, exc: JwtSignatureError) -> JSONResponse:
@@ -206,6 +214,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ReviewerNotAuthorized, _reviewer_not_authorized_handler)
     app.add_exception_handler(DuplicateIdentityMapping, _duplicate_identity_mapping_handler)
     app.add_exception_handler(DuplicateCaregiverRelationship, _duplicate_caregiver_relationship_handler)
+    app.add_exception_handler(DuplicateCareTeamMember, _duplicate_care_team_member_handler)
     app.add_exception_handler(JwtSignatureError, _jwt_signature_handler)
     app.add_exception_handler(WebhookSignatureError, _webhook_signature_handler)
     app.add_exception_handler(VerifyTokenError, _verify_token_handler)

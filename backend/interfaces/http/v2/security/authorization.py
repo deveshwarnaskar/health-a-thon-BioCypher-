@@ -63,6 +63,7 @@ class Operation(str, Enum):
     REASSIGN_CARE_TASK = "reassign_care_task"
     PROVISION_PATIENT = "provision_patient"
     MANAGE_CARE_TEAM = "manage_care_team"
+    MANAGE_FACILITIES = "manage_facilities"
 
 
 # Role → permitted operations mapping (DENY-BY-DEFAULT: unlisted = denied)
@@ -150,6 +151,7 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.MANAGE_IDENTITY_MAPPINGS,
         Operation.PROVISION_PATIENT,
         Operation.MANAGE_CARE_TEAM,
+        Operation.MANAGE_FACILITIES,
     }),
 }
 

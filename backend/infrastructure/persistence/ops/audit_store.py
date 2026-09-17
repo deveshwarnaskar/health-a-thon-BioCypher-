@@ -77,12 +77,21 @@ class SqlAlchemyAuditStore:
         limit: int = 50,
         actor_id: UUID | None = None,
         action: str | None = None,
+        resource_type: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
     ) -> list[AuditEvent]:
         stmt = select(AuditEventModel).where(AuditEventModel.tenant_id == self.tenant_id)
         if actor_id is not None:
             stmt = stmt.where(AuditEventModel.actor_id == actor_id)
         if action is not None:
             stmt = stmt.where(AuditEventModel.action == action)
+        if resource_type is not None:
+            stmt = stmt.where(AuditEventModel.resource_type == resource_type)
+        if start_time is not None:
+            stmt = stmt.where(AuditEventModel.occurred_at >= start_time)
+        if end_time is not None:
+            stmt = stmt.where(AuditEventModel.occurred_at <= end_time)
         stmt = stmt.order_by(AuditEventModel.occurred_at.desc()).limit(limit)
         return [_model_to_event(m) for m in self.session.scalars(stmt).all()]
 

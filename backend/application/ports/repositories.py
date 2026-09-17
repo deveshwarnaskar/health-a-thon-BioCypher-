@@ -19,6 +19,7 @@ from ...domain.entities import (
     CareTaskStatus,
     CareTeamMember,
     CaregiverRelationship,
+    Facility,
     GlucoseObservation,
     IdentityPatientMapping,
     MealObservation,
@@ -26,6 +27,14 @@ from ...domain.entities import (
     Patient,
 )
 from ...domain.entities.ai_artifact import ReviewState
+
+
+@runtime_checkable
+class FacilityRepository(Protocol):
+    def add(self, facility: Facility) -> None: ...
+    def get(self, facility_id: UUID) -> Facility: ...
+    def list(self) -> list[Facility]: ...
+    def save(self, facility: Facility) -> None: ...
 
 
 @runtime_checkable
@@ -40,7 +49,9 @@ class PatientRepository(Protocol):
 class CareTeamMemberRepository(Protocol):
     def add(self, member: CareTeamMember) -> None: ...
     def get(self, user_id: UUID) -> CareTeamMember: ...
+    def get_by_id(self, member_id: UUID) -> CareTeamMember: ...
     def list(self) -> list[CareTeamMember]: ...
+    def save(self, member: CareTeamMember) -> None: ...
 
 
 @runtime_checkable

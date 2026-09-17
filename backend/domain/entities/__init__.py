@@ -5,6 +5,7 @@ from .care_team_member import CareTeamMember, CareTeamRole
 from .care_task import CareTask, CareTaskStatus
 from .caregiver_relationship import CaregiverRelationship, CaregiverRelationshipStatus
 from .document_reference import DocumentKind, DocumentReference
+from .facility import Facility
 from .identity_patient_mapping import IdentityPatientMapping
 from .glucose_observation import GlucoseObservation
 from .meal_observation import MealObservation
@@ -27,6 +28,7 @@ __all__ = [
     "CaregiverRelationshipStatus",
     "DocumentKind",
     "DocumentReference",
+    "Facility",
     "IdentityPatientMapping",
     "GlucoseObservation",
     "MealObservation",

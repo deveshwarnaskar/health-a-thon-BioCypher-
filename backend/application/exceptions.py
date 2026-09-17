@@ -22,3 +22,7 @@ class DuplicateIdentityMapping(ApplicationError):
 
 class DuplicateCaregiverRelationship(ApplicationError):
     """A non-revoked caregiver relationship already exists for this pair."""
+
+
+class DuplicateCareTeamMember(ApplicationError):
+    """A care team member already exists for this user in this tenant."""
