@@ -222,6 +222,33 @@ class RegisterCaregiverRequest(BaseModel):
     expires_at: datetime | None = None
 
 
+# ─── Caregiver Patient Discovery (Gate 10E-B) ───────────────────────────────
+
+
+class CaregiverPatientListItemResponse(BaseModel):
+    """One authorized patient the caregiver may select.
+
+    Patient-selection/relationship facts ONLY: no carbohydrate analytics,
+    glucose summaries, risk scores, treatment guidance, medication dosage
+    instructions, AI-review artifacts, internal audit fields, or credentials.
+    """
+
+    model_config = _STRICT
+    relationship_id: str
+    patient_id: str
+    relationship_label: str
+    status: Literal["verified"]
+    capabilities: list[str]
+    expires_at: datetime | None = None
+    name: str
+
+
+class CaregiverPatientListResponse(BaseModel):
+    model_config = _STRICT
+    patient_count: int
+    items: list[CaregiverPatientListItemResponse]
+
+
 # ─── Identity Patient Mapping (Gate 08) ─────────────────────────────────────
 
 

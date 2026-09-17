@@ -3,6 +3,8 @@
 from .models import (
     AIArtifactResponse,
     AuthVerifyResponse,
+    CaregiverPatientListItemResponse,
+    CaregiverPatientListResponse,
     CaregiverRelationshipListResponse,
     CaregiverRelationshipResponse,
     ClinicalGlucoseObservationResponse,
@@ -31,6 +33,8 @@ from .models import (
 __all__ = [
     "AIArtifactResponse",
     "AuthVerifyResponse",
+    "CaregiverPatientListItemResponse",
+    "CaregiverPatientListResponse",
     "CaregiverRelationshipListResponse",
     "CaregiverRelationshipResponse",
     "ClinicalGlucoseObservationResponse",

@@ -45,6 +45,7 @@ class Operation(str, Enum):
     WRITE_PATIENT = "write_patient"
     MANAGE_CAREGIVER_RELATIONSHIPS = "manage_caregiver_relationships"
     MANAGE_IDENTITY_MAPPINGS = "manage_identity_mappings"
+    LIST_CAREGIVER_PATIENTS = "list_caregiver_patients"
     ADMIN = "admin"
 
 
@@ -174,6 +175,14 @@ class RelationshipAuthorizationPolicy(DefaultAuthorizationPolicy):
         uow=None,
     ) -> bool:
         if is_proxy_role(ctx):
+            # Caregiver patient DISCOVERY (Gate 10E-B) is a self-scoped
+            # operation: the caller is limited to relationships bound to
+            # ctx.actor_id within ctx.tenant_id (enforced by the tenant-scoped
+            # repository + application query + RLS). The caregiver role is the
+            # explicit requirement; the returned set is relationally filtered,
+            # so an empty result is a valid, authorized response.
+            if operation is Operation.LIST_CAREGIVER_PATIENTS:
+                return "caregiver" in ctx.roles
             return self._is_proxy_allowed(ctx, operation, patient_id, uow)
         return self._base.is_allowed(ctx, operation)
 
@@ -213,7 +222,18 @@ class RelationshipAuthorizationPolicy(DefaultAuthorizationPolicy):
             return False
         if not relationship.is_granted_at(self._clock.now()):
             return False
-        return relationship.has_capabilities(required)
+        if not relationship.has_capabilities(required):
+            return False
+        # Gate 10E-B deactivated-patient invariant: a VERIFIED caregiver
+        # relationship never authorizes access to a deactivated patient. This
+        # is enforced HERE, at the shared authorization boundary, so caregiver
+        # discovery and every patient-specific caregiver operation stay
+        # consistent (mirrors the self-access invariant in _is_self_allowed).
+        try:
+            patient = uow.patients.get(patient_id)
+        except Exception:
+            return False
+        return getattr(patient, "active", True)
 
     def _is_self_allowed(
         self,

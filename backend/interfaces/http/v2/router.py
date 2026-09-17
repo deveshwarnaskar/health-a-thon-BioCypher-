@@ -10,12 +10,14 @@ from fastapi import APIRouter
 from backend.interfaces.http.v2.admin.audit import admin_audit_router
 from backend.interfaces.http.v2.admin.identity import admin_router
 from backend.interfaces.http.v2.auth.router import auth_router
+from backend.interfaces.http.v2.caregivers import caregivers_router
 from backend.interfaces.http.v2.clinical.router import clinical_router
 from backend.interfaces.http.v2.patients.router import patients_router
 from backend.interfaces.http.v2.webhooks.router import webhook_router
 
 api_v2_router = APIRouter()
 api_v2_router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
+api_v2_router.include_router(caregivers_router, prefix="/caregivers", tags=["Caregivers"])
 api_v2_router.include_router(clinical_router, prefix="/clinical", tags=["Clinical"])
 api_v2_router.include_router(patients_router, prefix="/patients", tags=["Patients"])
 api_v2_router.include_router(admin_router, prefix="/admin", tags=["Admin"])

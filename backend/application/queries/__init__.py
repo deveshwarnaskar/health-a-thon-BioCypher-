@@ -9,6 +9,7 @@ from .get_clinical_observation_feed import GetClinicalObservationFeed
 from .get_patient_observation_feed import GetPatientObservationFeed
 from .get_live_inbound import GetLiveInbound
 from .build_clinical_report_context import BuildClinicalReportContext
+from .list_caregiver_patients import ListCaregiverPatients
 
 __all__ = [
     "ComputeWindowMetrics",
@@ -16,4 +17,5 @@ __all__ = [
     "GetLiveInbound",
     "GetPatientObservationFeed",
     "GetClinicalObservationFeed",
+    "ListCaregiverPatients",
 ]

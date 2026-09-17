@@ -214,8 +214,8 @@ def seed_facility(session_factory, tenant_id: UUID, facility_id, name="Facility"
         s.commit()
 
 
-def seed_patient(session_factory, tenant_id, patient_id, facility_id=None, name="Patient") -> Patient:
-    patient = Patient(id=patient_id, uh_id=UHID("D-0001"), name=name, facility_id=facility_id)
+def seed_patient(session_factory, tenant_id, patient_id, facility_id=None, name="Patient", active=True) -> Patient:
+    patient = Patient(id=patient_id, uh_id=UHID("D-0001"), name=name, facility_id=facility_id, active=active)
     with SqlAlchemyUnitOfWork(session_factory, tenant_id) as uow:
         uow.patients.add(patient)
         uow.commit()

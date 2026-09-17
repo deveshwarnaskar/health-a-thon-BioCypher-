@@ -4,6 +4,7 @@ Explicit application DTO boundaries. Patient-facing and clinician-facing shapes
 are distinct types and never collapse into one universal DTO.
 """
 
+from .caregiver import CaregiverAuthorizedPatient, CaregiverPatientList
 from .clinical import (
     ClinicalGlucoseRecord,
     ClinicalMealRecord,
@@ -24,6 +25,8 @@ from .results import (
 )
 
 __all__ = [
+    "CaregiverAuthorizedPatient",
+    "CaregiverPatientList",
     "ClinicalGlucoseRecord",
     "ClinicalMealRecord",
     "ClinicalObservationFeed",
