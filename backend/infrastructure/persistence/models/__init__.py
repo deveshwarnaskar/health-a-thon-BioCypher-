@@ -13,6 +13,7 @@ from .plan_models import CareTaskModel, MedicationPlanModel
 from .ai_models import AIReviewArtifactModel
 from .outbox_models import DomainEventOutboxModel
 from .ops_models import AuditEventModel, IdempotencyRecordModel, WebhookReceiptModel
+from .notification_models import NotificationModel
 
 __all__ = [
     "Base",
@@ -31,4 +32,5 @@ __all__ = [
     "IdempotencyRecordModel",
     "WebhookReceiptModel",
     "AuditEventModel",
+    "NotificationModel",
 ]

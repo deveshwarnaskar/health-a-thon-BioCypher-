@@ -44,7 +44,7 @@ class SqlAlchemyChannelTenantResolver:
         # Non-PostgreSQL fallback (also used if the routing function is absent).
         stmt = (
             select(PatientModel.id, PatientModel.tenant_id)
-            .where(PatientModel.phone == normalized)
+            .where(PatientModel.phone == normalized, PatientModel.active.is_(True))
             .limit(1)
         )
         result = self.session.execute(stmt).first()

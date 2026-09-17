@@ -226,6 +226,33 @@ class InMemoryCareTaskStore(InMemoryRepository[T]):
         return items
 
 
+class InMemoryNotificationStore(InMemoryRepository[T]):
+    def list_for_recipient(self, recipient_id: UUID, limit: int = 50, offset: int = 0) -> list[T]:
+        items = [e for e in self.list() if getattr(e, "recipient_id", None) == recipient_id]
+        return items[offset : offset + limit]
+
+    def list_for_patient(self, patient_id: UUID, limit: int = 50, offset: int = 0) -> list[T]:
+        items = [e for e in self.list() if getattr(e, "patient_id", None) == patient_id]
+        return items[offset : offset + limit]
+
+    def list_due(self, before: datetime, limit: int = 50) -> list[T]:
+        items = [
+            e for e in self.list()
+            if getattr(e, "status", None) == "pending" and getattr(e, "scheduled_at", None) and e.scheduled_at <= before
+        ]
+        return items[:limit]
+
+    def list_for_tenant(self, status=None, limit: int = 50, offset: int = 0) -> list[T]:
+        items = self.list()
+        if status:
+            status_val = status.value if hasattr(status, "value") else str(status)
+            items = [e for e in items if str(getattr(e, "status", "")) == status_val]
+        return items[offset : offset + limit]
+
+    def count_for_tenant(self, status=None) -> int:
+        return len(self.list_for_tenant(status=status, limit=10000))
+
+
 class InMemoryUnitOfWork:
     def __init__(self) -> None:
         self._stage: dict = {}
@@ -242,6 +269,7 @@ class InMemoryUnitOfWork:
         self.medication_plans = InMemoryRepository(self._stage, self._committed, "medication_plans")
         self.care_tasks = InMemoryCareTaskStore(self._stage, self._committed, "care_tasks", self.patients)
         self.ai_artifacts = InMemoryAIReviewArtifactStore(self._stage, self._committed, "ai_artifacts")
+        self.notifications = InMemoryNotificationStore(self._stage, self._committed, "notifications")
 
     def commit(self) -> None:
         self._committed.update(self._stage)

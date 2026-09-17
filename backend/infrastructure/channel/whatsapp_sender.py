@@ -31,21 +31,27 @@ class WhatsAppChannelSender:
 
     def __init__(
         self,
-        access_token: str,
-        phone_number_id: str,
+        access_token: str | None = None,
+        phone_number_id: str | None = None,
         api_version: str = "v21.0",
         base_url: str | None = None,
         timeout_seconds: float = 10.0,
     ) -> None:
-        if not access_token or not phone_number_id:
-            raise ValueError("access_token and phone_number_id are required for WhatsAppChannelSender")
-        self._access_token = access_token
-        self._phone_number_id = phone_number_id
+        self._access_token = access_token or ""
+        self._phone_number_id = phone_number_id or ""
         self._base_url = base_url or self.GRAPH_BASE_URL
         self._api_version = api_version
         self._timeout = timeout_seconds
 
     def send(self, message: OutboundMessage) -> DeliveryResult:
+        if not self._access_token or not self._phone_number_id:
+            logger.error("whatsapp credentials missing — delivery failed safe")
+            return DeliveryResult(
+                success=False,
+                error_code="CREDENTIALS_MISSING",
+                retryable=False,
+            )
+
         payload: dict[str, Any] = {
             "messaging_product": "whatsapp",
             "to": message.recipient_phone,

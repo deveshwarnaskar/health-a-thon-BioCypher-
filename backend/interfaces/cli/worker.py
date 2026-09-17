@@ -76,19 +76,18 @@ def build_worker(*, db_url: str | None, whatsapp_access_token: str | None = None
     )
     handlers[WEBHOOK_INTAKE_EVENT_TYPE] = intake.handle
 
-    if whatsapp_access_token and whatsapp_phone_number_id:
-        sender = WhatsAppChannelSender(
-            access_token=whatsapp_access_token,
-            phone_number_id=whatsapp_phone_number_id,
-        )
-        delivery = ChannelDeliveryHandler(
-            sender=sender,
-            uow_factory=uow_factory,
-            audit_factory=audit_factory,
-        )
-        handlers[CHANNEL_SEND_EVENT_TYPE] = delivery.handle
-    else:
-        logger.warning("whatsapp credentials unset — outbound delivery handler disabled")
+    sender = WhatsAppChannelSender(
+        access_token=whatsapp_access_token,
+        phone_number_id=whatsapp_phone_number_id,
+    )
+    delivery = ChannelDeliveryHandler(
+        sender=sender,
+        uow_factory=uow_factory,
+        audit_factory=audit_factory,
+    )
+    handlers[CHANNEL_SEND_EVENT_TYPE] = delivery.handle
+    if not (whatsapp_access_token and whatsapp_phone_number_id):
+        logger.warning("whatsapp credentials unset — outbound messages will fail-safe with explicit operational error")
 
     return OutboxWorker(store, handlers, worker_id=f"worker-{id(store)}"), engine
 

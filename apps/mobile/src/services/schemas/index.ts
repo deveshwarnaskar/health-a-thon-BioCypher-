@@ -7,3 +7,4 @@ export * from "./ai";
 export * from "./patients";
 export * from "./meals";
 export * from "./tasks";
+export * from "./notifications";

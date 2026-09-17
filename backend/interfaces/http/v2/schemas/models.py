@@ -569,6 +569,48 @@ class AdminPatientListResponse(BaseModel):
     items: list[AdminPatientResponse]
 
 
+# ─── Notifications (Gate 10L) ───────────────────────────────────────────────
+
+
+class NotificationResponse(BaseModel):
+    model_config = _STRICT
+    id: str
+    tenant_id: str
+    recipient_id: str
+    recipient_phone: str
+    patient_id: str | None = None
+    notification_type: str
+    channel: str
+    template_name: str
+    template_params: dict[str, str]
+    status: str
+    created_at: datetime
+    scheduled_at: datetime | None = None
+    delivered_at: datetime | None = None
+    failed_at: datetime | None = None
+    failure_reason: str | None = None
+    correlation_id: str | None = None
+    retry_count: int
+
+
+class NotificationListResponse(BaseModel):
+    model_config = _STRICT
+    total: int
+    items: list[NotificationResponse]
+
+
+class CreateNotificationRequest(BaseModel):
+    model_config = _STRICT
+    recipient_id: str
+    recipient_phone: str = Field(min_length=1, max_length=32)
+    template_name: str = Field(min_length=1, max_length=128)
+    template_params: dict[str, str] = Field(default_factory=dict)
+    notification_type: str = "reminder"
+    channel: str = "WHATSAPP"
+    patient_id: str | None = None
+    scheduled_at: datetime | None = None
+
+
 # ─── Error ──────────────────────────────────────────────────────────────────
 
 

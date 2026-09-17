@@ -18,7 +18,9 @@ PHI-minimal ``AuditEvent`` rows.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Callable
+from uuid import UUID
 
 from backend.application.commands import IngestGlucoseReading, LogMealDraft
 from backend.application.ports.clock import Clock
@@ -122,7 +124,9 @@ class WhatsAppIntakeHandler:
                     correlation_id=job.correlation_id,
                     recorded_at=self._clock.now(),
                 )
-                uow.patients.get(patient_id)
+                patient = uow.patients.get(patient_id)
+                if not getattr(patient, "active", True):
+                    raise DomainError(f"patient {patient_id} is deactivated; channel intake denied")
             except DomainError as exc:
                 self._write_failure_audit(
                     uow, job, tenant_id,
@@ -207,6 +211,7 @@ class ChannelDeliveryHandler:
 
         if result.retryable:
             # Provider 5xx / timeout → worker exponential backoff.
+            self._update_notification_retry(job)
             return DeliveryOutcome.RETRYABLE
 
         self._write_audit(
@@ -220,11 +225,25 @@ class ChannelDeliveryHandler:
     def _write_audit(self, job: OutboxJob, *, outcome: str, reason: str | None = None, provenance: dict | None = None) -> None:
         uow = self._uow_factory(job.tenant_id)
         try:
+            message_id_raw = job.payload.get("message_id")
+            if message_id_raw and hasattr(uow, "notifications"):
+                try:
+                    notif_id = UUID(str(message_id_raw))
+                    notif = uow.notifications.get(notif_id)
+                    now = datetime.now(timezone.utc)
+                    if outcome == "SUCCESS":
+                        notif.mark_delivered(delivered_at=now)
+                    elif outcome == "FAILED":
+                        notif.mark_failed(reason=reason or "delivery failed", failed_at=now)
+                    uow.notifications.save(notif)
+                except Exception:
+                    pass
+
             self._audit_factory(uow).record(
                 _audit_for_worker(
                     tenant_id=job.tenant_id,
                     action=AuditAction.SEND.value,
-                    resource_type="CHANNEL_MESSAGE",
+                    resource_type="NOTIFICATION",
                     resource_id=str(job.payload.get("message_id") or job.event_id),
                     job=job,
                     outcome=outcome,
@@ -233,5 +252,23 @@ class ChannelDeliveryHandler:
                 )
             )
             uow.commit()
+        finally:
+            uow.close()
+
+    def _update_notification_retry(self, job: OutboxJob) -> None:
+        if not job.tenant_id:
+            return
+        uow = self._uow_factory(job.tenant_id)
+        try:
+            message_id_raw = job.payload.get("message_id")
+            if message_id_raw and hasattr(uow, "notifications"):
+                try:
+                    notif_id = UUID(str(message_id_raw))
+                    notif = uow.notifications.get(notif_id)
+                    notif.requeue_for_retry()
+                    uow.notifications.save(notif)
+                    uow.commit()
+                except Exception:
+                    pass
         finally:
             uow.close()

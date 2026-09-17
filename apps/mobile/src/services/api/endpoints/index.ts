@@ -6,4 +6,5 @@ export { aiEndpoints } from "./ai";
 export { patientsEndpoints } from "./patients";
 export { mealsEndpoints } from "./meals";
 export { tasksEndpoints, type CareTaskListParams } from "./tasks";
+export { notificationsEndpoints, type NotificationListParams } from "./notifications";
 export { withQuery, type EndpointDefinition, type HttpMethod } from "./types";

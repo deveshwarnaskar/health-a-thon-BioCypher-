@@ -64,6 +64,8 @@ class Operation(str, Enum):
     PROVISION_PATIENT = "provision_patient"
     MANAGE_CARE_TEAM = "manage_care_team"
     MANAGE_FACILITIES = "manage_facilities"
+    READ_NOTIFICATIONS = "read_notifications"
+    MANAGE_NOTIFICATIONS = "manage_notifications"
 
 
 # Role → permitted operations mapping (DENY-BY-DEFAULT: unlisted = denied)
@@ -84,6 +86,7 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.START_CARE_TASK,
         Operation.COMPLETE_CARE_TASK,
         Operation.REASSIGN_CARE_TASK,
+        Operation.READ_NOTIFICATIONS,
     }),
     "nurse": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -99,6 +102,7 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.START_CARE_TASK,
         Operation.COMPLETE_CARE_TASK,
         Operation.REASSIGN_CARE_TASK,
+        Operation.READ_NOTIFICATIONS,
     }),
     "dietitian": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -114,6 +118,7 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.START_CARE_TASK,
         Operation.COMPLETE_CARE_TASK,
         Operation.REASSIGN_CARE_TASK,
+        Operation.READ_NOTIFICATIONS,
     }),
     "care_coordinator": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -127,6 +132,8 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.START_CARE_TASK,
         Operation.COMPLETE_CARE_TASK,
         Operation.REASSIGN_CARE_TASK,
+        Operation.READ_NOTIFICATIONS,
+        Operation.MANAGE_NOTIFICATIONS,
     }),
     "field_health_worker": frozenset({
         Operation.READ_OBSERVATIONS,
@@ -136,6 +143,7 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.READ_CARE_TASKS,
         Operation.START_CARE_TASK,
         Operation.COMPLETE_CARE_TASK,
+        Operation.READ_NOTIFICATIONS,
     }),
     "patient": frozenset({
         # Patient self-access: DENIED until Gate 08 identity mapping exists.
@@ -152,6 +160,8 @@ _ROLE_PERMISSIONS: dict[str, FrozenSet[Operation]] = {
         Operation.PROVISION_PATIENT,
         Operation.MANAGE_CARE_TEAM,
         Operation.MANAGE_FACILITIES,
+        Operation.READ_NOTIFICATIONS,
+        Operation.MANAGE_NOTIFICATIONS,
     }),
 }
 
@@ -230,6 +240,8 @@ class RelationshipAuthorizationPolicy(DefaultAuthorizationPolicy):
             # so an empty result is a valid, authorized response.
             if operation is Operation.LIST_CAREGIVER_PATIENTS:
                 return "caregiver" in ctx.roles
+            if operation is Operation.READ_NOTIFICATIONS and patient_id is None:
+                return bool(set(ctx.roles) & {"patient", "caregiver"})
             return self._is_proxy_allowed(ctx, operation, patient_id, uow)
         return self._base.is_allowed(ctx, operation)
 
@@ -258,6 +270,20 @@ class RelationshipAuthorizationPolicy(DefaultAuthorizationPolicy):
         uow,
     ) -> bool:
         from .capabilities import caregiver_required_capabilities
+
+        if operation is Operation.READ_NOTIFICATIONS:
+            relationship = uow.caregiver_relationships.get_verified_for_patient(
+                ctx.actor_id, patient_id
+            )
+            if relationship is None:
+                return False
+            if not relationship.is_granted_at(self._clock.now()):
+                return False
+            try:
+                patient = uow.patients.get(patient_id)
+            except Exception:
+                return False
+            return getattr(patient, "active", True)
 
         required = caregiver_required_capabilities(operation)
         if not required:
@@ -296,6 +322,7 @@ class RelationshipAuthorizationPolicy(DefaultAuthorizationPolicy):
             Operation.WRITE_MEAL_OBSERVATIONS,
             Operation.CONFIRM_MEAL_OBSERVATION,
             Operation.WRITE_MEDICATION_ADMINISTRATION,
+            Operation.READ_NOTIFICATIONS,
         }
         if operation not in self_capable:
             return False

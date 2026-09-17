@@ -23,6 +23,10 @@ from backend.domain.entities import (
     IdentityPatientMapping,
     MealObservation,
     MedicationPlan,
+    Notification,
+    NotificationChannel,
+    NotificationStatus,
+    NotificationType,
     Patient,
     ReviewAuthority,
     ReviewState,
@@ -46,6 +50,7 @@ from ..models import (
     IdentityPatientMappingModel,
     MealObservationModel,
     MedicationPlanModel,
+    NotificationModel,
     PatientModel,
 )
 
@@ -353,5 +358,51 @@ def facility_to_model(entity: Facility, tenant_id: UUID) -> FacilityModel:
         name=entity.name,
         active=entity.active,
         created_at=entity.created_at,
+    )
+
+
+# --- Notification Mapping ---
+
+def notification_to_domain(model: NotificationModel) -> Notification:
+    return Notification(
+        id=model.id,
+        tenant_id=model.tenant_id,
+        recipient_id=model.recipient_id,
+        recipient_phone=model.recipient_phone,
+        patient_id=model.patient_id,
+        notification_type=NotificationType(model.notification_type),
+        channel=NotificationChannel(model.channel),
+        template_name=model.template_name,
+        template_params=dict(model.template_params or {}),
+        status=NotificationStatus(model.status),
+        created_at=model.created_at,
+        scheduled_at=model.scheduled_at,
+        delivered_at=model.delivered_at,
+        failed_at=model.failed_at,
+        failure_reason=model.failure_reason,
+        correlation_id=model.correlation_id,
+        retry_count=model.retry_count,
+    )
+
+
+def notification_to_model(entity: Notification, tenant_id: UUID) -> NotificationModel:
+    return NotificationModel(
+        id=entity.id,
+        tenant_id=tenant_id,
+        recipient_id=entity.recipient_id,
+        recipient_phone=entity.recipient_phone,
+        patient_id=entity.patient_id,
+        notification_type=entity.notification_type.value if hasattr(entity.notification_type, "value") else str(entity.notification_type),
+        channel=entity.channel.value if hasattr(entity.channel, "value") else str(entity.channel),
+        template_name=entity.template_name,
+        template_params=dict(entity.template_params or {}),
+        status=entity.status.value if hasattr(entity.status, "value") else str(entity.status),
+        created_at=entity.created_at,
+        scheduled_at=entity.scheduled_at,
+        delivered_at=entity.delivered_at,
+        failed_at=entity.failed_at,
+        failure_reason=entity.failure_reason,
+        correlation_id=entity.correlation_id,
+        retry_count=entity.retry_count,
     )
 

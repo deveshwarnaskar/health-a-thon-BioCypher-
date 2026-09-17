@@ -23,6 +23,7 @@ from .repositories import (
     IdentityPatientMappingRepository,
     MealObservationRepository,
     MedicationPlanRepository,
+    NotificationRepository,
     PatientRepository,
 )
 
@@ -39,6 +40,7 @@ class UnitOfWork(Protocol):
     ai_artifacts: AIReviewArtifactRepository
     caregiver_relationships: CaregiverRelationshipRepository
     identity_mappings: IdentityPatientMappingRepository
+    notifications: NotificationRepository
 
     def commit(self) -> None: ...
 

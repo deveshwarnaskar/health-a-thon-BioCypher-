@@ -116,3 +116,29 @@ class TestStrictRequestSchemas:
                     "reviewer_user_id": str(__import__("uuid").uuid4()),
                 }
             )
+
+    def test_create_notification_rejects_unknown_field(self):
+        from backend.interfaces.http.v2.schemas import CreateNotificationRequest
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            CreateNotificationRequest.model_validate(
+                {
+                    "recipient_id": "12345678-1234-1234-1234-123456789abc",
+                    "recipient_phone": "+919876543210",
+                    "template_name": "reminder",
+                    "tenant_id": "malicious-tenant-injection",
+                }
+            )
+
+
+class TestNotificationDTOAsymmetry:
+    """Notification response schemas must never leak clinical analytical fields."""
+
+    def test_notification_response_no_carbs_grams(self):
+        from backend.interfaces.http.v2.schemas import NotificationResponse
+        schema = NotificationResponse.model_json_schema()
+        props = schema.get("properties", {})
+        assert "carbs_grams" not in props
+        assert "glycemic_index" not in props
+        assert "risk_score" not in props
+        assert "ai_diagnosis" not in props
