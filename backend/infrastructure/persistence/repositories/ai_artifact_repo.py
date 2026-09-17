@@ -50,7 +50,12 @@ class SqlAlchemyAIReviewArtifactRepository:
             raise EntityNotFound(f"ai_artifact {artifact.id} not found")
         model.state = artifact.state.value
         model.summary = artifact.summary
+        model.original_summary = artifact.original_summary
+        model.model_name = artifact.model_name
+        model.evidence_hash = artifact.evidence_hash
+        model.correlation_id = artifact.correlation_id
         model.reviewed_by_user_id = artifact.reviewed_by_user_id
+        model.reviewed_at = artifact.reviewed_at
 
     def list_for_patient(self, patient_id: UUID) -> list[AIReviewArtifact]:
         stmt = (

@@ -50,12 +50,18 @@ _ALLOWED_TRANSITIONS = {
 class AIReviewArtifact:
     id: UUID = field(default_factory=uuid4)
     patient_id: UUID = field(default_factory=uuid4)
+    tenant_id: UUID | None = None
     artifact_kind: str = "extracted_observation"
     authority: ReviewAuthority = ReviewAuthority.CLINICIAN_REVIEW
     state: ReviewState = ReviewState.GENERATED
     generated_by: str = "ai"
     summary: str = ""
+    original_summary: str | None = None
+    model_name: str | None = None
+    evidence_hash: str | None = None
+    correlation_id: str | None = None
     reviewed_by_user_id: UUID | None = None
+    reviewed_at: datetime | None = None
     created_at: datetime = field(default_factory=datetime.utcnow)
 
     def _transition(self, target: ReviewState) -> None:
@@ -69,18 +75,23 @@ class AIReviewArtifact:
     def submit_for_review(self) -> None:
         self._transition(ReviewState.PENDING_REVIEW)
 
-    def approve(self, reviewer: UUID) -> None:
+    def approve(self, reviewer: UUID, at: datetime | None = None) -> None:
         self._transition(ReviewState.APPROVED)
         self.reviewed_by_user_id = reviewer
+        self.reviewed_at = at or datetime.utcnow()
 
-    def edit(self, reviewer: UUID, edited_summary: str) -> None:
+    def edit(self, reviewer: UUID, edited_summary: str, at: datetime | None = None) -> None:
         self._transition(ReviewState.EDITED)
+        if self.original_summary is None:
+            self.original_summary = self.summary
         self.summary = edited_summary
         self.reviewed_by_user_id = reviewer
+        self.reviewed_at = at or datetime.utcnow()
 
-    def reject(self, reviewer: UUID) -> None:
+    def reject(self, reviewer: UUID, at: datetime | None = None) -> None:
         self._transition(ReviewState.REJECTED)
         self.reviewed_by_user_id = reviewer
+        self.reviewed_at = at or datetime.utcnow()
 
     def action(self) -> None:
         self._transition(ReviewState.ACTIONED)

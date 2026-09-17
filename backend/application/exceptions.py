@@ -26,3 +26,12 @@ class DuplicateCaregiverRelationship(ApplicationError):
 
 class DuplicateCareTeamMember(ApplicationError):
     """A care team member already exists for this user in this tenant."""
+
+
+class AIGenerationFailed(ApplicationError):
+    """Underlying AI provider failed to generate output safely."""
+
+    def __init__(self, error_code: str | None = None, retryable: bool = False, message: str = "") -> None:
+        super().__init__(message or f"AI generation failed: {error_code}")
+        self.error_code = error_code or "AI_GENERATION_FAILED"
+        self.retryable = retryable

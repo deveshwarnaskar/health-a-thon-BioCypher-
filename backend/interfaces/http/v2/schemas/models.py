@@ -154,10 +154,19 @@ class AIArtifactResponse(BaseModel):
     created_at: datetime
 
 
+class AIArtifactDetailResponse(AIArtifactResponse):
+    model_name: str | None = None
+    evidence_hash: str | None = None
+    original_summary: str | None = None
+    reviewed_by_user_id: str | None = None
+    reviewed_at: datetime | None = None
+
+
 class GenerateAIArtifactRequest(BaseModel):
     model_config = _STRICT
     patient_id: UUID
     context: str = ""
+    task_type: str = "clinical_summary"
 
 
 class GenerateAIArtifactResponse(BaseModel):
@@ -165,6 +174,8 @@ class GenerateAIArtifactResponse(BaseModel):
     patient_id: str
     state: str
     summary: str
+    model_name: str | None = None
+    evidence_hash: str | None = None
 
 
 class ReviewAIArtifactRequest(BaseModel):

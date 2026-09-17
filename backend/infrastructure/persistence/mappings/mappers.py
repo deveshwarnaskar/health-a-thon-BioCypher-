@@ -248,12 +248,18 @@ def ai_artifact_to_domain(model: AIReviewArtifactModel) -> AIReviewArtifact:
     return AIReviewArtifact(
         id=model.id,
         patient_id=model.patient_id,
+        tenant_id=model.tenant_id,
         artifact_kind=model.artifact_kind,
         authority=ReviewAuthority(model.authority),
         state=ReviewState(model.state),
         generated_by=model.generated_by,
         summary=model.summary,
+        original_summary=model.original_summary,
+        model_name=model.model_name,
+        evidence_hash=model.evidence_hash,
+        correlation_id=model.correlation_id,
         reviewed_by_user_id=model.reviewed_by_user_id,
+        reviewed_at=model.reviewed_at,
         created_at=model.created_at,
     )
 
@@ -270,7 +276,12 @@ def ai_artifact_to_model(
         state=entity.state.value,
         generated_by=entity.generated_by,
         summary=entity.summary,
+        original_summary=entity.original_summary,
+        model_name=entity.model_name,
+        evidence_hash=entity.evidence_hash,
+        correlation_id=entity.correlation_id,
         reviewed_by_user_id=entity.reviewed_by_user_id,
+        reviewed_at=entity.reviewed_at,
         created_at=entity.created_at,
     )
 

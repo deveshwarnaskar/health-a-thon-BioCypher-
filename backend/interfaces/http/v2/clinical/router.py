@@ -23,11 +23,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from backend.application.commands import (
     ConfirmMealObservation,
     CreateMedicationPlan,
+    GenerateAIReviewArtifact,
     IngestGlucoseReading,
     LogMealDraft,
     RecordMedicationAdministration,
     ReviewAIArtifact,
 )
+from backend.application.exceptions import AIGenerationFailed, ReviewerNotAuthorized
 from backend.application.ops.contracts import AuditAction
 from backend.application.ports.clock import Clock
 from backend.application.ports.events import DomainEventPublisher
@@ -43,6 +45,8 @@ from backend.application.queries import (
 )
 from backend.application.services.confirm_meal_observation import ConfirmMealObservationHandler
 from backend.application.services.create_medication_plan import CreateMedicationPlanHandler
+from backend.application.services.evidence_builder import EvidenceBuilder
+from backend.application.services.generate_ai_artifact import GenerateAIReviewArtifactHandler
 from backend.application.services.get_ai_review_artifact import GetAIReviewArtifactHandler
 from backend.application.services.get_clinical_observation_feed import GetClinicalObservationFeedHandler
 from backend.application.services.get_medication_plan import GetMedicationPlanHandler
@@ -56,8 +60,10 @@ from backend.application.services.record_medication_administration import (
 )
 from backend.application.services.review_ai_artifact import ReviewAIArtifactHandler
 from backend.application.dtos.clinical import ClinicalGlucoseRecord, ClinicalMealRecord
-from backend.domain.exceptions import EntityNotFound
+from backend.domain.exceptions import EntityNotFound, InvalidStateTransition
 from backend.domain.value_objects import GlucoseValue, KatoriVolume, MealPortion, ReadingTag
+from backend.infrastructure.ai import DeterministicDemoProvider, ProductionModelProvider
+from config.settings import Settings
 from backend.interfaces.http.dependencies import (
     get_authenticated_context,
     get_authorization_policy,
@@ -69,6 +75,7 @@ from backend.interfaces.http.dependencies import (
 from backend.interfaces.http.ops.audit import audit_dependency, json_field, path_param
 from backend.interfaces.http.ops.rate_limit import TIERS, apply_rate_limit, get_rate_limiter
 from backend.interfaces.http.v2.schemas import (
+    AIArtifactDetailResponse,
     AIArtifactListResponse,
     AIArtifactResponse,
     ClinicalObservationFeedResponse,
@@ -76,6 +83,8 @@ from backend.interfaces.http.v2.schemas import (
     ConfirmMealResponse,
     CreateMedicationPlanRequest,
     CreateMedicationPlanResponse,
+    GenerateAIArtifactRequest,
+    GenerateAIArtifactResponse,
     IngestGlucoseRequest,
     IngestGlucoseResponse,
     LogMealRequest,
@@ -269,6 +278,106 @@ async def create_medication_plan(
 
 
 @clinical_router.post(
+    "/ai-artifacts/generate",
+    response_model=GenerateAIArtifactResponse,
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.CREATE,
+                resource_type="ai_artifact.generate",
+                resource_id_from=None,
+            )
+        )
+    ],
+)
+async def generate_ai_artifact(
+    request: Request,
+    response: Response,
+    body: GenerateAIArtifactRequest,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    events: DomainEventPublisher = Depends(get_event_publisher),
+    clock: Clock = Depends(get_clock),
+    id_gen: IdGenerator = Depends(get_id_generator),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> GenerateAIArtifactResponse:
+    """Licensed clinician generates an AI review artifact draft.
+
+    Enforces:
+    - Operation.GENERATE_AI_ARTIFACT (doctor/nurse/dietitian only; admin/coordinator/fhw/patient/caregiver denied)
+    - Patient facility matches clinician active facility
+    - Patient is active
+    - Deterministic EvidenceBuilder compiles authorized evidence
+    - Model output is strictly unapproved draft in PENDING_REVIEW
+    """
+    apply_rate_limit(request=request, response=response, tier=TIERS["ai"], limiter=limiter, ctx=ctx)
+
+    authorize_or_403(ctx, policy, Operation.GENERATE_AI_ARTIFACT)
+
+    try:
+        patient = uow.patients.get(body.patient_id)
+    except EntityNotFound:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    if not getattr(patient, "active", True):
+        raise HTTPException(status_code=400, detail="Patient is deactivated")
+
+    assert_authorized_clinician_facility(ctx, uow, patient)
+
+    settings = Settings()
+    if settings.ai.provider == "gemini" and settings.ai.api_key:
+        provider = ProductionModelProvider(
+            api_key=settings.ai.api_key,
+            model_name=settings.ai.model or "gemini-1.5-flash",
+        )
+    else:
+        provider = DeterministicDemoProvider()
+
+    cmd = GenerateAIReviewArtifact(
+        patient_id=body.patient_id,
+        artifact_kind="clinical_summary",
+        context=body.context,
+        correlation_id=_correlation_id(request),
+        tenant_id=ctx.tenant_id,
+        requester_user_id=ctx.actor_id,
+        task_type=body.task_type,
+        model_name=getattr(provider, "model_name", None),
+    )
+
+    try:
+        result = GenerateAIReviewArtifactHandler(
+            uow=uow,
+            events=events,
+            provider=provider,
+            clock=clock,
+            id_gen=id_gen,
+            evidence_builder=EvidenceBuilder(),
+        ).handle(cmd)
+    except AIGenerationFailed as e:
+        if e.error_code == "CREDENTIALS_MISSING":
+            raise HTTPException(status_code=503, detail="AI provider credentials missing")
+        elif e.error_code == "TIMEOUT":
+            raise HTTPException(status_code=504, detail="AI provider timed out")
+        elif e.error_code == "MALFORMED_OUTPUT":
+            raise HTTPException(status_code=502, detail="AI provider returned malformed output")
+        elif e.error_code == "PROVIDER_4XX":
+            raise HTTPException(status_code=400, detail="AI provider rejected request")
+        else:
+            raise HTTPException(status_code=502, detail=str(e))
+
+    artifact = uow.ai_artifacts.get(result.artifact_id)
+    return GenerateAIArtifactResponse(
+        artifact_id=str(result.artifact_id),
+        patient_id=str(result.patient_id),
+        state=result.state,
+        summary=result.summary,
+        model_name=artifact.model_name,
+        evidence_hash=artifact.evidence_hash,
+    )
+
+
+@clinical_router.post(
     "/ai-artifacts/{artifact_id}/review",
     response_model=ReviewAIArtifactResponse,
     dependencies=[
@@ -329,7 +438,13 @@ async def review_ai_artifact(
         edited_summary=body.edited_summary,
         correlation_id=_correlation_id(request),
     )
-    result = ReviewAIArtifactHandler(uow, events, clock, id_gen).handle(cmd)
+    try:
+        result = ReviewAIArtifactHandler(uow, events, clock, id_gen).handle(cmd)
+    except InvalidStateTransition as e:
+        raise HTTPException(status_code=409, detail=f"Review state conflict: {e}")
+    except ReviewerNotAuthorized as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
     return ReviewAIArtifactResponse(
         artifact_id=str(result.artifact_id),
         state=result.state,
@@ -480,7 +595,7 @@ async def list_ai_artifacts(
 
 @clinical_router.get(
     "/ai-artifacts/{artifact_id}",
-    response_model=AIArtifactResponse,
+    response_model=AIArtifactDetailResponse,
     dependencies=[
         Depends(
             audit_dependency(
@@ -500,7 +615,7 @@ async def get_ai_artifact(
     policy: AuthorizationPolicy = Depends(get_authorization_policy),
     uow: UnitOfWork = Depends(get_unit_of_work),
     limiter: Annotated[object, Depends(get_rate_limiter)] = None,
-) -> AIArtifactResponse:
+) -> AIArtifactDetailResponse:
     """Read ONE AI review artifact by id.
 
     Cross-facility, cross-tenant, deactivated-patient, or missing artifacts
@@ -531,13 +646,18 @@ async def get_ai_artifact(
     result = GetAIReviewArtifactHandler(uow).handle(
         GetAIReviewArtifact(artifact_id=artifact_uuid, facility_id=patient.facility_id)
     )
-    return AIArtifactResponse(
+    return AIArtifactDetailResponse(
         artifact_id=str(result.artifact_id),
         patient_id=str(result.patient_id),
         artifact_kind=result.artifact_kind,
         state=result.state,
         summary=result.summary,
         created_at=result.created_at,
+        model_name=artifact.model_name,
+        evidence_hash=artifact.evidence_hash,
+        original_summary=artifact.original_summary,
+        reviewed_by_user_id=str(artifact.reviewed_by_user_id) if artifact.reviewed_by_user_id else None,
+        reviewed_at=artifact.reviewed_at,
     )
 
 

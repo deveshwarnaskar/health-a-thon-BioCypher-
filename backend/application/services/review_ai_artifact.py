@@ -45,14 +45,15 @@ class ReviewAIArtifactHandler:
                 f"role {member.role.value} cannot review AI artifacts; "
                 "only licensed clinicians may review"
             )
+        now = self._clock.now()
         if cmd.decision == ReviewDecision.APPROVE:
-            artifact.approve(cmd.reviewer_user_id)
+            artifact.approve(cmd.reviewer_user_id, at=now)
         elif cmd.decision == ReviewDecision.EDIT:
             if cmd.edited_summary is None:
                 raise ValueError("edited_summary is required for the EDIT decision")
-            artifact.edit(cmd.reviewer_user_id, cmd.edited_summary)
+            artifact.edit(cmd.reviewer_user_id, cmd.edited_summary, at=now)
         elif cmd.decision == ReviewDecision.REJECT:
-            artifact.reject(cmd.reviewer_user_id)
+            artifact.reject(cmd.reviewer_user_id, at=now)
         self._uow.ai_artifacts.save(artifact)
         self._events.publish(
             AIArtifactReviewed(

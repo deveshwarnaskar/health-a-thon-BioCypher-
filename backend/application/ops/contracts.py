@@ -30,6 +30,7 @@ SYSTEM_WORKER_ACTOR_TYPE = "SYSTEM_WORKER"
 # Event types written to / consumed from the transactional outbox.
 WEBHOOK_INTAKE_EVENT_TYPE = "whatsapp.message.received"
 CHANNEL_SEND_EVENT_TYPE = "channel.message.send"
+AI_GENERATION_EVENT_TYPE = "ai.generation.requested"
 
 # Default webhook deduplication retention window (Gate 09 §8.3).
 WEBHOOK_REPLAY_RETENTION_SECONDS = 7 * 24 * 60 * 60  # 7 days

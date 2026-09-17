@@ -50,7 +50,12 @@ class AIReviewArtifactModel(Base):
         nullable=False,
     )
     summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    original_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    evidence_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     reviewed_by_user_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

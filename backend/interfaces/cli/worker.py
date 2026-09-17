@@ -21,13 +21,17 @@ import time
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.application.ops.contracts import (
+    AI_GENERATION_EVENT_TYPE,
     CHANNEL_SEND_EVENT_TYPE,
     WEBHOOK_INTAKE_EVENT_TYPE,
 )
 from backend.application.ops.handlers import (
+    AIGenerationJobHandler,
     ChannelDeliveryHandler,
     WhatsAppIntakeHandler,
 )
+from backend.application.services.evidence_builder import EvidenceBuilder
+from backend.infrastructure.ai import DeterministicDemoProvider
 from backend.application.ops.worker import OutboxWorker
 from backend.infrastructure.channel.whatsapp_sender import WhatsAppChannelSender
 from backend.infrastructure.config.clock import SystemClock
@@ -88,6 +92,16 @@ def build_worker(*, db_url: str | None, whatsapp_access_token: str | None = None
     handlers[CHANNEL_SEND_EVENT_TYPE] = delivery.handle
     if not (whatsapp_access_token and whatsapp_phone_number_id):
         logger.warning("whatsapp credentials unset — outbound messages will fail-safe with explicit operational error")
+
+    ai_provider = DeterministicDemoProvider()
+    evidence_builder = EvidenceBuilder()
+    ai_handler = AIGenerationJobHandler(
+        provider=ai_provider,
+        evidence_builder=evidence_builder,
+        uow_factory=uow_factory,
+        audit_factory=audit_factory,
+    )
+    handlers[AI_GENERATION_EVENT_TYPE] = ai_handler.handle
 
     return OutboxWorker(store, handlers, worker_id=f"worker-{id(store)}"), engine
 

@@ -5,6 +5,7 @@ from .models import (
     AdminPatientResponse,
     AIArtifactListResponse,
     AIArtifactResponse,
+    AIArtifactDetailResponse,
     AuthVerifyResponse,
     CaregiverPatientListItemResponse,
     CaregiverPatientListResponse,

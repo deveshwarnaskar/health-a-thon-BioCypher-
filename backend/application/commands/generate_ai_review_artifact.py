@@ -12,6 +12,10 @@ from uuid import UUID
 @dataclass(frozen=True)
 class GenerateAIReviewArtifact:
     patient_id: UUID
-    artifact_kind: str
-    context: str
+    artifact_kind: str = "clinical_summary"
+    context: str = ""
     correlation_id: UUID | None = None
+    tenant_id: UUID | None = None
+    requester_user_id: UUID | None = None
+    task_type: str = "clinical_summary"
+    model_name: str | None = None

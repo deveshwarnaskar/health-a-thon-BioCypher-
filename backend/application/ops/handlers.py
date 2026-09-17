@@ -29,11 +29,20 @@ from backend.application.ports.id_generation import IdGenerator
 from backend.application.ports.unit_of_work import UnitOfWork
 from backend.application.services.ingest_glucose import IngestGlucoseHandler
 from backend.application.services.log_meal_draft import LogMealDraftHandler
+from backend.domain.entities import AIReviewArtifact, ReviewAuthority, ReviewState
 from backend.domain.exceptions import DomainError
+from backend.application.ports.ai import (
+    AIProvider,
+    AITaskDefinition,
+    AITaskType,
+    DEFAULT_SYSTEM_CONSTRAINTS,
+)
+from backend.application.services.evidence_builder import EvidenceBuilder
 
 from .contracts import (
     SYSTEM_WORKER_ACTOR_ID,
     SYSTEM_WORKER_ACTOR_TYPE,
+    AI_GENERATION_EVENT_TYPE,
     AuditAction,
     AuditEvent,
     DeliveryOutcome,
@@ -270,5 +279,125 @@ class ChannelDeliveryHandler:
                     uow.commit()
                 except Exception:
                     pass
+        finally:
+            uow.close()
+
+
+class AIGenerationJobHandler:
+    """Asynchronous worker handler for processing outbox AI generation requests."""
+
+    def __init__(
+        self,
+        *,
+        provider: AIProvider,
+        evidence_builder: EvidenceBuilder,
+        uow_factory: Callable[[UUID], UnitOfWork],
+        audit_factory: Callable[[UnitOfWork], AuditStore],
+    ) -> None:
+        self._provider = provider
+        self._evidence_builder = evidence_builder
+        self._uow_factory = uow_factory
+        self._audit_factory = audit_factory
+
+    def handle(self, job: OutboxJob) -> DeliveryOutcome:
+        tenant_id = job.tenant_id
+        if not tenant_id:
+            logger.error("outbox job missing tenant_id — discarding")
+            return DeliveryOutcome.PERMANENT
+
+        uow = self._uow_factory(tenant_id)
+        try:
+            patient_id_raw = job.payload.get("patient_id")
+            artifact_id_raw = job.payload.get("artifact_id")
+            if not patient_id_raw:
+                logger.error("outbox job missing patient_id — discarding")
+                return DeliveryOutcome.PERMANENT
+
+            patient_id = UUID(str(patient_id_raw))
+            user_notes = job.payload.get("context", "")
+
+            # Build evidence
+            try:
+                evidence = self._evidence_builder.build(
+                    patient_id=patient_id,
+                    tenant_id=tenant_id,
+                    uow=uow,
+                    user_notes=user_notes,
+                )
+            except Exception:
+                logger.exception("failed to build evidence for AI generation")
+                return DeliveryOutcome.PERMANENT
+
+            task = AITaskDefinition(
+                task_type=AITaskType.CLINICAL_SUMMARY,
+                system_constraints=DEFAULT_SYSTEM_CONSTRAINTS,
+                patient_id=patient_id,
+                tenant_id=tenant_id,
+                correlation_id=str(job.correlation_id) if job.correlation_id else None,
+            )
+
+            result = self._provider.generate(task, evidence)
+            if result.success:
+                if artifact_id_raw:
+                    artifact_id = UUID(str(artifact_id_raw))
+                    try:
+                        artifact = uow.ai_artifacts.get(artifact_id)
+                        artifact.summary = result.summary
+                        artifact.model_name = result.model
+                        artifact.evidence_hash = evidence.evidence_hash
+                        if artifact.state == ReviewState.GENERATED:
+                            artifact.submit_for_review()
+                        uow.ai_artifacts.save(artifact)
+                    except Exception:
+                        pass
+                else:
+                    artifact = AIReviewArtifact(
+                        patient_id=patient_id,
+                        tenant_id=tenant_id,
+                        artifact_kind="clinical_summary",
+                        authority=ReviewAuthority.CLINICIAN_REVIEW,
+                        state=ReviewState.GENERATED,
+                        generated_by=f"ai:{result.model}",
+                        summary=result.summary,
+                        model_name=result.model,
+                        evidence_hash=evidence.evidence_hash,
+                        correlation_id=str(job.correlation_id) if job.correlation_id else None,
+                    )
+                    artifact.submit_for_review()
+                    uow.ai_artifacts.add(artifact)
+
+                self._audit_factory(uow).record(
+                    _audit_for_worker(
+                        tenant_id=tenant_id,
+                        action=AuditAction.CREATE.value,
+                        resource_type="AI_ARTIFACT",
+                        resource_id=str(artifact_id_raw or job.event_id),
+                        job=job,
+                        outcome="SUCCESS",
+                        provenance={"model": result.model, "evidence_hash": evidence.evidence_hash},
+                    )
+                )
+                uow.commit()
+                return DeliveryOutcome.SUCCESS
+
+            # Provider failed
+            if result.retryable:
+                logger.warning("AI provider retryable error: %s", result.error_code)
+                return DeliveryOutcome.RETRYABLE
+
+            logger.error("AI provider permanent failure: %s", result.error_code)
+            self._audit_factory(uow).record(
+                _audit_for_worker(
+                    tenant_id=tenant_id,
+                    action=AuditAction.CREATE.value,
+                    resource_type="AI_ARTIFACT",
+                    resource_id=str(artifact_id_raw or job.event_id),
+                    job=job,
+                    outcome="FAILED",
+                    reason=result.error_code,
+                )
+            )
+            uow.commit()
+            return DeliveryOutcome.PERMANENT
         finally:
             uow.close()
