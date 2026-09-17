@@ -19,6 +19,11 @@ export type TextInputProps = {
   textContentType?: RNTextInputProps["textContentType"];
   keyboardType?: RNTextInputProps["keyboardType"];
   autoCapitalize?: RNTextInputProps["autoCapitalize"];
+  placeholder?: string;
+  multiline?: boolean;
+  numberOfLines?: number;
+  testID?: string;
+  accessibilityLabel?: string;
   accessibilityHint?: string;
 };
 
@@ -33,6 +38,11 @@ export function TextInput({
   textContentType,
   keyboardType,
   autoCapitalize,
+  placeholder,
+  multiline,
+  numberOfLines,
+  testID,
+  accessibilityLabel,
   accessibilityHint,
 }: TextInputProps) {
   return (
@@ -51,8 +61,13 @@ export function TextInput({
         textContentType={textContentType}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
+        placeholder={placeholder}
+        placeholderTextColor={colors.disabled}
+        multiline={multiline}
+        numberOfLines={numberOfLines}
+        testID={testID}
         allowFontScaling
-        accessibilityLabel={label}
+        accessibilityLabel={accessibilityLabel ?? label}
         accessibilityHint={accessibilityHint}
         accessibilityState={{ disabled }}
       />

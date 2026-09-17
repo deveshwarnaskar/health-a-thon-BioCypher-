@@ -6,11 +6,12 @@ export type EmptyStateProps = {
   title: string;
   message?: string;
   children?: React.ReactNode;
+  testID?: string;
 };
 
-export function EmptyState({ title, message, children }: EmptyStateProps) {
+export function EmptyState({ title, message, children, testID }: EmptyStateProps) {
   return (
-    <View style={styles.container} accessible accessibilityRole="summary" accessibilityLabel={title}>
+    <View style={styles.container} testID={testID} accessible accessibilityRole="summary" accessibilityLabel={title}>
       <Text style={styles.title} allowFontScaling>
         {title}
       </Text>

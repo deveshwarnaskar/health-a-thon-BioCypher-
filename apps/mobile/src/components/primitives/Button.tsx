@@ -16,6 +16,7 @@ export type ButtonProps = {
   busy?: boolean;
   accessibilityHint?: string;
   accessibilityLabel?: string;
+  testID?: string;
   style?: View["props"]["style"];
 };
 
@@ -51,6 +52,7 @@ export function Button({
   busy = false,
   accessibilityHint,
   accessibilityLabel,
+  testID,
   style,
 }: ButtonProps) {
   const isDisabled = disabled || busy;
@@ -65,6 +67,7 @@ export function Button({
     <Pressable
       onPress={onPress}
       disabled={isDisabled}
+      testID={testID}
       {...a11y}
       style={({ pressed }) => [
         styles.base,

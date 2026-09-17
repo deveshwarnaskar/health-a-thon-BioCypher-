@@ -11,6 +11,7 @@ import { PatientGlucoseScreen } from "../../src/features/glucose";
 import { CaregiverWorkflow } from "../../src/features/caregiver";
 import { DoctorWorkflow } from "../../src/features/doctor";
 import { PatientMealScreen, DietitianWorkflow } from "../../src/features/meals";
+import { FHWWorkflow, CoordinatorWorkflow } from "../../src/features/tasks";
 
 /**
  * Protected, role-aware shell. Role derives exclusively from the verified
@@ -68,6 +69,16 @@ export default function ShellScreen() {
 
   if (role === "Dietitian" && selectedDestination === "patients") {
     return <DietitianWorkflow flow="patients" onHome={() => setSelectedDestination(null)} />;
+  }
+
+  // Gate 10J-M: Field Health Worker task & field data capture workflow
+  if (role === "FieldHealthWorker" && (selectedDestination === "tasks" || selectedDestination === "visits")) {
+    return <FHWWorkflow onExit={() => setSelectedDestination(null)} />;
+  }
+
+  // Gate 10J-M: Care Coordinator facility queue & task assignment workflow
+  if (role === "CareCoordinator" && (selectedDestination === "queue" || selectedDestination === "tasks")) {
+    return <CoordinatorWorkflow onExit={() => setSelectedDestination(null)} />;
   }
 
   return (

@@ -4,12 +4,14 @@ import { colors, spacing, typography } from "../../theming/tokens";
 
 export type LoadingStateProps = {
   label?: string;
+  testID?: string;
 };
 
-export function LoadingState({ label = "Loading" }: LoadingStateProps) {
+export function LoadingState({ label = "Loading", testID }: LoadingStateProps) {
   return (
     <View
       style={styles.container}
+      testID={testID}
       accessible
       accessibilityRole="progressbar"
       accessibilityLabel={label}

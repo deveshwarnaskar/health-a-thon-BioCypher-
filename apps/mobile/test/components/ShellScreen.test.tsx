@@ -27,6 +27,15 @@ jest.mock("../../src/features/meals", () => {
   };
 });
 
+jest.mock("../../src/features/tasks", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Text } = require("react-native");
+  return {
+    FHWWorkflow: () => <Text>Mocked FHWWorkflow</Text>,
+    CoordinatorWorkflow: () => <Text>Mocked CoordinatorWorkflow</Text>,
+  };
+});
+
 const ALL_ROLES: Role[] = [
   "Patient",
   "Caregiver",
@@ -115,5 +124,27 @@ describe("ShellScreen (per-role × 7)", () => {
     const foodCard = screen.getByLabelText("Food (placeholder)");
     fireEvent.press(foodCard);
     expect(screen.getByText("Mocked DietitianWorkflow")).toBeTruthy();
+  });
+
+  it("mounts FHWWorkflow when FieldHealthWorker selects Tasks destination", () => {
+    mockAuthState = {
+      name: "authenticated",
+      user: { role: "FieldHealthWorker", actor_id: "a-1", capabilities: ["READ_CARE_TASKS"] },
+    };
+    renderShell();
+    const tasksCard = screen.getByLabelText("Tasks (placeholder)");
+    fireEvent.press(tasksCard);
+    expect(screen.getByText("Mocked FHWWorkflow")).toBeTruthy();
+  });
+
+  it("mounts CoordinatorWorkflow when CareCoordinator selects Queue destination", () => {
+    mockAuthState = {
+      name: "authenticated",
+      user: { role: "CareCoordinator", actor_id: "a-1", capabilities: ["READ_CARE_TASKS"] },
+    };
+    renderShell();
+    const queueCard = screen.getByLabelText("Queue (placeholder)");
+    fireEvent.press(queueCard);
+    expect(screen.getByText("Mocked CoordinatorWorkflow")).toBeTruthy();
   });
 });
