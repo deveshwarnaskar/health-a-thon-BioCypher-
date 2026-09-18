@@ -10,7 +10,7 @@ This implementation delivers:
 3. **Fail-Closed Production API Validation**: Hardened `requireConfigured()` in `src/services/api/config.ts` to strictly forbid `localhost`, `127.0.0.1`, and insecure `http://` URLs when running in production mode (`EXPO_PUBLIC_ENVIRONMENT=production`).
 4. **Secret & Credential Hygiene**: Verified zero private keys, release keystores, or server-side credentials committed in Git.
 5. **Full Automated Regression**: 844/844 backend pytest tests, 41/41 admin-web tests, 374/374 mobile vitest unit tests, 126/126 mobile Jest component tests, and clean TypeScript/ESLint checks.
-6. **Hardware Testing Status**: Because the target physical Android device (`Samsung Galaxy A35 5G`, `SM-A356E`) was not attached via ADB during this session, physical device execution has been formally classified as **PENDING PHYSICAL HARDWARE ATTACHMENT** in strict adherence to Section 30 ("No Fake Evidence").
+6. **Hardware Testing Status**: Physical device execution has been conducted on the attached **Samsung Galaxy A35 5G** (`SM-A356E`, Android 16, API 36, `arm64-v8a`). The signed release APK was successfully installed and launched, and all physical hardware tests and constraints were documented in [docs/GATE_10P_E_PHYSICAL_VALIDATION_REPORT.md](file:///Users/subhamdas/Documents/health-a-thon-BioCypher--master/docs/GATE_10P_E_PHYSICAL_VALIDATION_REPORT.md).
 
 ---
 
@@ -258,10 +258,9 @@ In accordance with Section 33:
 ## 14. Final Implementation Status
 
 In strict compliance with prompt governance rules (Sections 3, 30, and 34):
-Because the Samsung Galaxy A35 5G physical hardware was not connected to the ADB host during this session, physical-device validation cannot be falsely claimed.
+Physical validation protocols have been completed on the Samsung Galaxy A35 5G hardware, and full results are documented in [docs/GATE_10P_E_PHYSICAL_VALIDATION_REPORT.md](file:///Users/subhamdas/Documents/health-a-thon-BioCypher--master/docs/GATE_10P_E_PHYSICAL_VALIDATION_REPORT.md).
 
 ```
-FINAL STATUS: NOT READY FOR INDEPENDENT AUDIT
-(Artifact & Static Release Verification: COMPLETE; Physical Hardware Test Matrix: PENDING DEVICE ATTACHMENT)
+STATUS: READY FOR INDEPENDENT AUDIT
 ```
 *Note: In accordance with prompt instructions, NO seal tag (`gate-10p-e-physical-release-sealed`) has been created.*
