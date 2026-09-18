@@ -129,6 +129,7 @@ INSECURE_SECRETS_BLOCKLIST: frozenset[str] = frozenset(
         "dev-webhook-secret-change-in-production",
         "rehearsal-secret-for-idempotency-only",
         "thali-dev-verify-token",
+        "minioadmin",
         "secret",
         "changeme",
         "password",
@@ -157,6 +158,9 @@ def validate_security_configuration(settings: Settings) -> None:
     - Enforces non-empty client_id (JWT audience)
     - Rejects SQLite databases
     - Rejects default webhook secrets if provided
+    - Enforces secure Redis credentials when Redis is enabled
+    - Enforces non-placeholder Storage credentials if storage is configured
+    - Forbids wildcard CORS origins
     """
     env = (settings.app.env or "").strip().lower()
     if env != "production":
@@ -224,7 +228,7 @@ def validate_security_configuration(settings: Settings) -> None:
             "Production environment forbids SQLite; a production PostgreSQL database URL is required."
         )
 
-    # 6. WhatsApp webhook secret (if configured)
+    # 6. WhatsApp webhook secret & verify token (if configured)
     whatsapp_secret = (settings.whatsapp.app_secret or "").strip()
     if whatsapp_secret:
         if whatsapp_secret.lower() in INSECURE_SECRETS_BLOCKLIST:
@@ -235,8 +239,52 @@ def validate_security_configuration(settings: Settings) -> None:
             raise SecurityConfigurationError(
                 "Production environment requires whatsapp.app_secret to have at least 32 characters."
             )
+    verify_token = (settings.whatsapp.verify_token or "").strip()
+    if verify_token:
+        if verify_token.lower() in INSECURE_SECRETS_BLOCKLIST:
+            raise SecurityConfigurationError(
+                "Production environment rejected insecure/placeholder whatsapp.verify_token."
+            )
 
-    # 7. Observability security boundaries (Gate 10P-D §19 & §20)
+    # 7. Redis security boundaries in production (Gate 10P-G)
+    if settings.redis.enabled:
+        redis_pass = (settings.redis.password or "").strip()
+        if not redis_pass:
+            raise SecurityConfigurationError(
+                "Production environment requires redis.password when Redis coordination is enabled."
+            )
+        if redis_pass.lower() in INSECURE_SECRETS_BLOCKLIST:
+            raise SecurityConfigurationError(
+                "Production environment rejected insecure/placeholder redis.password."
+            )
+        if len(redis_pass) < 16:
+            raise SecurityConfigurationError(
+                "Production environment requires redis.password to have at least 16 characters."
+            )
+
+    # 8. Storage security boundaries in production (Gate 10P-G)
+    if (settings.storage.endpoint_url or "").strip() or (settings.storage.bucket or "").strip():
+        secret_key = (settings.storage.secret_access_key or "").strip()
+        access_key = (settings.storage.access_key_id or "").strip()
+        if access_key.lower() in INSECURE_SECRETS_BLOCKLIST or secret_key.lower() in INSECURE_SECRETS_BLOCKLIST:
+            raise SecurityConfigurationError(
+                "Production environment rejected insecure/placeholder storage credentials (e.g. minioadmin)."
+            )
+
+    # 9. CORS allowed origins security in production (Gate 10P-G)
+    if settings.security.allowed_origins:
+        for origin in settings.security.allowed_origins:
+            origin_clean = origin.strip()
+            if origin_clean == "*":
+                raise SecurityConfigurationError(
+                    "Production environment strictly forbids wildcard '*' in security.allowed_origins."
+                )
+            if origin_clean.startswith("http://") and not origin_clean.startswith("http://localhost"):
+                raise SecurityConfigurationError(
+                    f"Production environment requires HTTPS scheme for security.allowed_origins: {origin_clean}"
+                )
+
+    # 10. Observability security boundaries (Gate 10P-D §19 & §20)
     if settings.observability.metrics_require_auth:
         metrics_token = (settings.observability.metrics_auth_token or "").strip()
         if not metrics_token:

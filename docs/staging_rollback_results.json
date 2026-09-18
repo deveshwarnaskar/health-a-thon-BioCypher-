@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-09-18T16:38:40.169484+00:00",
+  "drill_id": "6d44f42d",
+  "status": "PASS",
+  "rollback_duration_seconds": 0.0198,
+  "data_retention_verified": true,
+  "api_n_minus_1_compatible": true,
+  "worker_lease_safe": true,
+  "exact_rollback_commands": [
+    "docker compose -f deploy/production/docker-compose.production.yml stop api worker",
+    "alembic downgrade -1",
+    "docker compose -f deploy/production/docker-compose.production.yml up -d --no-recreate api worker"
+  ]
+}
