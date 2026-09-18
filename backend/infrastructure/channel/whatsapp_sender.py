@@ -95,19 +95,41 @@ class WhatsAppChannelSender:
                 response.raise_for_status() if hasattr(response, "raise_for_status") else None
         except urllib.error.HTTPError as exc:
             status = exc.code
-            if 400 <= status < 500:
-                return DeliveryResult(success=False, error_code=f"provider_rejected_{status}", retryable=False)
-            return DeliveryResult(success=False, error_code=f"provider_transient_{status}", retryable=True)
+            err = f"provider_rejected_{status}" if 400 <= status < 500 else f"provider_transient_{status}"
+            self._record_failure(err)
+            return DeliveryResult(success=False, error_code=err, retryable=(status >= 500))
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             logger.warning("whatsapp send transient failure: %s", exc)
+            self._record_failure("transport_error")
             return DeliveryResult(success=False, error_code="transport_error", retryable=True)
         except json.JSONDecodeError as exc:
             logger.warning("whatsapp send unparseable response: %s", exc)
+            self._record_failure("unparseable_response")
             return DeliveryResult(success=False, error_code="unparseable_response", retryable=True)
 
         messages = (body or {}).get("messages") or []
         provider_id = messages[0].get("id") if messages else None
-        return DeliveryResult(success=True, provider_delivery_id=provider_id)
+        result = DeliveryResult(success=True, provider_delivery_id=provider_id)
+        try:
+            from backend.infrastructure.observability.metrics import get_metrics_registry
+
+            reg = get_metrics_registry()
+            reg.counter("whatsapp_deliveries_total").inc(outcome="success")
+            reg.gauge("dependency_health_status").set(1, dependency="whatsapp")
+        except Exception:
+            pass
+        return result
+
+    def _record_failure(self, error_code: str) -> None:
+        try:
+            from backend.infrastructure.observability.metrics import get_metrics_registry
+
+            reg = get_metrics_registry()
+            reg.counter("whatsapp_deliveries_total").inc(outcome="failure")
+            reg.gauge("dependency_health_status").set(0, dependency="whatsapp")
+            reg.counter("dependency_failures_total").inc(dependency="whatsapp", error_type=error_code)
+        except Exception:
+            pass
 
 
 __all__ = ["WhatsAppChannelSender"]

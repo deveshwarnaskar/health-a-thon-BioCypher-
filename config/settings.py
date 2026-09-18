@@ -76,10 +76,17 @@ class AIConfig(BaseModel):
 
 
 class ObservabilityConfig(BaseModel):
-    log_level: str = Field(default="INFO")
-    structured_logs: bool = Field(default=False)
-    metrics_enabled: bool = Field(default=False)
-    tracing_enabled: bool = Field(default=False)
+    log_level: str = Field(default="INFO", description="Logging level: DEBUG, INFO, WARNING, ERROR")
+    structured_logs: bool = Field(default=False, description="Enable machine-readable JSON structured logs")
+    service_name: str = Field(default="thali-plate", description="Service identifier for logs, metrics, and traces")
+    metrics_enabled: bool = Field(default=True, description="Enable Prometheus operational metrics collection")
+    metrics_path: str = Field(default="/metrics", description="Endpoint path for Prometheus metrics")
+    metrics_require_auth: bool = Field(default=False, description="Require token or internal network boundary for /metrics")
+    metrics_auth_token: str = Field(default="", description="Bearer / header token for scraping /metrics when auth required")
+    tracing_enabled: bool = Field(default=False, description="Enable OpenTelemetry tracing")
+    tracing_exporter: str = Field(default="memory", description="Span exporter: memory, console, otlp")
+    tracing_otlp_endpoint: str = Field(default="", description="OTLP collector endpoint (e.g. http://collector:4318/v1/traces)")
+    tracing_sample_rate: float = Field(default=1.0, ge=0.0, le=1.0, description="Trace sampling probability [0.0, 1.0]")
 
 
 class SecurityConfig(BaseModel):
@@ -227,4 +234,27 @@ def validate_security_configuration(settings: Settings) -> None:
         if len(whatsapp_secret) < 32:
             raise SecurityConfigurationError(
                 "Production environment requires whatsapp.app_secret to have at least 32 characters."
+            )
+
+    # 7. Observability security boundaries (Gate 10P-D §19 & §20)
+    if settings.observability.metrics_require_auth:
+        metrics_token = (settings.observability.metrics_auth_token or "").strip()
+        if not metrics_token:
+            raise SecurityConfigurationError(
+                "Production environment requires observability.metrics_auth_token when metrics_require_auth is enabled."
+            )
+        if metrics_token.lower() in INSECURE_SECRETS_BLOCKLIST:
+            raise SecurityConfigurationError(
+                "Production environment rejected insecure/placeholder observability.metrics_auth_token."
+            )
+        if len(metrics_token) < 16:
+            raise SecurityConfigurationError(
+                "Production environment requires observability.metrics_auth_token to have at least 16 characters."
+            )
+
+    if settings.observability.tracing_otlp_endpoint:
+        otlp = settings.observability.tracing_otlp_endpoint.strip()
+        if not (otlp.startswith("http://") or otlp.startswith("https://")):
+            raise SecurityConfigurationError(
+                "Production environment requires observability.tracing_otlp_endpoint to use http:// or https://."
             )

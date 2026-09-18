@@ -149,3 +149,23 @@ class ChannelPatientResolver(Protocol):
     """Resolve a patient within an already-bound tenant scope."""
 
     def resolve(self, tenant_id: UUID, phone: str) -> Patient | None: ...
+
+
+@runtime_checkable
+class WorkerTelemetryPort(Protocol):
+    """Observability port for worker job execution lifecycle (Gate 10P-D)."""
+
+    def on_worker_health(self, is_healthy: bool) -> None: ...
+
+    def on_sync_activity(self, outcome: str) -> None: ...
+
+    def on_job_started(self, event_type: str, correlation_id: str) -> object: ...
+
+    def on_job_finished(
+        self,
+        event_type: str,
+        outcome: str,
+        duration_sec: float,
+        failure_type: str | None = None,
+        context: object = None,
+    ) -> None: ...

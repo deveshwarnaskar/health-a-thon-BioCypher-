@@ -1,0 +1,74 @@
+{
+  "title": "THALI P.L.A.T.E. - Database Reliability & Connection Pooling",
+  "uid": "thali-db-reliability",
+  "tags": ["thali", "database", "gate-10p-d"],
+  "timezone": "utc",
+  "schemaVersion": 38,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Database Readiness Health Status",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "db_readiness_status",
+          "legendFormat": "Readiness"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Connection Pool Utilization",
+      "type": "gauge",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        {
+          "expr": "db_pool_checked_out / db_pool_size",
+          "legendFormat": "Pool Saturation"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Active vs Idle vs Overflow Connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "db_pool_checked_out",
+          "legendFormat": "Checked Out (Active)"
+        },
+        {
+          "expr": "db_pool_checked_in",
+          "legendFormat": "Checked In (Idle Available)"
+        },
+        {
+          "expr": "db_pool_overflow",
+          "legendFormat": "Overflow Active"
+        },
+        {
+          "expr": "db_pool_size",
+          "legendFormat": "Configured Base Pool Size"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Connection Failures & Pool Timeouts",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "expr": "rate(db_pool_timeouts_total[1m])",
+          "legendFormat": "Pool Checkout Timeouts/s"
+        },
+        {
+          "expr": "rate(db_pool_connection_failures_total[1m])",
+          "legendFormat": "Connection Failures/s"
+        }
+      ]
+    }
+  ]
+}

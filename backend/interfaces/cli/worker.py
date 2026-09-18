@@ -112,9 +112,10 @@ def build_worker(*, db_url: str | None, whatsapp_access_token: str | None = None
         uow_factory=uow_factory,
         audit_factory=audit_factory,
     )
-    handlers[AI_GENERATION_EVENT_TYPE] = ai_handler.handle
+    from backend.infrastructure.observability.worker_telemetry import WorkerTelemetryAdapter
 
-    return OutboxWorker(store, handlers, worker_id=f"worker-{id(store)}"), engine
+    telemetry = WorkerTelemetryAdapter()
+    return OutboxWorker(store, handlers, worker_id=f"worker-{id(store)}", telemetry=telemetry), engine
 
 
 def main() -> None:

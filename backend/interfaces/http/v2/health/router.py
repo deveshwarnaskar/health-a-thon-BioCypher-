@@ -44,6 +44,26 @@ async def readiness() -> ReadinessResponse:
     except Exception:
         checks["database"] = "unavailable"
 
+    try:
+        from config.settings import Settings
+
+        settings = Settings()
+        if settings.redis.enabled:
+            from backend.infrastructure.cache.redis_client import RedisCacheAdapter
+
+            adapter = RedisCacheAdapter(
+                host=settings.redis.host,
+                port=settings.redis.port,
+                password=settings.redis.password,
+                db=settings.redis.db,
+                fallback_in_memory=False,
+                socket_timeout=1.0,
+            )
+            redis_ok = adapter.ping()
+            checks["redis"] = "ok" if redis_ok else "unavailable"
+    except Exception:
+        checks["redis"] = "unavailable"
+
     if any(v != "ok" for v in checks.values()):
         return Response(
             content='{"status":"not_ready","checks":' + __import__("json").dumps(checks) + "}",

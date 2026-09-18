@@ -12,7 +12,13 @@ import uuid
 from fastapi import FastAPI, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
+from backend.infrastructure.observability.context import (
+    correlation_id_ctx,
+    request_id_ctx,
+)
+
 CORRELATION_ID_HEADER = "X-Correlation-ID"
+REQUEST_ID_HEADER = "X-Request-ID"
 _SAFE_CORRELATION_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
 
 
@@ -25,10 +31,27 @@ class CorrelationIDMiddleware(BaseHTTPMiddleware):
             correlation_id = inbound
         else:
             correlation_id = str(uuid.uuid4())
+
+        request_id_inbound = request.headers.get(REQUEST_ID_HEADER, "")
+        request_id = (
+            request_id_inbound
+            if request_id_inbound and _SAFE_CORRELATION_RE.match(request_id_inbound)
+            else correlation_id
+        )
+
         request.state.correlation_id = correlation_id
-        response = await call_next(request)
-        response.headers[CORRELATION_ID_HEADER] = correlation_id
-        return response
+        request.state.request_id = request_id
+
+        token_cid = correlation_id_ctx.set(correlation_id)
+        token_rid = request_id_ctx.set(request_id)
+        try:
+            response = await call_next(request)
+            response.headers[CORRELATION_ID_HEADER] = correlation_id
+            response.headers[REQUEST_ID_HEADER] = request_id
+            return response
+        finally:
+            correlation_id_ctx.reset(token_cid)
+            request_id_ctx.reset(token_rid)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -47,5 +70,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 def register_middleware(app: FastAPI) -> None:
     """Register middleware on the FastAPI application."""
-    app.add_middleware(SecurityHeadersMiddleware)
+    from .observability import HttpObservabilityMiddleware
+
+    # Starlette executes middlewares in reverse order of addition (LIFO):
+    # SecurityHeadersMiddleware (outermost) -> CorrelationIDMiddleware -> HttpObservabilityMiddleware -> App
+    app.add_middleware(HttpObservabilityMiddleware)
     app.add_middleware(CorrelationIDMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)

@@ -70,9 +70,18 @@ class RedisCacheAdapter:
 
     def is_redis_available(self) -> bool:
         """True only when a real Redis backend is reachable (not the fallback)."""
+        from backend.infrastructure.observability.metrics import get_metrics_registry
+
+        registry = get_metrics_registry()
         try:
-            return bool(self._get_client())
+            available = bool(self._get_client())
+            registry.gauge("dependency_health_status").set(1 if available else 0, dependency="redis")
+            return available
         except Exception:
+            registry.gauge("dependency_health_status").set(0, dependency="redis")
+            registry.counter("dependency_failures_total").inc(
+                dependency="redis", error_type="connection_error"
+            )
             return False
 
     def get(self, key: str) -> bytes | None:

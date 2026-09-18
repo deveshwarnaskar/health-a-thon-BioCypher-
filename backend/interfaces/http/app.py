@@ -139,8 +139,46 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Safe global exception handlers
     register_exception_handlers(app)
 
-    # Routers: all business endpoints under /api/v2; health outside.
+    # Routers: all business endpoints under /api/v2; health and metrics outside.
+    from backend.interfaces.http.v2.metrics.router import metrics_router
+
     app.include_router(api_v2_router, prefix="/api/v2")
     app.include_router(health_router)
+    app.include_router(metrics_router)
+
+    # Observability initialization
+    if settings.observability.structured_logs:
+        from backend.infrastructure.observability.logging import configure_logging
+
+        configure_logging(
+            service=settings.observability.service_name,
+            environment=settings.app.env,
+            level=settings.observability.log_level,
+            structured=True,
+        )
+
+    if settings.observability.tracing_enabled:
+        from backend.infrastructure.observability.tracing import (
+            ConsoleSpanExporter,
+            InMemorySpanExporter,
+            OtlpSpanExporter,
+            TracerProvider,
+            set_tracer_provider,
+        )
+
+        exporter_type = settings.observability.tracing_exporter.lower()
+        if exporter_type == "otlp":
+            exporter = OtlpSpanExporter(settings.observability.tracing_otlp_endpoint)
+        elif exporter_type == "console":
+            exporter = ConsoleSpanExporter()
+        else:
+            exporter = InMemorySpanExporter()
+
+        set_tracer_provider(
+            TracerProvider(
+                service_name=settings.observability.service_name,
+                exporter=exporter,
+            )
+        )
 
     return app

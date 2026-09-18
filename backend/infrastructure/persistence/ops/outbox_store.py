@@ -93,7 +93,36 @@ class SqlAlchemyOutboxWorkerStore:
                 row.locked_by = worker_id
                 row.locked_at = now
             session.commit()
-            return [_model_to_job(row) for row in rows]
+            jobs = [_model_to_job(row) for row in rows]
+
+            # Update outbox queue depth gauges (Gate 10P-D §13)
+            try:
+                from sqlalchemy import func
+                from backend.infrastructure.observability.metrics import get_metrics_registry
+
+                registry = get_metrics_registry()
+                pending_cnt = session.scalar(
+                    select(func.count()).select_from(DomainEventOutboxModel).where(
+                        DomainEventOutboxModel.status == "pending"
+                    )
+                ) or 0
+                processing_cnt = session.scalar(
+                    select(func.count()).select_from(DomainEventOutboxModel).where(
+                        DomainEventOutboxModel.status == "processing"
+                    )
+                ) or 0
+                dead_letter_cnt = session.scalar(
+                    select(func.count()).select_from(DomainEventOutboxModel).where(
+                        DomainEventOutboxModel.status == "dead_letter"
+                    )
+                ) or 0
+                registry.gauge("outbox_pending_depth").set(pending_cnt)
+                registry.gauge("outbox_processing_depth").set(processing_cnt)
+                registry.gauge("outbox_dead_letter_depth").set(dead_letter_cnt)
+            except Exception:
+                pass
+
+            return jobs
         finally:
             session.close()
 

@@ -47,5 +47,24 @@ class ProviderNeutralAIAdapter:
     def generate_with_provider(
         self, task: AITaskDefinition, evidence: EvidencePackage
     ) -> AIProviderResult:
-        """Generate draft through underlying provider."""
-        return self.provider.generate(task, evidence)
+        """Generate draft through underlying provider with safe telemetry."""
+        from backend.infrastructure.observability.metrics import get_metrics_registry
+
+        reg = get_metrics_registry()
+        try:
+            res = self.provider.generate(task, evidence)
+            outcome = "success" if res.success else "failure"
+            reg.counter("ai_generation_requests_total").inc(outcome=outcome)
+            reg.gauge("dependency_health_status").set(1 if res.success else 0, dependency="ai_adapter")
+            if not res.success:
+                reg.counter("dependency_failures_total").inc(
+                    dependency="ai_adapter", error_type=res.error_code or "generation_failed"
+                )
+            return res
+        except Exception as exc:
+            reg.counter("ai_generation_requests_total").inc(outcome="failure")
+            reg.gauge("dependency_health_status").set(0, dependency="ai_adapter")
+            reg.counter("dependency_failures_total").inc(
+                dependency="ai_adapter", error_type=type(exc).__name__
+            )
+            raise
