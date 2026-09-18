@@ -89,8 +89,11 @@ class WhatsAppChannelSender:
             },
             method="POST",
         )
+        if not url.startswith(("https://", "http://")):
+            raise ValueError("URL must use http or https scheme")
+
         try:
-            with urllib.request.urlopen(request, timeout=self._timeout) as response:
+            with urllib.request.urlopen(request, timeout=self._timeout) as response:  # nosec B310
                 body = json.loads(response.read().decode("utf-8"))
                 response.raise_for_status() if hasattr(response, "raise_for_status") else None
         except urllib.error.HTTPError as exc:

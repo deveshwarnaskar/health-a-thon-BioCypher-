@@ -98,8 +98,11 @@ class ProductionModelProvider:
             method="POST",
         )
 
+        if not endpoint.startswith(("https://", "http://")):
+            raise ValueError("Endpoint must use http or https scheme")
+
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # nosec B310
                 status_code = resp.status
                 resp_bytes = resp.read()
                 latency = (time.monotonic() - start_time) * 1000.0
