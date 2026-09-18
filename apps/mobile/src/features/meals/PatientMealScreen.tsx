@@ -57,8 +57,15 @@ export function PatientMealScreen({
     onSuccess: (draftResponse) => {
       setErrorMessage(null);
       setValidationError(null);
-      setActiveDraft(draftResponse);
-      setDraftDescription(description);
+      if ((draftResponse as any).sync_status === "SAVED_LOCALLY") {
+        setSuccessMessage("Meal draft saved on this device (Waiting to sync).");
+        setActiveDraft(null);
+        setDescription("");
+        setSelectedFoodKey(null);
+      } else {
+        setActiveDraft(draftResponse);
+        setDraftDescription(description);
+      }
     },
     onError: (error: unknown) => {
       setSuccessMessage(null);

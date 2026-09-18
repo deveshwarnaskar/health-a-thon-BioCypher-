@@ -8,10 +8,15 @@ import {
   InMemoryIdempotencyKeyStore,
 } from "../../services/api/idempotency";
 import type { IngestGlucoseResponse } from "../../services/schemas/clinical";
+import { connectivityService } from "../../connectivity/connectivityService";
+import { localDatabase } from "../../db/database";
+import { localSessionIsolation } from "../../db/isolation";
+import { OfflineCaptureService } from "../../sync/offlineCapture";
+import { GlucoseRepository } from "../../db/repositories";
 
 /**
  * Glucose ingestion mutation with Gate 09 idempotency (see also
- * backend/interfaces/http/ops/idempotency.py).
+ * backend/interfaces/http/ops/idempotency.py) and Gate 10O offline persistence.
  *
  * A "capture session" is the immutable logical intent of ONE reading:
  *
@@ -24,9 +29,9 @@ import type { IngestGlucoseResponse } from "../../services/schemas/clinical";
  *                    with 409 IDEMPOTENCY_KEY_MISMATCH. A live "now" computed
  *                    per attempt would defeat deduplication.
  *
- * The key is released and the session discarded on SUCCESS (a genuinely new
- * capture allocates a fresh key); on ERROR the session is preserved so any
- * immediate retry reuses the same key and byte-identical body.
+ * When offline or on network failure, observation is persisted into local
+ * SQLCipher storage and enqueued into the durable mutation outbox atomically,
+ * preserving the exact same Idempotency-Key.
  */
 export type IngestGlucoseData = {
   value_mg_dl: number;
@@ -70,15 +75,80 @@ export function useIngestGlucose({
       sessionRef.current = capture;
       setSession(capture);
 
-      return submitGlucoseReading(
-        {
-          patient_id: patientId,
-          value_mg_dl: data.value_mg_dl,
-          tag: data.tag ?? null,
-          taken_at: capture.takenAtIso,
-        },
-        idempotencyKeyFor(mutationKeyFor(capture), glucoseKeyStore)
-      );
+      const idempotencyKey = idempotencyKeyFor(mutationKeyFor(capture), glucoseKeyStore);
+
+      // Local offline capture path if network is offline
+      if (!connectivityService.isOnline() && localDatabase.isOpen() && localSessionIsolation.hasContext()) {
+        const offlineService = new OfflineCaptureService(localDatabase.getDb());
+        const context = localSessionIsolation.getContext();
+        return offlineService.captureGlucose(
+          context,
+          {
+            patient_id: patientId,
+            value_mg_dl: data.value_mg_dl,
+            tag: data.tag ?? null,
+            taken_at: capture.takenAtIso,
+          },
+          idempotencyKey
+        );
+      }
+
+      try {
+        const result = await submitGlucoseReading(
+          {
+            patient_id: patientId,
+            value_mg_dl: data.value_mg_dl,
+            tag: data.tag ?? null,
+            taken_at: capture.takenAtIso,
+          },
+          idempotencyKey
+        );
+
+        // Cache locally in SQLCipher
+        if (localDatabase.isOpen() && localSessionIsolation.hasContext()) {
+          const glucoseRepo = new GlucoseRepository(localDatabase.getDb());
+          const context = localSessionIsolation.getContext();
+          await glucoseRepo
+            .insert({
+              localId: result.observation_id,
+              serverId: result.observation_id,
+              tenantId: context.tenantId,
+              userId: context.userId,
+              patientId,
+              valueMgDl: data.value_mg_dl,
+              tag: data.tag ?? null,
+              takenAt: capture.takenAtIso,
+              syncStatus: "SYNCED",
+              idempotencyKey,
+              createdAt: capture.takenAtIso,
+              syncedAt: new Date().toISOString(),
+            })
+            .catch(() => {});
+        }
+
+        return result;
+      } catch (err: any) {
+        // Transparent offline fallback on network drop
+        if (
+          (err?.kind === "NETWORK_ERROR" || !err?.httpStatus) &&
+          localDatabase.isOpen() &&
+          localSessionIsolation.hasContext()
+        ) {
+          const offlineService = new OfflineCaptureService(localDatabase.getDb());
+          const context = localSessionIsolation.getContext();
+          return offlineService.captureGlucose(
+            context,
+            {
+              patient_id: patientId,
+              value_mg_dl: data.value_mg_dl,
+              tag: data.tag ?? null,
+              taken_at: capture.takenAtIso,
+            },
+            idempotencyKey
+          );
+        }
+        throw err;
+      }
     },
     onSuccess: (data) => {
       if (sessionRef.current) {

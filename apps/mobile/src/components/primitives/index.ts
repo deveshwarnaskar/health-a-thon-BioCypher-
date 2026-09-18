@@ -12,6 +12,8 @@ export { TabSwitcher } from "./TabSwitcher";
 export { LoadingState } from "./LoadingState";
 export { EmptyState } from "./EmptyState";
 export { ErrorState } from "./ErrorState";
+export { SyncStatusBadge, type SyncStatusBadgeProps } from "./SyncStatusBadge";
+export { OfflineBanner } from "./OfflineBanner";
 export {
   resolveButtonAccessibilityProps,
   touchTargetStyle,

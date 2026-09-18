@@ -11,6 +11,11 @@ import type {
   LogMealResponse,
   MealPortionRequest,
 } from "../../services/schemas/meals";
+import { connectivityService } from "../../connectivity/connectivityService";
+import { localDatabase } from "../../db/database";
+import { localSessionIsolation } from "../../db/isolation";
+import { OfflineCaptureService } from "../../sync/offlineCapture";
+import { MealRepository } from "../../db/repositories";
 
 export type LogMealData = {
   description: string;
@@ -54,15 +59,82 @@ export function useLogMeal({
       sessionRef.current = capture;
       setSession(capture);
 
-      return submitMealDraft(
-        {
-          patient_id: patientId,
-          description: data.description,
-          portion: data.portion ?? null,
-          recorded_at: capture.recordedAtIso,
-        },
-        idempotencyKeyFor(mutationKeyFor(capture), mealKeyStore)
-      );
+      const idempotencyKey = idempotencyKeyFor(mutationKeyFor(capture), mealKeyStore);
+
+      // Local offline capture path if network is offline
+      if (!connectivityService.isOnline() && localDatabase.isOpen() && localSessionIsolation.hasContext()) {
+        const offlineService = new OfflineCaptureService(localDatabase.getDb());
+        const context = localSessionIsolation.getContext();
+        return offlineService.captureMeal(
+          context,
+          {
+            patient_id: patientId,
+            description: data.description,
+            portion: data.portion ?? null,
+            recorded_at: capture.recordedAtIso,
+          },
+          idempotencyKey
+        );
+      }
+
+      try {
+        const result = await submitMealDraft(
+          {
+            patient_id: patientId,
+            description: data.description,
+            portion: data.portion ?? null,
+            recorded_at: capture.recordedAtIso,
+          },
+          idempotencyKey
+        );
+
+        // Cache locally in SQLCipher
+        if (localDatabase.isOpen() && localSessionIsolation.hasContext()) {
+          const mealRepo = new MealRepository(localDatabase.getDb());
+          const context = localSessionIsolation.getContext();
+          await mealRepo
+            .insert({
+              localId: result.meal_observation_id,
+              serverId: result.meal_observation_id,
+              tenantId: context.tenantId,
+              userId: context.userId,
+              patientId,
+              description: data.description,
+              portionSize: data.portion?.food_key ?? null,
+              portionCount: data.portion?.quantity ?? null,
+              portionGrams: null,
+              recordedAt: capture.recordedAtIso,
+              syncStatus: "SYNCED",
+              idempotencyKey,
+              createdAt: capture.recordedAtIso,
+              syncedAt: new Date().toISOString(),
+            })
+            .catch(() => {});
+        }
+
+        return result;
+      } catch (err: any) {
+        // Transparent offline fallback on network drop
+        if (
+          (err?.kind === "NETWORK_ERROR" || !err?.httpStatus) &&
+          localDatabase.isOpen() &&
+          localSessionIsolation.hasContext()
+        ) {
+          const offlineService = new OfflineCaptureService(localDatabase.getDb());
+          const context = localSessionIsolation.getContext();
+          return offlineService.captureMeal(
+            context,
+            {
+              patient_id: patientId,
+              description: data.description,
+              portion: data.portion ?? null,
+              recorded_at: capture.recordedAtIso,
+            },
+            idempotencyKey
+          );
+        }
+        throw err;
+      }
     },
     onSuccess: (data) => {
       if (sessionRef.current) {

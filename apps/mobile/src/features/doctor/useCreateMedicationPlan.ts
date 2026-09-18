@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { connectivityService } from "../../connectivity/connectivityService";
 import { createMedicationPlan } from "./api";
 import { doctorKeys } from "./doctorKeys";
 import { secureUuid } from "../../services/api/correlation";
@@ -44,6 +45,9 @@ export function useCreateMedicationPlan({
     mutationFn: async (
       request: CreateMedicationPlanRequest
     ): Promise<CreateMedicationPlanResponse> => {
+      if (!connectivityService.isOnline()) {
+        throw new Error("Medication plans can only be authored online by clinicians.");
+      }
       const session = sessionRef.current ?? { id: secureUuid() };
       sessionRef.current = session;
       const MutationKey = mutationKeyFor(session, request.patient_id);

@@ -30,6 +30,8 @@ import type {
  * The client NEVER transitions the artifact state locally: only the backend
  * confirmation (response body / onSuccess) is treated as success.
  */
+import { connectivityService } from "../../connectivity/connectivityService";
+
 export type UseReviewArtifactOptions = {
   artifactId: string | null | undefined;
   onSuccess?: (data: ReviewAIArtifactResponse) => void;
@@ -50,6 +52,9 @@ export function useReviewArtifact({ artifactId, onSuccess, onError }: UseReviewA
 
   const mutation = useMutation({
     mutationFn: async (request: ReviewAIArtifactRequest): Promise<ReviewAIArtifactResponse> => {
+      if (!connectivityService.isOnline()) {
+        throw new Error("AI clinical review requires an active network connection.");
+      }
       if (!artifactId) {
         throw new Error("Cannot review artifact: no artifact selected.");
       }

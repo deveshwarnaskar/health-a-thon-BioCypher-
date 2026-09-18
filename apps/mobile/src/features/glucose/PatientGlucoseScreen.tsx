@@ -42,7 +42,11 @@ export function PatientGlucoseScreen({
     patientId: resolvedPatientId,
     onSuccess: (response: IngestGlucoseResponse) => {
       setErrorMessage(null);
-      setSuccessMessage(`Reading of ${response.value_mg_dl} mg/dL recorded successfully.`);
+      if ((response as any).sync_status === "SAVED_LOCALLY") {
+        setSuccessMessage(`Reading of ${response.value_mg_dl} mg/dL saved on this device (Waiting to sync).`);
+      } else {
+        setSuccessMessage(`Reading of ${response.value_mg_dl} mg/dL recorded and synced successfully.`);
+      }
     },
     onError: (error: unknown) => {
       setSuccessMessage(null);
