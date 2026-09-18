@@ -153,8 +153,8 @@ export const localDocuments = sqliteTable(
 export const mutationOutbox = sqliteTable(
   "mutation_outbox",
   {
-    id: text("id").primaryKey(),
-    seq: integer("seq"),
+    id: text("id").notNull().unique(),
+    seq: integer("seq").primaryKey({ autoIncrement: true }),
     tenantId: text("tenant_id").notNull(),
     userId: text("user_id").notNull(),
     mutationType: text("mutation_type").notNull(), // 'INGEST_GLUCOSE' | 'LOG_MEAL' | 'START_TASK' | 'COMPLETE_TASK' | 'REASSIGN_TASK' | 'CREATE_TASK'

@@ -315,6 +315,25 @@ export class MockSqlCipherDatabase implements IDatabaseConnection {
       return { lastInsertRowId: 0, changes: 1 };
     }
 
+    if (sql.includes("DELETE FROM")) {
+      const match = sql.match(/DELETE FROM\s+(\w+)(?:\s+WHERE\s+(.+))?/i);
+      if (match && match[1]) {
+        const table = this.tables.get(match[1]);
+        if (table) {
+          if (p.length >= 2) {
+            const tenantId = p[0];
+            const userId = p[1];
+            table.rows = table.rows.filter(
+              (r) => !(r.tenant_id === tenantId && r.user_id === userId)
+            );
+          } else if (!match[2]) {
+            table.rows = [];
+          }
+        }
+      }
+      return { lastInsertRowId: 0, changes: 1 };
+    }
+
     return { lastInsertRowId: 0, changes: 0 };
   }
 

@@ -38,15 +38,14 @@ export class LocalSessionIsolationManager {
    * Enforces complete logout / account-switch isolation.
    */
   async purgeUserData(db: IDatabaseConnection, tenantId: string, userId: string): Promise<void> {
-    await db.execAsync(`
-      DELETE FROM local_glucose_observations WHERE tenant_id = '${tenantId}' AND user_id = '${userId}';
-      DELETE FROM local_meals WHERE tenant_id = '${tenantId}' AND user_id = '${userId}';
-      DELETE FROM local_care_tasks WHERE tenant_id = '${tenantId}' AND user_id = '${userId}';
-      DELETE FROM local_notifications WHERE tenant_id = '${tenantId}' AND user_id = '${userId}';
-      DELETE FROM local_documents WHERE tenant_id = '${tenantId}' AND user_id = '${userId}';
-      DELETE FROM local_patients WHERE tenant_id = '${tenantId}' AND user_id = '${userId}';
-      DELETE FROM mutation_outbox WHERE tenant_id = '${tenantId}' AND user_id = '${userId}';
-    `);
+    const params = [tenantId, userId];
+    await db.runAsync("DELETE FROM local_glucose_observations WHERE tenant_id = ? AND user_id = ?", params);
+    await db.runAsync("DELETE FROM local_meals WHERE tenant_id = ? AND user_id = ?", params);
+    await db.runAsync("DELETE FROM local_care_tasks WHERE tenant_id = ? AND user_id = ?", params);
+    await db.runAsync("DELETE FROM local_notifications WHERE tenant_id = ? AND user_id = ?", params);
+    await db.runAsync("DELETE FROM local_documents WHERE tenant_id = ? AND user_id = ?", params);
+    await db.runAsync("DELETE FROM local_patients WHERE tenant_id = ? AND user_id = ?", params);
+    await db.runAsync("DELETE FROM mutation_outbox WHERE tenant_id = ? AND user_id = ?", params);
   }
 
   /**

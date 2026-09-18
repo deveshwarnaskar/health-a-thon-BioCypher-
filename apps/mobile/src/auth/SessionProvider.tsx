@@ -11,6 +11,7 @@ import { createOidcFlow } from "./oidcFlow";
 import { globalAuthExpiredSignal } from "./globalAuthSignal";
 import { LoadingState } from "../components/primitives/LoadingState";
 import { ErrorState } from "../components/primitives/ErrorState";
+import { localSessionIsolation } from "../db/isolation";
 
 /**
  * Composes the real OidcSessionManager, fetches OIDC discovery on mount, and
@@ -40,6 +41,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         onProtectedStateInvalidated: () => {
           queryClient.clear();
           useUiStore.getState().reset();
+          localSessionIsolation.clearContext();
         },
       });
 

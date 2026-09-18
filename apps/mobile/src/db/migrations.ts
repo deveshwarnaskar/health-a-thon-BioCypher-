@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS local_documents (
 CREATE INDEX IF NOT EXISTS idx_documents_tenant_user ON local_documents(tenant_id, user_id);
 
 CREATE TABLE IF NOT EXISTS mutation_outbox (
-  id TEXT PRIMARY KEY,
+  id TEXT NOT NULL UNIQUE,
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   tenant_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
