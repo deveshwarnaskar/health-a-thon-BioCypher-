@@ -1,0 +1,176 @@
+# ==============================================================================
+# THALI + P.L.A.T.E. Local Rehearsal Stack (Gate 10P-A)
+# ==============================================================================
+# Purpose:
+# Provides a self-contained, reproducible local development and staging rehearsal
+# environment mirroring production service boundaries.
+#
+# Services:
+# - postgres: Multi-tenant PostgreSQL with RLS support
+# - redis:    Distributed rate-limiting and cache coordination
+# - minio:    S3-compatible object storage emulator for reports and documents
+# - migrate:  Deterministic one-shot Alembic migration runner
+# - api:      Production FastAPI ASGI backend
+# - worker:   Transactional Outbox asynchronous event processor
+# ==============================================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: thali-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: thali_user
+      POSTGRES_PASSWORD: thali_rehearsal_password
+      POSTGRES_DB: thali_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U thali_user -d thali_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - thali_rehearsal_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: thali-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    networks:
+      - thali_rehearsal_net
+
+  minio:
+    image: minio/minio:RELEASE.2024-01-18T22-51-28Z
+    container_name: thali-minio
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - thali_rehearsal_net
+
+  migrate:
+    build:
+      context: .
+      target: migrate
+    container_name: thali-migrate
+    environment:
+      THALI_DATABASE__URL: postgresql+psycopg://thali_user:thali_rehearsal_password@postgres:5432/thali_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - thali_rehearsal_net
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      target: api
+    container_name: thali-api
+    restart: unless-stopped
+    environment:
+      THALI_APP__ENV: development
+      THALI_APP__NAME: THALI-PLATE
+      THALI_DATABASE__URL: postgresql+psycopg://thali_user:thali_rehearsal_password@postgres:5432/thali_db
+      THALI_REDIS__ENABLED: "true"
+      THALI_REDIS__HOST: redis
+      THALI_REDIS__PORT: 6379
+      THALI_STORAGE__ENDPOINT_URL: http://minio:9000
+      THALI_STORAGE__BUCKET: thali-documents
+      THALI_STORAGE__REGION: ap-south-1
+      THALI_STORAGE__ACCESS_KEY_ID: minioadmin
+      THALI_STORAGE__SECRET_ACCESS_KEY: minioadmin
+      THALI_IDENTITY__CLIENT_SECRET: rehearsal-secret-for-idempotency-only
+      THALI_OBSERVABILITY__LOG_LEVEL: INFO
+      THALI_OBSERVABILITY__STRUCTURED_LOGS: "true"
+      WEB_CONCURRENCY: 2
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - thali_rehearsal_net
+
+  worker:
+    build:
+      context: .
+      target: worker
+    container_name: thali-worker
+    restart: unless-stopped
+    environment:
+      THALI_APP__ENV: development
+      THALI_DATABASE__URL: postgresql+psycopg://thali_user:thali_rehearsal_password@postgres:5432/thali_db
+      THALI_STORAGE__ENDPOINT_URL: http://minio:9000
+      THALI_STORAGE__BUCKET: thali-documents
+      THALI_STORAGE__REGION: ap-south-1
+      THALI_STORAGE__ACCESS_KEY_ID: minioadmin
+      THALI_STORAGE__SECRET_ACCESS_KEY: minioadmin
+      THALI_IDENTITY__CLIENT_SECRET: rehearsal-secret-for-idempotency-only
+      WORKER_POLL_INTERVAL: 5.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    networks:
+      - thali_rehearsal_net
+
+volumes:
+  postgres_data:
+    name: thali_postgres_data
+  redis_data:
+    name: thali_redis_data
+  minio_data:
+    name: thali_minio_data
+
+networks:
+  thali_rehearsal_net:
+    name: thali_rehearsal_network
+    driver: bridge
