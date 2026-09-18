@@ -13,6 +13,7 @@
     },
     "android": {
       "package": "in.thali.plate.mobile",
+      "versionCode": 1,
       "predictiveBackGestureEnabled": false,
       "adaptiveIcon": {
         "backgroundColor": "#0D5C75",

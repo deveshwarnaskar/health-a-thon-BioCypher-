@@ -64,10 +64,19 @@ export class ApiConfigError extends Error {
 /**
  * Enforces "no hard-coded URLs": the client must be pointed at a configured
  * base URL before any request may fire.
+ * In production mode, rejects insecure http:// and localhost endpoints.
  */
 export function requireConfigured(config: AppApiConfig): AppApiConfig {
   if (!config.apiBaseUrl) {
     throw new ApiConfigError("EXPO_PUBLIC_API_BASE_URL");
+  }
+  if (config.environment === "production") {
+    const url = config.apiBaseUrl.toLowerCase();
+    if (url.startsWith("http://") || url.includes("localhost") || url.includes("127.0.0.1")) {
+      throw new ApiConfigError(
+        "Production environment requires a secure HTTPS API endpoint, non-localhost",
+      );
+    }
   }
   return config;
 }

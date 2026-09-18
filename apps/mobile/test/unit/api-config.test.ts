@@ -37,4 +37,28 @@ describe("API URL configuration (anti hard-coded URLs)", () => {
       "EXPO_PUBLIC_API_BASE_URL",
     );
   });
+
+  it("enforces HTTPS and rejects localhost in production environment", () => {
+    const prodLocalhost = readApiConfig({
+      EXPO_PUBLIC_ENVIRONMENT: "production",
+      EXPO_PUBLIC_API_BASE_URL: "http://localhost:8000",
+    });
+    expect(() => requireConfigured(prodLocalhost)).toThrow(
+      "Production environment requires a secure HTTPS API endpoint, non-localhost",
+    );
+
+    const prodHttp = readApiConfig({
+      EXPO_PUBLIC_ENVIRONMENT: "production",
+      EXPO_PUBLIC_API_BASE_URL: "http://api.thali.in",
+    });
+    expect(() => requireConfigured(prodHttp)).toThrow(
+      "Production environment requires a secure HTTPS API endpoint, non-localhost",
+    );
+
+    const prodHttps = readApiConfig({
+      EXPO_PUBLIC_ENVIRONMENT: "production",
+      EXPO_PUBLIC_API_BASE_URL: "https://api.thali.in",
+    });
+    expect(requireConfigured(prodHttps).apiBaseUrl).toBe("https://api.thali.in");
+  });
 });
