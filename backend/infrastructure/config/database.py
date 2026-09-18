@@ -18,16 +18,20 @@ def create_db_engine(
     echo: bool = False,
     pool_size: int = 5,
     max_overflow: int = 10,
+    pool_timeout: float = 5.0,
     pool_pre_ping: bool = True,
     pool_recycle: int = 3600,
+    pool_reset_on_return: str = "rollback",
 ) -> Engine:
     """Create and configure a SQLAlchemy Engine.
-    
+
     If no url is provided, defaults to SQLite in-memory for testing.
     Uses StaticPool for in-memory SQLite to preserve database state across connections.
+    For PostgreSQL / other engines, uses QueuePool with configured pool sizing,
+    bounded timeout, pre-ping liveness, and deterministic reset on return.
     """
     db_url = url or "sqlite:///:memory:"
-    
+
     if db_url.startswith("sqlite"):
         connect_args = {"check_same_thread": False}
         if ":memory:" in db_url:
@@ -42,21 +46,23 @@ def create_db_engine(
             echo=echo,
             connect_args=connect_args,
         )
-    
+
     return create_engine(
         db_url,
         echo=echo,
         pool_size=pool_size,
         max_overflow=max_overflow,
+        pool_timeout=pool_timeout,
         pool_pre_ping=pool_pre_ping,
         pool_recycle=pool_recycle,
+        pool_reset_on_return=pool_reset_on_return,
         poolclass=QueuePool,
     )
 
 
 def create_session_factory(engine: Engine) -> sessionmaker[Session]:
     """Create a session factory bound to the given engine.
-    
+
     Sessions are configured to not autoflush or autocommit prematurely,
     and expire_on_commit is set to False to retain domain mappings post-commit.
     """
@@ -70,10 +76,23 @@ def create_session_factory(engine: Engine) -> sessionmaker[Session]:
 
 
 def check_database_health(engine: Engine, timeout_seconds: float = 3.0) -> bool:
-    """Perform a shallow health-check against the database engine."""
+    """Perform a shallow health-check against the database engine with bounded timeout."""
+    import concurrent.futures
+
+    def _probe() -> bool:
+        try:
+            with engine.connect() as conn:
+                conn.execution_options(timeout=timeout_seconds).execute(select(1))
+                return True
+        except Exception:
+            return False
+
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        with engine.connect() as conn:
-            conn.execute(select(1))
-            return True
+        future = executor.submit(_probe)
+        return future.result(timeout=timeout_seconds)
     except Exception:
         return False
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+

@@ -14,9 +14,10 @@ used; there is no RLS to bypass there.
 
 from __future__ import annotations
 
+from typing import Callable
 from uuid import UUID
 from sqlalchemy import select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from backend.application.ops.contracts import ResolvedChannelPatient
 from backend.application.ops.ports import ChannelTenantResolver
@@ -25,10 +26,23 @@ from ..models.patient_models import PatientModel
 
 
 class SqlAlchemyChannelTenantResolver:
-    """SQLAlchemy-backed phone → (tenant, patient) routing anchor."""
+    """SQLAlchemy-backed phone → (tenant, patient) routing anchor.
 
-    def __init__(self, session: Session) -> None:
-        self.session = session
+    Accepts either a Session or a session factory/sessionmaker. When initialized
+    with a factory, each resolve() call uses a short-lived, bounded session that
+    is immediately closed, ensuring resilient recovery after database/network disconnects.
+    """
+
+    def __init__(
+        self,
+        session_factory_or_session: sessionmaker[Session] | Session | Callable[[], Session],
+    ) -> None:
+        if isinstance(session_factory_or_session, Session):
+            self._session_factory: Callable[[], Session] = lambda: session_factory_or_session
+            self._owns_session = False
+        else:
+            self._session_factory = session_factory_or_session
+            self._owns_session = True
 
     def resolve(self, phone: str) -> ResolvedChannelPatient | None:
         try:
@@ -36,31 +50,41 @@ class SqlAlchemyChannelTenantResolver:
         except Exception:
             return None
 
-        if self.session.get_bind().dialect.name == "postgresql":
-            row = self._resolve_via_routing_function(normalized)
-            if row is not None:
-                return row
+        session = self._session_factory()
+        try:
+            if session.get_bind().dialect.name == "postgresql":
+                row = self._resolve_via_routing_function(session, normalized)
+                if row is not None:
+                    return row
 
-        # Non-PostgreSQL fallback (also used if the routing function is absent).
-        stmt = (
-            select(PatientModel.id, PatientModel.tenant_id)
-            .where(PatientModel.phone == normalized, PatientModel.active.is_(True))
-            .limit(1)
-        )
-        result = self.session.execute(stmt).first()
-        if result is None:
+            # Non-PostgreSQL fallback (also used if the routing function is absent).
+            stmt = (
+                select(PatientModel.id, PatientModel.tenant_id)
+                .where(PatientModel.phone == normalized, PatientModel.active.is_(True))
+                .limit(1)
+            )
+            result = session.execute(stmt).first()
+            if result is None:
+                return None
+            return ResolvedChannelPatient(
+                tenant_id=UUID(str(result.tenant_id)),
+                patient_id=UUID(str(result.id)),
+            )
+        except Exception:
+            session.rollback()
             return None
-        return ResolvedChannelPatient(
-            tenant_id=UUID(str(result.tenant_id)),
-            patient_id=UUID(str(result.id)),
-        )
+        finally:
+            if self._owns_session:
+                session.close()
 
-    def _resolve_via_routing_function(self, normalized: str) -> ResolvedChannelPatient | None:
+    def _resolve_via_routing_function(
+        self, session: Session, normalized: str
+    ) -> ResolvedChannelPatient | None:
         try:
             stmt = text("SELECT tenant_id, patient_id FROM public.resolve_channel_tenant(:phone)")
-            row = self.session.execute(stmt, {"phone": normalized}).first()
+            row = session.execute(stmt, {"phone": normalized}).first()
         except Exception:
-            self.session.rollback()
+            session.rollback()
             return None
         if row is None:
             return None

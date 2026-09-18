@@ -61,6 +61,7 @@ logger = logging.getLogger(__name__)
 
 _config_cache: dict = {}
 _engine_cache: dict[str, Engine] = {}
+_session_factory_cache: dict[str, sessionmaker[Session]] = {}
 _jwks_client: JwksClient | None = None
 
 
@@ -103,6 +104,8 @@ def reset_config_cache() -> None:
     """Clear cached configuration (used by tests)."""
     global _jwks_client, _storage_instance
     _config_cache.clear()
+    _engine_cache.clear()
+    _session_factory_cache.clear()
     _jwks_client = None
     _storage_instance = None
 
@@ -320,9 +323,29 @@ async def get_authenticated_context(
 def _get_engine(db_url: str) -> Engine:
     engine = _engine_cache.get(db_url)
     if engine is None:
-        engine = create_db_engine(db_url)
+        from config.settings import Settings
+
+        settings = Settings()
+        engine = create_db_engine(
+            db_url,
+            pool_size=settings.database.pool_size,
+            max_overflow=settings.database.max_overflow,
+            pool_timeout=settings.database.pool_timeout,
+            pool_recycle=settings.database.pool_recycle,
+            pool_pre_ping=settings.database.pool_pre_ping,
+            pool_reset_on_return="rollback",
+        )
         _engine_cache[db_url] = engine
     return engine
+
+
+def _get_session_factory(db_url: str) -> sessionmaker[Session]:
+    factory = _session_factory_cache.get(db_url)
+    if factory is None:
+        engine = _get_engine(db_url)
+        factory = create_session_factory(engine)
+        _session_factory_cache[db_url] = factory
+    return factory
 
 
 def get_engine() -> Engine:
@@ -339,8 +362,7 @@ async def get_unit_of_work(
     UoW executes ``set_config('app.current_tenant_id', :tid, true)`` so RLS
     applies transaction-locally.
     """
-    engine = _get_engine(get_db_url())
-    session_factory = create_session_factory(engine)
+    session_factory = _get_session_factory(get_db_url())
     uow = SqlAlchemyUnitOfWork(session_factory, ctx.tenant_id)
     try:
         yield uow
@@ -367,8 +389,7 @@ async def get_ops_session() -> AsyncGenerator["Session", None]:
     """
     from sqlalchemy.orm import Session
 
-    engine = _get_engine(get_db_url())
-    session_factory = create_session_factory(engine)
+    session_factory = _get_session_factory(get_db_url())
     session: Session = session_factory()
     try:
         yield session

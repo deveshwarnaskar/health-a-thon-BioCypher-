@@ -19,9 +19,12 @@ class AppConfig(BaseModel):
 
 
 class DatabaseConfig(BaseModel):
-    url: str = Field(default="", description="SQLAlchemy database URL (unused at Gate 03)")
-    pool_size: int = Field(default=5, ge=1)
-    max_overflow: int = Field(default=10, ge=0)
+    url: str = Field(default="", description="SQLAlchemy database URL")
+    pool_size: int = Field(default=5, ge=1, description="number of connections to keep open in the pool")
+    max_overflow: int = Field(default=10, ge=0, description="maximum overflow connections above pool_size")
+    pool_timeout: float = Field(default=5.0, ge=0.5, le=60.0, description="seconds to wait for a connection from the pool")
+    pool_recycle: int = Field(default=3600, ge=60, description="seconds after which a connection is recycled")
+    pool_pre_ping: bool = Field(default=True, description="test connections for liveness on checkout")
 
 
 class RedisConfig(BaseModel):

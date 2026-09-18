@@ -51,9 +51,20 @@ logger = logging.getLogger("gate09.worker.runner")
 def build_worker(*, db_url: str | None, whatsapp_access_token: str | None = None,
                  whatsapp_phone_number_id: str | None = None) -> tuple[OutboxWorker, object]:
     """Wiring assembly: infrastructure factories → application handlers."""
-    engine = create_db_engine(db_url)
+    from config.settings import Settings
+
+    settings = Settings()
+    effective_url = db_url or settings.database.url or "sqlite:///:memory:"
+    engine = create_db_engine(
+        effective_url,
+        pool_size=settings.database.pool_size,
+        max_overflow=settings.database.max_overflow,
+        pool_timeout=settings.database.pool_timeout,
+        pool_recycle=settings.database.pool_recycle,
+        pool_pre_ping=settings.database.pool_pre_ping,
+        pool_reset_on_return="rollback",
+    )
     session_factory: sessionmaker[Session] = create_session_factory(engine)
-    system_session = session_factory()
 
     clock = SystemClock()
     id_gen = Uuid4IdGenerator()
@@ -71,7 +82,7 @@ def build_worker(*, db_url: str | None, whatsapp_access_token: str | None = None
     handlers = {}
 
     intake = WhatsAppIntakeHandler(
-        tenant_resolver=SqlAlchemyChannelTenantResolver(system_session),
+        tenant_resolver=SqlAlchemyChannelTenantResolver(session_factory),
         uow_factory=uow_factory,
         events_factory=events_factory,
         audit_factory=audit_factory,
