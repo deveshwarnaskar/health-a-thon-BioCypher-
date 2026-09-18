@@ -66,14 +66,24 @@ _jwks_client: JwksClient | None = None
 
 def _load_config() -> dict:
     if not _config_cache:
-        from config.settings import Settings
+        from config.settings import Settings, validate_security_configuration
 
         settings = Settings()
-        _config_cache["jwt_secret"] = settings.identity.client_secret or "dev-secret-change-in-production"
-        _config_cache["issuer_url"] = settings.identity.issuer_url or "http://localhost:8080/realms/thali"
-        _config_cache["db_url"] = settings.database.url or "sqlite:///:memory:"
-        _config_cache["whatsapp_verify_token"] = settings.whatsapp.verify_token or "thali-dev-verify-token"
-        _config_cache["whatsapp_app_secret"] = settings.whatsapp.app_secret or "dev-webhook-secret-change-in-production"
+        validate_security_configuration(settings)
+
+        if settings.app.env == "production":
+            _config_cache["jwt_secret"] = settings.identity.client_secret
+            _config_cache["issuer_url"] = settings.identity.issuer_url
+            _config_cache["db_url"] = settings.database.url
+            _config_cache["whatsapp_verify_token"] = settings.whatsapp.verify_token
+            _config_cache["whatsapp_app_secret"] = settings.whatsapp.app_secret
+        else:
+            _config_cache["jwt_secret"] = settings.identity.client_secret or "dev-secret-change-in-production"
+            _config_cache["issuer_url"] = settings.identity.issuer_url or "http://localhost:8080/realms/thali"
+            _config_cache["db_url"] = settings.database.url or "sqlite:///:memory:"
+            _config_cache["whatsapp_verify_token"] = settings.whatsapp.verify_token or "thali-dev-verify-token"
+            _config_cache["whatsapp_app_secret"] = settings.whatsapp.app_secret or "dev-webhook-secret-change-in-production"
+
         _config_cache["app_env"] = settings.app.env
         # Gate 10C-R trust-boundary policy: explicit allow-list (default RS256).
         # HS256 is development/testing ONLY and is never active without an
@@ -175,6 +185,10 @@ async def verify_access_token(token: str) -> dict:
     alg = header.get("alg")
     allowed = cfg["allowed_algorithms"]
     if not isinstance(alg, str) or alg not in allowed:
+        raise TokenVerificationError("unsupported token algorithm")
+
+    # Gate 10P-B: In production, unconditionally reject symmetric algorithms
+    if cfg.get("app_env") == "production" and (alg == "HS256" or alg.startswith("HS")):
         raise TokenVerificationError("unsupported token algorithm")
 
     if alg == "HS256":

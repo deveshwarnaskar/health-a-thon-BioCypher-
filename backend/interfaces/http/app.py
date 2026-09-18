@@ -21,7 +21,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from config.settings import Settings
+from config.settings import (
+    SecurityConfigurationError,
+    Settings,
+    validate_security_configuration,
+)
 from backend.interfaces.http.errors import register_exception_handlers
 from backend.interfaces.http.middleware import register_middleware
 from backend.interfaces.http.v2.router import api_v2_router
@@ -53,9 +57,13 @@ def enforce_request_size(content_length: str | None) -> JSONResponse | None:
     return None
 
 
-def create_app() -> FastAPI:
+def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
-    settings = Settings()
+    if settings is None:
+        settings = Settings()
+
+    # Fail-closed validation of security and cryptographic invariants (Gate 10P-B)
+    validate_security_configuration(settings)
 
     app = FastAPI(
         title="THALI P.L.A.T.E. API",
@@ -112,9 +120,17 @@ def create_app() -> FastAPI:
     # responses it short-circuits (replay / 409 / 400).
     from backend.interfaces.http.ops.idempotency import IdempotencyMiddleware
 
+    idempotency_secret = settings.identity.client_secret
+    if not idempotency_secret:
+        if settings.app.env == "production":
+            raise SecurityConfigurationError(
+                "Production environment requires identity.client_secret for idempotency HMAC."
+            )
+        idempotency_secret = "dev-secret-change-in-production"
+
     app.add_middleware(
         IdempotencyMiddleware,
-        secret=settings.identity.client_secret or "dev-secret-change-in-production",
+        secret=idempotency_secret,
     )
 
     # Middleware: correlation IDs + security headers

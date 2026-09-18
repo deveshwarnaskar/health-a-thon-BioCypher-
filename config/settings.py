@@ -105,3 +105,123 @@ class Settings(BaseSettings):
     ai: AIConfig = AIConfig()
     observability: ObservabilityConfig = ObservabilityConfig()
     security: SecurityConfig = SecurityConfig()
+
+
+class SecurityConfigurationError(ValueError):
+    """Raised when security-critical configuration violates production invariants."""
+
+    pass
+
+
+INSECURE_SECRETS_BLOCKLIST: frozenset[str] = frozenset(
+    {
+        "dev-secret-change-in-production",
+        "dev-webhook-secret-change-in-production",
+        "rehearsal-secret-for-idempotency-only",
+        "thali-dev-verify-token",
+        "secret",
+        "changeme",
+        "password",
+        "admin",
+        "12345678",
+        "test",
+        "dev",
+        "development",
+    }
+)
+
+ASYMMETRIC_JWT_ALGORITHMS: frozenset[str] = frozenset(
+    {"RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "PS256", "PS384", "PS512"}
+)
+SYMMETRIC_JWT_ALGORITHMS: frozenset[str] = frozenset({"HS256", "HS384", "HS512"})
+
+
+def validate_security_configuration(settings: Settings) -> None:
+    """Validate security and cryptographic invariants.
+
+    In production (``settings.app.env == 'production'``), this enforces fail-closed
+    validation on all security boundaries:
+    - Rejects default, missing, or short (<32 chars) client secrets
+    - Rejects symmetric algorithms (HS256) and requires asymmetric algorithms (RS256)
+    - Enforces https:// scheme on Keycloak/OIDC issuer URL
+    - Enforces non-empty client_id (JWT audience)
+    - Rejects SQLite databases
+    - Rejects default webhook secrets if provided
+    """
+    env = (settings.app.env or "").strip().lower()
+    if env != "production":
+        return
+
+    # 1. Identity client_secret
+    client_secret = (settings.identity.client_secret or "").strip()
+    if not client_secret:
+        raise SecurityConfigurationError(
+            "Production environment requires identity.client_secret to be set."
+        )
+    if client_secret.lower() in INSECURE_SECRETS_BLOCKLIST:
+        raise SecurityConfigurationError(
+            "Production environment rejected insecure/placeholder identity.client_secret."
+        )
+    if len(client_secret) < 32:
+        raise SecurityConfigurationError(
+            "Production environment requires identity.client_secret to have at least 32 characters of entropy."
+        )
+
+    # 2. JWT Allowed Algorithms
+    raw_algs = (settings.identity.allowed_algorithms or "").split(",")
+    allowed_algs = {a.strip().upper() for a in raw_algs if a.strip()}
+    if not allowed_algs:
+        raise SecurityConfigurationError(
+            "Production environment requires identity.allowed_algorithms to be specified."
+        )
+    symmetric_present = allowed_algs & SYMMETRIC_JWT_ALGORITHMS
+    if symmetric_present:
+        raise SecurityConfigurationError(
+            f"Production environment forbids symmetric JWT algorithm(s): {', '.join(sorted(symmetric_present))}; must use asymmetric algorithms like RS256."
+        )
+    asymmetric_present = allowed_algs & ASYMMETRIC_JWT_ALGORITHMS
+    if not asymmetric_present:
+        raise SecurityConfigurationError(
+            "Production environment requires at least one recognized asymmetric JWT algorithm (e.g. RS256)."
+        )
+
+    # 3. Keycloak / OIDC Issuer URL
+    issuer_url = (settings.identity.issuer_url or "").strip()
+    if not issuer_url:
+        raise SecurityConfigurationError(
+            "Production environment requires identity.issuer_url to be configured."
+        )
+    if not issuer_url.startswith("https://"):
+        raise SecurityConfigurationError(
+            "Production environment requires identity.issuer_url to use HTTPS scheme."
+        )
+
+    # 4. Client ID (expected audience)
+    client_id = (settings.identity.client_id or "").strip()
+    if not client_id:
+        raise SecurityConfigurationError(
+            "Production environment requires identity.client_id (JWT audience) to be configured."
+        )
+
+    # 5. Database URL
+    db_url = (settings.database.url or "").strip()
+    if not db_url:
+        raise SecurityConfigurationError(
+            "Production environment requires database.url to be configured."
+        )
+    if db_url.lower().startswith("sqlite:") or "sqlite" in db_url.lower():
+        raise SecurityConfigurationError(
+            "Production environment forbids SQLite; a production PostgreSQL database URL is required."
+        )
+
+    # 6. WhatsApp webhook secret (if configured)
+    whatsapp_secret = (settings.whatsapp.app_secret or "").strip()
+    if whatsapp_secret:
+        if whatsapp_secret.lower() in INSECURE_SECRETS_BLOCKLIST:
+            raise SecurityConfigurationError(
+                "Production environment rejected insecure/placeholder whatsapp.app_secret."
+            )
+        if len(whatsapp_secret) < 32:
+            raise SecurityConfigurationError(
+                "Production environment requires whatsapp.app_secret to have at least 32 characters."
+            )

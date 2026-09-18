@@ -13,7 +13,8 @@ Client-visible behavior (contract §7):
 Only unsafe methods (POST/PUT/PATCH/DELETE) participate. If the caller token is
 invalid the middleware passes the request through and the route's own
 authentication dependency produces the 401. A failed reservation (DB hiccup)
-fails OPEN: the request proceeds without a guarantee rather than being dropped.
+fails CLOSED (Gate 10P-B): returns 503 IDEMPOTENCY_STORAGE_UNAVAILABLE
+rather than proceeding without guarantee.
 """
 
 from __future__ import annotations
@@ -103,10 +104,15 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             result = store.reserve(tenant_id, actor_id, key, fingerprint, _IDEMPOTENCY_TTL_SECONDS)
             session.commit()
         except Exception:
-            logger.exception("idempotency reservation failed; request proceeds without guarantee")
+            logger.exception("idempotency reservation failed; request rejected to prevent duplicate execution")
             session.rollback()
             session.close()
-            return await call_next(request)
+            return self._error(
+                request,
+                503,
+                "IDEMPOTENCY_STORAGE_UNAVAILABLE",
+                "Idempotency storage unavailable; request rejected to prevent duplicate execution",
+            )
 
         if result.accepted:
             try:
