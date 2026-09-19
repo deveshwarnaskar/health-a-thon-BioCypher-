@@ -210,4 +210,70 @@ describe("OidcSessionManager", () => {
     await mgr.init();
     await expect(mgr.refreshSession()).rejects.toThrow(AuthTransientError);
   });
+
+  it("recoverPassword delegates to oidcFlow.recoverPassword", async () => {
+    const recoverSpy = vi.fn(async () => {});
+    const flow = fakeOidcFlow({ recoverPassword: recoverSpy });
+    const mgr = new OidcSessionManager({
+      config: testConfig,
+      discovery: testDiscovery,
+      tokenStore,
+      oidcFlow: flow,
+      apiClient: fakeApiClient(),
+      onAuthExpiredSignal: signal,
+    });
+    await mgr.recoverPassword();
+    expect(recoverSpy).toHaveBeenCalledWith(testConfig, testDiscovery);
+  });
+
+  it("calls onProtectedStateInvalidated callback on signOut", async () => {
+    await tokenStore.saveTokens({ accessToken: "at", refreshToken: "rt", idToken: "id" });
+    const onInvalidatedSpy = vi.fn();
+    const mgr = new OidcSessionManager({
+      config: testConfig,
+      discovery: testDiscovery,
+      tokenStore,
+      oidcFlow: fakeOidcFlow(),
+      apiClient: fakeApiClient(),
+      onAuthExpiredSignal: signal,
+      onProtectedStateInvalidated: onInvalidatedSpy,
+    });
+    await mgr.signOut();
+    expect(onInvalidatedSpy).toHaveBeenCalledOnce();
+  });
+
+  it("verifyWithBackend uses /api/v2/auth/context and falls back to /verify if 404", async () => {
+    const requestSpy = vi
+      .fn()
+      .mockRejectedValueOnce({ status: 404, code: "NOT_FOUND" })
+      .mockResolvedValueOnce({
+        actor_id: "a-fallback",
+        tenant_id: "t-fallback",
+        roles: ["patient"],
+        facility_id: "f-fallback",
+      });
+
+    const flow = fakeOidcFlow({
+      authorize: async () => ({ status: "success" as const, code: "c-1", codeVerifier: "v-1" }),
+    });
+
+    const mgr = new OidcSessionManager({
+      config: testConfig,
+      discovery: testDiscovery,
+      tokenStore,
+      oidcFlow: flow,
+      apiClient: { request: requestSpy } as any,
+      onAuthExpiredSignal: signal,
+    });
+
+    await mgr.signIn();
+    expect(requestSpy).toHaveBeenCalledTimes(2);
+    expect(requestSpy.mock.calls[0]?.[0]?.path).toBe("/api/v2/auth/context");
+    expect(requestSpy.mock.calls[1]?.[0]?.path).toBe("/api/v2/auth/verify");
+    const state = mgr.getState();
+    expect(state.name).toBe("authenticated");
+    if (state.name === "authenticated") {
+      expect(state.user.actor_id).toBe("a-fallback");
+    }
+  });
 });

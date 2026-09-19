@@ -24,9 +24,9 @@ const BACKEND_ROLE_TOKENS: Record<Role, string[]> = {
   Caregiver: ["caregiver"],
   Doctor: ["doctor"],
   Nurse: ["nurse"],
-  CareCoordinator: ["care_coordinator"],
-  Dietitian: ["dietitian"],
-  FieldHealthWorker: ["field_health_worker"],
+  CareCoordinator: ["care_coordinator", "care coordinator", "carecoordinator"],
+  Dietitian: ["dietitian", "dietitian/diabetes educator", "diabetes_educator"],
+  FieldHealthWorker: ["field_health_worker", "field health worker", "fieldhealthworker"],
 };
 
 const TOKEN_TO_ROLE = new Map<string, Role>();

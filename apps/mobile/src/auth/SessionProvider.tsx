@@ -12,6 +12,7 @@ import { globalAuthExpiredSignal } from "./globalAuthSignal";
 import { LoadingState } from "../components/primitives/LoadingState";
 import { ErrorState } from "../components/primitives/ErrorState";
 import { localSessionIsolation } from "../db/isolation";
+import { localDatabase } from "../db/database";
 
 /**
  * Composes the real OidcSessionManager, fetches OIDC discovery on mount, and
@@ -41,6 +42,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         onProtectedStateInvalidated: () => {
           queryClient.clear();
           useUiStore.getState().reset();
+          if (localDatabase.isOpen()) {
+            localSessionIsolation.purgeAllData(localDatabase.getDb()).catch(() => {});
+          }
           localSessionIsolation.clearContext();
         },
       });

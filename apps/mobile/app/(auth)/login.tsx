@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { Button } from "../../src/components/primitives/Button";
 import { AlertBanner } from "../../src/components/primitives/AlertBanner";
 import { useAuth } from "../../src/auth/AuthProvider";
-import { colors, spacing, typography } from "../../src/theming/tokens";
+import { colors, radii, spacing, typography } from "../../src/theming/tokens";
 import type { AuthFlowState } from "../../src/auth/authStateMachine";
 
 /**
@@ -11,7 +11,7 @@ import type { AuthFlowState } from "../../src/auth/authStateMachine";
  * No embedded password, no demo token, no skip path (Gate 10C §Auth Flow).
  */
 export default function LoginScreen() {
-  const { state, signIn, isBootstrapping } = useAuth();
+  const { state, signIn, recoverPassword, isBootstrapping } = useAuth();
 
   const busy = isBootstrapping || state.name === "authenticating";
 
@@ -39,6 +39,28 @@ export default function LoginScreen() {
         disabled={busy}
         accessibilityHint="Starts the OIDC authorization code flow with PKCE."
       />
+
+      {recoverPassword ? (
+        <Button
+          label="Forgot password / Reset credentials"
+          variant="ghost"
+          onPress={async () => {
+            await recoverPassword();
+          }}
+          disabled={busy}
+          accessibilityHint="Opens identity provider self-service credential recovery."
+        />
+      ) : null}
+
+      <View style={styles.guidanceBox}>
+        <Text style={styles.guidanceTitle} allowFontScaling>
+          Clinic Enrollment &amp; Access
+        </Text>
+        <Text style={styles.guidanceText} allowFontScaling>
+          Patients and caregivers are enrolled directly by their healthcare provider.
+          Workforce staff must use clinic-issued credentials or invitation links.
+        </Text>
+      </View>
 
       <Text style={styles.footnote} allowFontScaling>
         Requires a verified identity and clinic trust relationship to proceed.
@@ -99,5 +121,23 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.bodySmall,
     color: colors.textSecondary,
     textAlign: "center",
+  },
+  guidanceBox: {
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.xs,
+  },
+  guidanceTitle: {
+    fontSize: typography.fontSize.bodySmall,
+    fontWeight: "600",
+    color: colors.textPrimary,
+  },
+  guidanceText: {
+    fontSize: typography.fontSize.caption,
+    color: colors.textSecondary,
+    lineHeight: 18,
   },
 });

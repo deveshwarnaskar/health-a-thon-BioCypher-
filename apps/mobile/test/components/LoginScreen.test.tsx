@@ -5,12 +5,14 @@ import LoginScreen from "../../app/(auth)/login";
 let mockAuthState: { name: string; category?: string } = { name: "unauthenticated" };
 let mockSignIn = jest.fn();
 let mockSignOut = jest.fn();
+let mockRecoverPassword: jest.Mock | undefined = undefined;
 
 jest.mock("../../src/auth/AuthProvider", () => ({
   useAuth: () => ({
     state: mockAuthState,
     signIn: mockSignIn,
     signOut: mockSignOut,
+    recoverPassword: mockRecoverPassword,
     isBootstrapping: false,
     isUnauthenticated: mockAuthState.name === "unauthenticated" || mockAuthState.name === "session_expired",
     isAuthenticated: mockAuthState.name === "authenticated",
@@ -21,6 +23,7 @@ describe("LoginScreen (component-level a11y)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockAuthState = { name: "unauthenticated" };
+    mockRecoverPassword = undefined;
   });
 
   it("renders the clinic sign-in button with accessible name", () => {
@@ -59,5 +62,25 @@ describe("LoginScreen (component-level a11y)", () => {
     const button = screen.getByRole("button");
     fireEvent.press(button);
     expect(mockSignIn).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders clinic enrollment guidance", () => {
+    render(<LoginScreen />);
+    expect(screen.getByText(/Clinic Enrollment & Access/i)).toBeTruthy();
+  });
+
+  it("calls recoverPassword when the reset password button is pressed", () => {
+    const fn = jest.fn();
+    mockRecoverPassword = fn;
+    render(<LoginScreen />);
+    const buttons = screen.getAllByRole("button");
+    const recoverButton = buttons.find((b) =>
+      b.props.accessibilityLabel?.match(/reset|credential/i)
+    );
+    expect(recoverButton).toBeTruthy();
+    if (recoverButton) {
+      fireEvent.press(recoverButton);
+      expect(fn).toHaveBeenCalledTimes(1);
+    }
   });
 });

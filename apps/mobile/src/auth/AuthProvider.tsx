@@ -16,6 +16,7 @@ export type AuthController = {
   isAuthenticated: boolean;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
+  recoverPassword?: () => Promise<void>;
   sessionProvider: AuthSessionProvider;
 };
 
@@ -54,6 +55,7 @@ export function AuthProvider({ sessionManager, children }: AuthProviderProps) {
       isAuthenticated: state.name === "authenticated",
       signIn: () => sessionManager.signIn(),
       signOut: () => sessionManager.signOut(),
+      recoverPassword: () => sessionManager.recoverPassword(),
       sessionProvider: sessionManager,
     }),
     [state, sessionManager]

@@ -25,6 +25,7 @@ import { buildAuthUser } from "./authenticatedUser";
 import { authLog } from "./authLog";
 import { toAuthenticatedContext } from "./types";
 import { decodeJwtPayload } from "./jwt";
+import { localSessionIsolation } from "../db/isolation";
 
 export type SessionManagerDependencies = {
   config: OidcConfig;
@@ -204,6 +205,12 @@ export class OidcSessionManager implements AuthSessionProvider {
     this.dispatch({ type: "LOGOUT" });
   }
 
+  async recoverPassword(): Promise<void> {
+    if (this.oidcFlow.recoverPassword) {
+      await this.oidcFlow.recoverPassword(this.config, this.discovery);
+    }
+  }
+
   // ─── internals ───────────────────────────────────────────────────────────
 
   private dispatch(event: AuthFlowEvent): void {
@@ -361,25 +368,68 @@ export class OidcSessionManager implements AuthSessionProvider {
 
   private async verifyWithBackend(): Promise<AuthUser | null> {
     try {
-      const verifyResponse = await this.apiClient.request<{
+      let verifyResponse: {
         actor_id: string;
         tenant_id: string;
         roles: string[];
         facility_id: string | null;
-      }>({
-        method: "GET",
-        path: "/api/v2/auth/verify",
-      });
+        patient_id?: string | null;
+      };
+
+      try {
+        const contextResponse = await this.apiClient.request<{
+          actor_id: string;
+          tenant_id: string;
+          roles: string[];
+          facility_id: string | null;
+          patient_id?: string | null;
+          onboarding_state?: string;
+        }>({
+          method: "GET",
+          path: "/api/v2/auth/context",
+        });
+        verifyResponse = contextResponse;
+      } catch (contextErr: any) {
+        if (
+          contextErr?.status === 404 ||
+          contextErr?.code === "NOT_FOUND" ||
+          contextErr?.kind === "NOT_FOUND"
+        ) {
+          verifyResponse = await this.apiClient.request<{
+            actor_id: string;
+            tenant_id: string;
+            roles: string[];
+            facility_id: string | null;
+          }>({
+            method: "GET",
+            path: "/api/v2/auth/verify",
+          });
+        } else {
+          throw contextErr;
+        }
+      }
 
       const token = await this.tokenStore.getAccessToken();
       const idToken = await this.tokenStore.getIdToken();
       const claims = token ? decodeJwtPayload(token) : null;
       const idClaims = idToken ? decodeJwtPayload(idToken) : null;
       const patientId =
+        verifyResponse.patient_id ??
         (typeof claims?.patient_id === "string" ? claims.patient_id : null) ??
         (typeof idClaims?.patient_id === "string" ? idClaims.patient_id : null);
 
-      return buildAuthUser(toAuthenticatedContext(verifyResponse, patientId));
+      const user = buildAuthUser(toAuthenticatedContext(verifyResponse, patientId));
+
+      // Local session isolation (Gate 10O): initialize active session context
+      localSessionIsolation.setContext({
+        tenantId: user.tenant_id,
+        userId: user.actor_id,
+        roles: user.roles,
+        facilityId: user.facility_id,
+        patientId: user.patient_id,
+      });
+
+      return user;
     } catch (cause) {
       const details = cause as ApiErrorDetails;
       if (isAuthExpiredSignal(details)) {

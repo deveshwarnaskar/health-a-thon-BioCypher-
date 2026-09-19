@@ -43,6 +43,11 @@ export type OidcFlow = {
     idTokenHint: string,
     postLogoutRedirectUri: string
   ): Promise<void>;
+
+  recoverPassword?(
+    config: OidcConfig,
+    discovery: OidcDiscovery
+  ): Promise<void>;
 };
 
 function authorizationEndpoint(
@@ -180,6 +185,19 @@ export function createOidcFlow(
         });
       } catch {
         authLog({ event: "oidc_end_session_failed", status: "non_fatal" });
+      }
+    },
+
+    async recoverPassword(config, discovery) {
+      const resetUrl =
+        `${discovery.issuer}/login-actions/reset-credentials?client_id=${encodeURIComponent(config.clientId)}`;
+      try {
+        await WebBrowser.openBrowserAsync(resetUrl);
+      } catch (cause) {
+        authLog({
+          event: "oidc_recover_password_failed",
+          status: cause instanceof Error ? cause.message : "unknown",
+        });
       }
     },
   };

@@ -13,6 +13,7 @@ type NotConfiguredController = {
   authEnabled: false;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
+  recoverPassword?: () => Promise<void>;
 };
 
 const NotConfiguredContext = createContext<NotConfiguredController>({
@@ -22,6 +23,7 @@ const NotConfiguredContext = createContext<NotConfiguredController>({
   authEnabled: false,
   signIn: () => Promise.resolve(),
   signOut: () => Promise.resolve(),
+  recoverPassword: () => Promise.resolve(),
 });
 
 export function NotConfiguredSessionProvider({
@@ -37,6 +39,7 @@ export function NotConfiguredSessionProvider({
       authEnabled: false,
       signIn: async () => {},
       signOut: async () => {},
+      recoverPassword: async () => {},
     }),
     []
   );
