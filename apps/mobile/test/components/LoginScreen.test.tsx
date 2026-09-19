@@ -19,9 +19,18 @@ jest.mock("../../src/auth/AuthProvider", () => ({
   }),
 }));
 
+const redirectHrefs: string[] = [];
+jest.mock("expo-router", () => ({
+  Redirect: ({ href }: { href: string }) => {
+    redirectHrefs.push(href);
+    return null;
+  },
+}));
+
 describe("LoginScreen (component-level a11y)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    redirectHrefs.length = 0;
     mockAuthState = { name: "unauthenticated" };
     mockRecoverPassword = undefined;
   });
@@ -82,5 +91,11 @@ describe("LoginScreen (component-level a11y)", () => {
       fireEvent.press(recoverButton);
       expect(fn).toHaveBeenCalledTimes(1);
     }
+  });
+
+  it("redirects when authenticated", () => {
+    mockAuthState = { name: "authenticated" };
+    render(<LoginScreen />);
+    expect(redirectHrefs).toContain("/(app)/shell");
   });
 });

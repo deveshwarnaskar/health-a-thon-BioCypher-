@@ -4,7 +4,14 @@
     "strict": true,
     "noEmit": true,
     "noUncheckedIndexedAccess": true,
-    "types": ["node", "jest"]
+    "types": [
+      "node",
+      "jest"
+    ]
   },
-  "include": ["**/*.ts", "**/*.tsx", "**.d.ts", ".expo/types/**/*.ts", "expo-env.d.ts"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "**.d.ts"
+  ]
 }

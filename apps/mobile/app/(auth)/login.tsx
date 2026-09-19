@@ -1,5 +1,6 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { Redirect } from "expo-router";
 import { Button } from "../../src/components/primitives/Button";
 import { AlertBanner } from "../../src/components/primitives/AlertBanner";
 import { useAuth } from "../../src/auth/AuthProvider";
@@ -11,7 +12,15 @@ import type { AuthFlowState } from "../../src/auth/authStateMachine";
  * No embedded password, no demo token, no skip path (Gate 10C §Auth Flow).
  */
 export default function LoginScreen() {
-  const { state, signIn, recoverPassword, isBootstrapping } = useAuth();
+  const { state, signIn, recoverPassword, isBootstrapping, isAuthenticated } = useAuth();
+
+  if (isAuthenticated || state.name === "authenticated") {
+    return <Redirect href="/(app)/shell" />;
+  }
+
+  if (state.name === "access_denied" || state.name === "deactivated") {
+    return <Redirect href="/(app)/access-denied" />;
+  }
 
   const busy = isBootstrapping || state.name === "authenticating";
 

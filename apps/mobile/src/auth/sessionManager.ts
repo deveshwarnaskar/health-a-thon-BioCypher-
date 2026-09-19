@@ -166,6 +166,11 @@ export class OidcSessionManager implements AuthSessionProvider {
       const result = await this.oidcFlow.authorize(this.config, this.discovery);
 
       if (result.status !== "success") {
+        authLog({
+          event: "oidc_result_not_success",
+          status: result.status,
+          category: result.status === "error" ? "oidc_denied" : "oidc_canceled",
+        });
         this.dispatch({
           type: "AUTH_ERROR",
           category: result.status === "error" ? "oidc_denied" : "oidc_canceled",
@@ -176,14 +181,14 @@ export class OidcSessionManager implements AuthSessionProvider {
 
       await this.completeAuthFromCode(result.code, result.codeVerifier);
     } catch (cause) {
-      if (cause instanceof AuthTransientError) {
-        this.dispatch({ type: "AUTH_ERROR", category: cause.category, error: cause });
-        return;
-      }
-      authLog({ event: "auth_error", status: String(cause) });
+      const category =
+        cause instanceof AuthTransientError
+          ? cause.category
+          : this.categorizeError(cause);
+      authLog({ event: "auth_error", category, status: String(cause) });
       this.dispatch({
         type: "AUTH_ERROR",
-        category: this.categorizeError(cause),
+        category,
         error: cause,
       });
     }
@@ -236,6 +241,7 @@ export class OidcSessionManager implements AuthSessionProvider {
   }
 
   private async completeAuthFromCode(code: string, codeVerifier: string): Promise<void> {
+    authLog({ event: "complete_auth_start" });
     let tokenResponse;
     try {
       tokenResponse = await this.oidcFlow.exchangeCode(
@@ -244,7 +250,9 @@ export class OidcSessionManager implements AuthSessionProvider {
         code,
         codeVerifier
       );
+      authLog({ event: "exchange_code_success", status: "ok" });
     } catch (cause) {
+      authLog({ event: "exchange_code_error", status: String(cause) });
       if (cause instanceof AuthTransientError) throw cause;
       throw new AuthTransientError("network", cause);
     }
@@ -431,6 +439,7 @@ export class OidcSessionManager implements AuthSessionProvider {
 
       return user;
     } catch (cause) {
+      authLog({ event: "verify_backend_error", status: String(cause) });
       const details = cause as ApiErrorDetails;
       if (isAuthExpiredSignal(details)) {
         this.dispatch({ type: "SESSION_EXPIRED", error: cause });

@@ -115,7 +115,7 @@ def verify_rs256(
     *,
     algorithms: list[str],
     audience: str,
-    issuer: str,
+    issuer: str | list[str] | tuple[str, ...] | set[str],
 ) -> dict:
     """Verify an RS256 JWT against an RSA public key via PyJWT.
 
@@ -134,7 +134,7 @@ def verify_rs256(
             key=key,
             algorithms=algorithms,
             audience=audience,
-            issuer=issuer,
+            issuer=list(issuer) if isinstance(issuer, (list, tuple, set)) else issuer,
         )
     except pyjwt.ExpiredSignatureError as exc:
         raise TokenVerificationError("authentication token has expired") from exc

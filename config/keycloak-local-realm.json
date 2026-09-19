@@ -253,7 +253,8 @@
       ],
       "realmRoles": [
         "Patient",
-        "patient"
+        "patient",
+        "offline_access"
       ],
       "attributes": {
         "tenant_id": [
@@ -278,7 +279,8 @@
       ],
       "realmRoles": [
         "Caregiver",
-        "caregiver"
+        "caregiver",
+        "offline_access"
       ],
       "attributes": {
         "tenant_id": [
@@ -303,7 +305,8 @@
       ],
       "realmRoles": [
         "Doctor",
-        "doctor"
+        "doctor",
+        "offline_access"
       ],
       "attributes": {
         "tenant_id": [
@@ -331,7 +334,8 @@
       ],
       "realmRoles": [
         "Nurse",
-        "nurse"
+        "nurse",
+        "offline_access"
       ],
       "attributes": {
         "tenant_id": [
@@ -359,7 +363,8 @@
       ],
       "realmRoles": [
         "Care Coordinator",
-        "care_coordinator"
+        "care_coordinator",
+        "offline_access"
       ],
       "attributes": {
         "tenant_id": [
@@ -387,7 +392,8 @@
       ],
       "realmRoles": [
         "Dietitian/Diabetes Educator",
-        "dietitian"
+        "dietitian",
+        "offline_access"
       ],
       "attributes": {
         "tenant_id": [
@@ -415,7 +421,8 @@
       ],
       "realmRoles": [
         "Field Health Worker",
-        "field_health_worker"
+        "field_health_worker",
+        "offline_access"
       ],
       "attributes": {
         "tenant_id": [
@@ -443,7 +450,8 @@
       ],
       "realmRoles": [
         "Admin",
-        "admin"
+        "admin",
+        "offline_access"
       ],
       "attributes": {
         "tenant_id": [

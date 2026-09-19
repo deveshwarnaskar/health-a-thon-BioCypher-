@@ -10,8 +10,8 @@ export const tokenResponseSchema = z
       .int()
       .positive("expires_in must be a positive integer"),
     token_type: z.literal("Bearer"),
-  })
-  .strict();
+    scope: z.string().optional(),
+  });
 
 export type TokenResponse = z.infer<typeof tokenResponseSchema>;
 

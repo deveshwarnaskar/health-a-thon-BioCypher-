@@ -1,11 +1,22 @@
 import React from "react";
-import { Stack } from "expo-router";
+import { Redirect, Stack } from "expo-router";
+import { useAuth } from "../../src/auth/AuthProvider";
 
 /**
  * Routes in the (auth) group are reached when a session has not been
- * established.  Root routing (app/index.tsx) decides which group renders;
- * guards here only protect against direct deep links into the group.
+ * established. When an authenticated session is active, redirects to
+ * the protected application shell.
  */
 export default function AuthLayout() {
+  const { state } = useAuth();
+
+  if (state.name === "authenticated") {
+    return <Redirect href="/(app)/shell" />;
+  }
+
+  if (state.name === "access_denied" || state.name === "deactivated") {
+    return <Redirect href="/(app)/access-denied" />;
+  }
+
   return <Stack screenOptions={{ headerShown: false }} />;
 }

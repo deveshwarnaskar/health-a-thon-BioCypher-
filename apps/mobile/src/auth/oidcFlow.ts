@@ -119,6 +119,8 @@ export function createOidcFlow(
         preferEphemeralSession: preferEphemeral,
       });
 
+      authLog({ event: "oidc_prompt_result", type: result.type });
+
       if (result.type === "success") {
         const code = result.params.code;
         if (!code) {

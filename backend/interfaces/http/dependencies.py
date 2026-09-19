@@ -27,10 +27,14 @@ The HTTP layer never accepts tenant_id from ordinary JSON as authoritative.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import time
 from typing import TYPE_CHECKING, Annotated, Any, AsyncGenerator
+from urllib.parse import urlparse
 from uuid import UUID
+
+import jwt as pyjwt
 
 from fastapi import Depends, Header, HTTPException
 
@@ -168,6 +172,33 @@ def _audience_matches(aud: Any, expected: str) -> bool:
     return aud == expected or (isinstance(aud, list) and expected in aud)
 
 
+def _is_allowed_dev_issuer(iss: str, expected_iss: str) -> bool:
+    """Check if an issuer is an authorized development/LAN host alias.
+
+    In non-production environments only, permits local development IP/host
+    aliases (e.g. mobile testing on LAN Wi-Fi, docker-to-host bridge, localhost)
+    provided the scheme, realm path, and service port match the configured issuer.
+    Never active in production.
+    """
+    try:
+        parsed_expected = urlparse(expected_iss)
+        parsed_iss = urlparse(iss)
+        if parsed_iss.scheme != "http":
+            return False
+        if parsed_iss.path.rstrip("/") != parsed_expected.path.rstrip("/"):
+            return False
+        expected_port = parsed_expected.port or 8080
+        if (parsed_iss.port or 80) != expected_port:
+            return False
+        hostname = parsed_iss.hostname or ""
+        if hostname in ("localhost", "127.0.0.1", "keycloak", "host.docker.internal"):
+            return True
+        ip = ipaddress.ip_address(hostname)
+        return ip.is_private or ip.is_loopback
+    except (ValueError, TypeError):
+        return False
+
+
 async def verify_access_token(token: str) -> dict:
     """Verify a bearer token against the configured trust boundary.
 
@@ -204,6 +235,19 @@ async def verify_access_token(token: str) -> dict:
         kid = header.get("kid")
         if not isinstance(kid, str) or not kid:
             raise TokenVerificationError("token is missing a key id")
+
+        configured_iss = cfg["issuer_url"]
+        allowed_issuers: list[str] = [configured_iss] if configured_iss else []
+        if cfg.get("app_env") != "production":
+            try:
+                raw_payload = pyjwt.decode(token, options={"verify_signature": False})
+                iss_claim = raw_payload.get("iss")
+                if isinstance(iss_claim, str) and _is_allowed_dev_issuer(iss_claim, configured_iss):
+                    if iss_claim not in allowed_issuers:
+                        allowed_issuers.append(iss_claim)
+            except Exception:
+                pass
+
         try:
             signing_key = await _get_jwks_client().signing_key(kid)
             payload = verify_rs256(
@@ -211,7 +255,7 @@ async def verify_access_token(token: str) -> dict:
                 signing_key.public_key,
                 algorithms=[alg],
                 audience=cfg["audience"],
-                issuer=cfg["issuer_url"],
+                issuer=allowed_issuers if len(allowed_issuers) > 1 else (allowed_issuers[0] if allowed_issuers else ""),
             )
         except TokenVerificationError:
             raise
@@ -225,8 +269,14 @@ async def verify_access_token(token: str) -> dict:
     expected_iss = cfg["issuer_url"]
     if expected_iss:
         iss = payload.get("iss")
-        if not isinstance(iss, str) or iss != expected_iss:
+        if not isinstance(iss, str):
             raise TokenVerificationError("invalid issuer")
+        if cfg.get("app_env") == "production":
+            if iss != expected_iss:
+                raise TokenVerificationError("invalid issuer")
+        else:
+            if iss != expected_iss and not _is_allowed_dev_issuer(iss, expected_iss):
+                raise TokenVerificationError("invalid issuer")
 
     expected_aud = cfg["audience"]
     if not expected_aud:
