@@ -80,7 +80,9 @@
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
-      "pkceCodeChallengeMethod": "S256",
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
       "rootUrl": "https://admin.plate.thali.health",
       "baseUrl": "https://admin.plate.thali.health",
       "redirectUris": [
@@ -141,7 +143,9 @@
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
-      "pkceCodeChallengeMethod": "S256",
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
       "redirectUris": [
         "in.thali.plate.mobile://oauth/callback",
         "thali://oauth/callback"

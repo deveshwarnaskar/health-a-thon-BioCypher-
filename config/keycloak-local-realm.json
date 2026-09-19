@@ -106,7 +106,9 @@
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
-      "pkceCodeChallengeMethod": "S256",
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
       "rootUrl": "http://localhost:3000",
       "baseUrl": "http://localhost:3000",
       "redirectUris": [
@@ -173,7 +175,9 @@
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
-      "pkceCodeChallengeMethod": "S256",
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
       "redirectUris": [
         "thali://oauth/callback",
         "thali://auth/callback",
