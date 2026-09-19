@@ -11,6 +11,24 @@ from __future__ import annotations
 from .....domain.entities.care_team_member import CareTeamRole
 
 
+ROLE_ALIASES: dict[str, str] = {
+    # Keycloak realm role names -> canonical domain tokens
+    "care coordinator": CareTeamRole.CARE_COORDINATOR.value.lower(),
+    "care_coordinator": CareTeamRole.CARE_COORDINATOR.value.lower(),
+    "carecoordinator": CareTeamRole.CARE_COORDINATOR.value.lower(),
+    "dietitian/diabetes educator": CareTeamRole.DIETITIAN.value.lower(),
+    "dietitian": CareTeamRole.DIETITIAN.value.lower(),
+    "field health worker": CareTeamRole.FIELD_HEALTH_WORKER.value.lower(),
+    "field_health_worker": CareTeamRole.FIELD_HEALTH_WORKER.value.lower(),
+    "fieldhealthworker": CareTeamRole.FIELD_HEALTH_WORKER.value.lower(),
+    "doctor": CareTeamRole.DOCTOR.value.lower(),
+    "nurse": CareTeamRole.NURSE.value.lower(),
+    "patient": "patient",
+    "caregiver": "caregiver",
+    "admin": "admin",
+}
+
+
 def role_tokens(roles: list[str]) -> list[str]:
     """Return the canonical, sorted role tokens present in ``roles``.
 
@@ -18,8 +36,8 @@ def role_tokens(roles: list[str]) -> list[str]:
     matched against the canonical domain spellings (e.g. ``doctor``,
     ``care_coordinator``, ``field_health_worker``).
     """
-    lowered = {r.strip().lower() for r in roles if isinstance(r, str) and r.strip()}
-    if not lowered:
+    raw_strings = [r.strip().lower() for r in roles if isinstance(r, str) and r.strip()]
+    if not raw_strings:
         return []
 
     canonical = {
@@ -35,5 +53,12 @@ def role_tokens(roles: list[str]) -> list[str]:
         "patient",
         "caregiver",
     }
-    tokens = sorted(canonical & lowered)
-    return tokens
+
+    resolved: set[str] = set()
+    for raw in raw_strings:
+        if raw in canonical:
+            resolved.add(raw)
+        elif raw in ROLE_ALIASES:
+            resolved.add(ROLE_ALIASES[raw])
+
+    return sorted(canonical & resolved)
