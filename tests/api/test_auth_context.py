@@ -207,3 +207,165 @@ class TestAuthContextEndpoint:
         assert body["onboarding_state"] == "ACTIVE"
         assert "admin" in body["capabilities"]
         assert "manage_care_team" in body["capabilities"]
+
+
+class TestTenantAuthorityAndIsolation:
+    """Proves the 10 tenant authority and isolation invariants for /api/v2/auth/context."""
+
+    def test_query_param_tenant_id_ignored_for_context(self, client):
+        """Query parameters cannot override or alter the authoritative JWT tenant_id."""
+        actor_id = uuid4()
+        jwt_tenant_id = uuid4()
+        spoofed_tenant_id = uuid4()
+
+        token = make_jwt(sub=str(actor_id), tenant_id=str(jwt_tenant_id), roles=["patient"])
+        resp = client.get(
+            f"/api/v2/auth/context?tenant_id={spoofed_tenant_id}",
+            headers=bearer(token),
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["tenant_id"] == str(jwt_tenant_id)
+        assert body["tenant_id"] != str(spoofed_tenant_id)
+
+    def test_missing_jwt_tenant_id_fails_closed(self, client):
+        """A JWT lacking a tenant_id claim is unconditionally rejected (401)."""
+        actor_id = uuid4()
+        token = make_jwt(sub=str(actor_id), roles=["patient"], extra={"tenant_id": None})
+        resp = client.get("/api/v2/auth/context", headers=bearer(token))
+        assert resp.status_code == 401
+
+    def test_malformed_jwt_tenant_id_fails_closed(self, client):
+        """A JWT with a non-UUID tenant_id claim is rejected as malformed (401)."""
+        actor_id = uuid4()
+        token = make_jwt(sub=str(actor_id), tenant_id="not-a-valid-uuid", roles=["patient"])
+        resp = client.get("/api/v2/auth/context", headers=bearer(token))
+        assert resp.status_code == 401
+
+    def test_tampered_jwt_signature_fails_closed(self, client):
+        """Tampering with token payload to alter tenant_id invalidates cryptographic signature (401)."""
+        actor_id = uuid4()
+        real_tenant = uuid4()
+        fake_tenant = uuid4()
+
+        token = make_jwt(sub=str(actor_id), tenant_id=str(real_tenant), roles=["doctor"])
+        parts = token.split(".")
+        # Tamper payload part with fake tenant
+        import base64, json
+        raw_payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=="))
+        raw_payload["tenant_id"] = str(fake_tenant)
+        tampered_payload_b64 = base64.urlsafe_b64encode(json.dumps(raw_payload).encode()).decode().rstrip("=")
+        tampered_token = f"{parts[0]}.{tampered_payload_b64}.{parts[2]}"
+
+        resp = client.get("/api/v2/auth/context", headers=bearer(tampered_token))
+        assert resp.status_code == 401
+
+    def test_cross_tenant_patient_mapping_isolated(self, db_client):
+        """An actor with an active patient mapping in Tenant B cannot resolve it when authenticating in Tenant A."""
+        client, db_session_factory = db_client
+        actor_id = uuid4()
+        tenant_a = uuid4()
+        tenant_b = uuid4()
+        patient_b = uuid4()
+
+        # Seed patient mapping in Tenant B
+        with SqlAlchemyUnitOfWork(db_session_factory, tenant_b) as uow:
+            pat = Patient(
+                id=patient_b,
+                facility_id=uuid4(),
+                uh_id=UHID("UH-B-01"),
+                name="Tenant B Patient",
+                active=True,
+            )
+            mapping = IdentityPatientMapping(
+                id=uuid4(),
+                user_id=actor_id,
+                patient_id=patient_b,
+                active=True,
+            )
+            uow.patients.add(pat)
+            uow.identity_mappings.add(mapping)
+            uow.commit()
+
+        # Authenticate with token scoped to Tenant A
+        token = make_jwt(sub=str(actor_id), tenant_id=str(tenant_a), roles=["patient"])
+        resp = client.get("/api/v2/auth/context", headers=bearer(token))
+        assert resp.status_code == 200
+        body = resp.json()
+
+        # Must NOT see Tenant B's patient
+        assert body["tenant_id"] == str(tenant_a)
+        assert body["patient_id"] is None
+        assert body["onboarding_state"] == "IDENTITY_MAPPING_PENDING"
+        assert body["available_patient_contexts"] == []
+
+    def test_cross_tenant_caregiver_relationship_isolated(self, db_client):
+        """A caregiver granted relationships in Tenant B cannot access them when presenting Tenant A's token."""
+        client, db_session_factory = db_client
+        caregiver_actor_id = uuid4()
+        tenant_a = uuid4()
+        tenant_b = uuid4()
+        patient_b = uuid4()
+
+        # Seed caregiver relationship in Tenant B
+        with SqlAlchemyUnitOfWork(db_session_factory, tenant_b) as uow:
+            pat = Patient(
+                id=patient_b,
+                facility_id=uuid4(),
+                uh_id=UHID("UH-B-02"),
+                name="Tenant B Patient",
+                active=True,
+            )
+            rel = CaregiverRelationship(
+                id=uuid4(),
+                patient_id=patient_b,
+                caregiver_user_id=caregiver_actor_id,
+                relationship="Spouse",
+                status=CaregiverRelationshipStatus.VERIFIED,
+                capabilities=frozenset({"read_observations"}),
+            )
+            uow.patients.add(pat)
+            uow.caregiver_relationships.add(rel)
+            uow.commit()
+
+        # Authenticate with Tenant A token
+        token = make_jwt(sub=str(caregiver_actor_id), tenant_id=str(tenant_a), roles=["caregiver"])
+        resp = client.get("/api/v2/auth/context", headers=bearer(token))
+        assert resp.status_code == 200
+        body = resp.json()
+
+        assert body["tenant_id"] == str(tenant_a)
+        assert body["patient_id"] is None
+        assert body["onboarding_state"] == "RELATIONSHIP_PENDING"
+        assert body["available_patient_contexts"] == []
+
+    def test_keycloak_human_readable_role_normalization(self, client):
+        """Keycloak human-readable realm roles normalize to canonical domain tokens."""
+        actor_id = uuid4()
+        tenant_id = uuid4()
+        token = make_jwt(
+            sub=str(actor_id),
+            tenant_id=str(tenant_id),
+            roles=["Care Coordinator", "Dietitian/Diabetes Educator", "Field Health Worker"],
+        )
+        resp = client.get("/api/v2/auth/context", headers=bearer(token))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body["roles"]) == {"care_coordinator", "dietitian", "field_health_worker"}
+
+    def test_unknown_and_malformed_roles_fail_closed(self, client):
+        """Unknown or arbitrary role strings are dropped and grant zero permissions."""
+        actor_id = uuid4()
+        tenant_id = uuid4()
+        token = make_jwt(
+            sub=str(actor_id),
+            tenant_id=str(tenant_id),
+            roles=["superuser", "admin_override", "root", "unknown_role"],
+        )
+        resp = client.get("/api/v2/auth/context", headers=bearer(token))
+        assert resp.status_code == 200
+        body = resp.json()
+        # All unknown roles dropped
+        assert body["roles"] == []
+        assert body["capabilities"] == []
+

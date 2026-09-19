@@ -4,16 +4,31 @@ import { can, capabilitiesForRole } from "../../src/authz/capabilities";
 import { destinationsForRole } from "../../src/authz/navigation";
 
 describe("role identity and capability model (ROLE vs CAPABILITY)", () => {
-  it("resolves backend role tokens to platform roles", () => {
+  it("resolves backend role tokens and Keycloak realm role names to platform roles", () => {
     expect(roleFromAuthRoles(["doctor"])).toBe("Doctor");
+    expect(roleFromAuthRoles(["Doctor"])).toBe("Doctor");
     expect(roleFromAuthRoles(["care_coordinator"])).toBe("CareCoordinator");
+    expect(roleFromAuthRoles(["Care Coordinator"])).toBe("CareCoordinator");
     expect(roleFromAuthRoles(["field_health_worker"])).toBe("FieldHealthWorker");
+    expect(roleFromAuthRoles(["Field Health Worker"])).toBe("FieldHealthWorker");
+    expect(roleFromAuthRoles(["Dietitian/Diabetes Educator"])).toBe("Dietitian");
+    expect(roleFromAuthRoles(["dietitian"])).toBe("Dietitian");
     expect(roleFromAuthRoles(["patient"])).toBe("Patient");
+    expect(roleFromAuthRoles(["Patient"])).toBe("Patient");
+    expect(roleFromAuthRoles(["caregiver"])).toBe("Caregiver");
+    expect(roleFromAuthRoles(["Caregiver"])).toBe("Caregiver");
+    expect(roleFromAuthRoles(["nurse"])).toBe("Nurse");
+    expect(roleFromAuthRoles(["Nurse"])).toBe("Nurse");
   });
 
   it("never maps unknown role tokens (no privilege fabrication)", () => {
     expect(roleFromAuthRoles(["superuser"])).toBeNull();
+    expect(roleFromAuthRoles(["admin_override"])).toBeNull();
+    expect(roleFromAuthRoles(["root"])).toBeNull();
+    expect(roleFromAuthRoles([""])).toBeNull();
+    expect(roleFromAuthRoles(["   "])).toBeNull();
     expect(roleFromAuthRoles([])).toBeNull();
+    expect(roleFromAuthRoles(["unknown_realm_role"])).toBeNull();
     expect(roleFromAuthRoles(["doctor ", "caregiver"])).toBe("Caregiver");
   });
 

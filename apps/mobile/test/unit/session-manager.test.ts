@@ -211,6 +211,51 @@ describe("OidcSessionManager", () => {
     await expect(mgr.refreshSession()).rejects.toThrow(AuthTransientError);
   });
 
+  it("concurrent refreshSession calls latch onto exactly ONE issueRefresh call (single-flight mutex)", async () => {
+    let refreshCalls = 0;
+    const flow = fakeOidcFlow({
+      refresh: vi.fn(async () => {
+        refreshCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return {
+          access_token: "at-concurrent-refreshed",
+          refresh_token: "rt-concurrent-refreshed",
+          id_token: "id-concurrent-refreshed",
+          expires_in: 3600,
+          token_type: "Bearer" as const,
+        };
+      }),
+    });
+    const mgr = new OidcSessionManager({
+      config: testConfig,
+      discovery: testDiscovery,
+      tokenStore,
+      oidcFlow: flow,
+      apiClient: fakeApiClient(),
+      onAuthExpiredSignal: signal,
+    });
+    await tokenStore.saveTokens({ accessToken: "at-old", refreshToken: "rt-old", idToken: "id-old" });
+    await mgr.init();
+    refreshCalls = 0;
+
+    const results = await Promise.all([
+      mgr.refreshSession(),
+      mgr.refreshSession(),
+      mgr.refreshSession(),
+      mgr.refreshSession(),
+      mgr.refreshSession(),
+    ]);
+
+    expect(refreshCalls).toBe(1);
+    expect(results).toEqual([
+      "at-concurrent-refreshed",
+      "at-concurrent-refreshed",
+      "at-concurrent-refreshed",
+      "at-concurrent-refreshed",
+      "at-concurrent-refreshed",
+    ]);
+  });
+
   it("recoverPassword delegates to oidcFlow.recoverPassword", async () => {
     const recoverSpy = vi.fn(async () => {});
     const flow = fakeOidcFlow({ recoverPassword: recoverSpy });
@@ -275,5 +320,81 @@ describe("OidcSessionManager", () => {
     if (state.name === "authenticated") {
       expect(state.user.actor_id).toBe("a-fallback");
     }
+  });
+
+  it("multi-user boundary: User A logs out, purges data, then User B logs in with clean boundary", async () => {
+    let currentUserResponse = {
+      actor_id: "user-a-1111",
+      tenant_id: "tenant-a-1111",
+      roles: ["patient"],
+      facility_id: "fac-a",
+      patient_id: "patient-a",
+    };
+
+    const requestSpy = vi.fn(async () => currentUserResponse);
+    let codeVerifierIndex = 1;
+    const flow = fakeOidcFlow({
+      authorize: vi.fn(async () => ({
+        status: "success" as const,
+        code: `code-${codeVerifierIndex++}`,
+        codeVerifier: "verifier-xyz",
+      })),
+      exchangeCode: vi.fn(async (_cfg, _disc, code) => ({
+        access_token: `at-${code}`,
+        refresh_token: `rt-${code}`,
+        id_token: `id-${code}`,
+        expires_in: 3600,
+        token_type: "Bearer" as const,
+      })),
+    });
+
+    const invalidatedSpy = vi.fn();
+    const mgr = new OidcSessionManager({
+      config: testConfig,
+      discovery: testDiscovery,
+      tokenStore,
+      oidcFlow: flow,
+      apiClient: { request: requestSpy } as any,
+      onAuthExpiredSignal: signal,
+      onProtectedStateInvalidated: invalidatedSpy,
+    });
+
+    // 1. User A logs in
+    await mgr.signIn();
+    let state = mgr.getState();
+    expect(state.name).toBe("authenticated");
+    if (state.name === "authenticated") {
+      expect(state.user.actor_id).toBe("user-a-1111");
+      expect(state.user.tenant_id).toBe("tenant-a-1111");
+      expect(state.user.role).toBe("Patient");
+    }
+    expect(await tokenStore.getAccessToken()).toBe("at-code-1");
+
+    // 2. User A logs out
+    await mgr.signOut();
+    expect(invalidatedSpy).toHaveBeenCalledTimes(1);
+    expect(await tokenStore.getAccessToken()).toBeNull();
+    expect(await tokenStore.getRefreshToken()).toBeNull();
+    expect(mgr.getState().name).toBe("unauthenticated");
+
+    // 3. User B logs in (different user, different tenant, different role)
+    currentUserResponse = {
+      actor_id: "user-b-2222",
+      tenant_id: "tenant-b-2222",
+      roles: ["doctor"],
+      facility_id: "fac-b",
+      patient_id: null as any,
+    };
+
+    await mgr.signIn();
+    state = mgr.getState();
+    expect(state.name).toBe("authenticated");
+    if (state.name === "authenticated") {
+      expect(state.user.actor_id).toBe("user-b-2222");
+      expect(state.user.tenant_id).toBe("tenant-b-2222");
+      expect(state.user.role).toBe("Doctor");
+      expect(state.user.patient_id).toBeNull();
+    }
+    expect(await tokenStore.getAccessToken()).toBe("at-code-2");
   });
 });

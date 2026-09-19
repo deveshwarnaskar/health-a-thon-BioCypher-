@@ -176,8 +176,10 @@
       "pkceCodeChallengeMethod": "S256",
       "redirectUris": [
         "thali://oauth/callback",
+        "thali://auth/callback",
         "thali://*",
         "in.thali.plate.mobile://oauth/callback",
+        "in.thali.plate.mobile://auth/callback",
         "in.thali.plate.mobile://*",
         "http://localhost:8081/*",
         "exp://*"

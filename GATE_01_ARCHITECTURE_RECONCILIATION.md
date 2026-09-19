@@ -659,7 +659,7 @@ The existing Aahaar codebase contains zero offline synchronization logic. The ta
 +----------------------------------------------------------------------------------------------------+
        Universal Mobile Application (THALI / P.L.A.T.E.)
        ┌─────────────────────────────────────────────────────────┐
-       │ Local Mobile Database (SQLite / WatermelonDB)           │
+       │ Local Mobile Database (Expo SQLite + SQLCipher + Drizzle)│
        │ - Local Unified Patient Cache                           │
        │ - Outbox Queue (Unsynced Events with Local UUIDs)       │
        │ - Inbox Queue (Server-Delivered Events)                 │
