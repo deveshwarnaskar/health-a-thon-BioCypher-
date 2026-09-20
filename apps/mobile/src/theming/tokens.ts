@@ -25,6 +25,8 @@ export const colors = {
   darkSurface: "#1A1A1A",
 
   surface: "#FFFFFF",
+  surfaceSoft: "#F7FEFF",
+  primaryInk: "#101832",
   textPrimary: "#1A1A1A",
   textSecondary: "#5B6B73",
   textOnPrimary: "#FFFFFF",
@@ -33,6 +35,14 @@ export const colors = {
   border: "#DCE3E6",
   overlay: "#00000088",
   disabled: "#C3CDD1",
+  backgroundRaised: "#F7FAFC",
+  tileBlue: "#3B82F6",
+  tileYellow: "#FFF8D8",
+  tileGreen: "#EAFBF1",
+  tilePink: "#FFF0F1",
+  tileLavender: "#F7F0FF",
+  tileAqua: "#DDF8F6",
+  tileCream: "#FFF8E7",
 } as const;
 
 export type ColorTokens = typeof colors;

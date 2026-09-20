@@ -100,7 +100,7 @@ export function AuthButton({
 
 const styles = StyleSheet.create({
   base: {
-    minHeight: 58,
+    minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -110,31 +110,31 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   primary: {
-    backgroundColor: colors.assistive,
-    borderColor: colors.assistive,
-    shadowColor: "#7A3500",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.16,
+    backgroundColor: "#0D5C75",
+    borderColor: "#094152",
+    shadowColor: "#0D5C75",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.24,
     shadowRadius: 14,
-    elevation: 3,
+    elevation: 4,
   },
   secondary: {
-    backgroundColor: "#F0F7F9",
-    borderColor: "#BCE0EB",
+    backgroundColor: "#EDF7FA",
+    borderColor: "#B8DEE7",
   },
   outline: {
     backgroundColor: colors.surface,
-    borderColor: colors.primary,
+    borderColor: "#0D5C75",
   },
   ghost: {
     backgroundColor: "transparent",
     borderColor: "transparent",
   },
   disabled: {
-    opacity: 0.5,
+    opacity: 0.45,
   },
   pressed: {
-    opacity: 0.85,
+    opacity: 0.88,
   },
   busyRow: {
     flexDirection: "row",
@@ -144,15 +144,15 @@ const styles = StyleSheet.create({
   labelText: {
     fontSize: typography.fontSize.body,
     fontWeight: "700",
-    letterSpacing: 0,
+    letterSpacing: 0.2,
   },
   labelPrimary: {
     color: "#FFFFFF",
   },
   labelSecondary: {
-    color: colors.primary,
+    color: "#0D5C75",
   },
   labelOutline: {
-    color: colors.primary,
+    color: "#0D5C75",
   },
 });

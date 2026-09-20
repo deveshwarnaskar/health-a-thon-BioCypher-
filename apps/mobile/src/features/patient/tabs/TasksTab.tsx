@@ -173,23 +173,23 @@ const styles = StyleSheet.create({
   },
   segmentedControl: {
     flexDirection: "row",
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    backgroundColor: colors.background,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+    paddingVertical: spacing.sm,
     gap: spacing.xs,
   },
   segment: {
     flex: 1,
     paddingVertical: 8,
-    borderRadius: radii.sm,
+    borderRadius: radii.pill,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F4F6F7",
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: "#FFFFFF",
   },
   segmentActive: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryInk,
   },
   segmentText: {
     fontSize: typography.fontSize.caption,
@@ -202,11 +202,16 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.md,
+    paddingBottom: 100,
   },
   emptyContainer: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: spacing.xxl,
+    padding: spacing.xl,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: "#FFFFFF",
   },
   emptyIcon: {
     fontSize: 48,

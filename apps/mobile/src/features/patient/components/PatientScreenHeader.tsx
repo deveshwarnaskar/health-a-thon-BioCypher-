@@ -66,6 +66,9 @@ export function PatientScreenHeader({
         <View style={styles.textContainer}>
           {showGreeting ? (
             <>
+              <Text style={styles.appLabel} allowFontScaling numberOfLines={1}>
+                THALI in
+              </Text>
               <Text style={styles.greeting} allowFontScaling numberOfLines={1}>
                 {greeting}, {patientName || "Friend"}
               </Text>
@@ -98,7 +101,7 @@ export function PatientScreenHeader({
 
           {onSignOut ? (
             <TouchableOpacity
-              style={styles.actionButton}
+              style={[styles.actionButton, styles.signOutButton]}
               onPress={onSignOut}
               accessibilityRole="button"
               accessibilityLabel="Sign out"
@@ -154,17 +157,16 @@ export function PatientScreenHeader({
 
 const styles = StyleSheet.create({
   header: {
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    backgroundColor: colors.background,
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
   },
   contentRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
+    gap: spacing.sm,
   },
   backButton: {
     minWidth: touchTarget.min,
@@ -172,6 +174,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: spacing.xs,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surface,
+    shadowColor: colors.primaryInk,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 2,
   },
   backIcon: {
     fontSize: 24,
@@ -182,9 +191,15 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
   },
+  appLabel: {
+    fontSize: typography.fontSize.bodySmall,
+    lineHeight: typography.lineHeight.bodySmall,
+    fontWeight: typography.weight.bold,
+    color: colors.textSecondary,
+  },
   greeting: {
-    fontSize: typography.fontSize.title,
-    lineHeight: typography.lineHeight.title,
+    fontSize: typography.fontSize.headline,
+    lineHeight: typography.lineHeight.headline,
     fontWeight: typography.weight.bold,
     color: colors.textPrimary,
   },
@@ -195,8 +210,8 @@ const styles = StyleSheet.create({
     fontWeight: typography.weight.medium,
   },
   title: {
-    fontSize: typography.fontSize.title,
-    lineHeight: typography.lineHeight.title,
+    fontSize: typography.fontSize.headline,
+    lineHeight: typography.lineHeight.headline,
     fontWeight: typography.weight.bold,
     color: colors.textPrimary,
   },
@@ -209,6 +224,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    maxWidth: 184,
   },
   actionButton: {
     minWidth: touchTarget.min,
@@ -216,6 +234,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
+    borderRadius: radii.pill,
+    backgroundColor: colors.surface,
+    shadowColor: colors.primaryInk,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  signOutButton: {
+    paddingHorizontal: spacing.sm,
+    minWidth: 74,
   },
   bellIcon: {
     fontSize: 20,
@@ -245,11 +274,18 @@ const styles = StyleSheet.create({
     lineHeight: 12,
   },
   roleTag: {
-    backgroundColor: "#F0F7F9",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: radii.sm,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.pill,
     marginRight: 2,
+    borderWidth: 1,
+    borderColor: "#FFFFFF",
+    shadowColor: colors.primaryInk,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 2,
   },
   roleTagText: {
     fontSize: typography.fontSize.caption,

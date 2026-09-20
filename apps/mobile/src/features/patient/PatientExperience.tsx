@@ -112,7 +112,7 @@ function PatientExperienceContent({
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
       <OfflineBanner />
 
       <View style={styles.body}>
@@ -215,7 +215,7 @@ export function PatientExperience(props: PatientExperienceProps) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.background,
   },
   fullscreenContainer: {
     flex: 1,

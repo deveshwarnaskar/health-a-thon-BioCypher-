@@ -57,11 +57,16 @@ export function PatientDocumentCard({ document, onView }: PatientDocumentCardPro
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: radii.md,
+    borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#FFFFFF",
     padding: spacing.md,
     marginBottom: spacing.sm,
+    shadowColor: colors.primaryInk,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
+    elevation: 2,
   },
   topRow: {
     flexDirection: "row",
@@ -71,8 +76,8 @@ const styles = StyleSheet.create({
   iconContainer: {
     width: 36,
     height: 36,
-    borderRadius: radii.sm,
-    backgroundColor: "#E8F4F8",
+    borderRadius: radii.pill,
+    backgroundColor: colors.tileAqua,
     alignItems: "center",
     justifyContent: "center",
     marginRight: spacing.sm,
@@ -94,10 +99,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   viewButton: {
-    backgroundColor: "#F4F6F7",
+    backgroundColor: colors.backgroundRaised,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
+    borderColor: "#FFFFFF",
+    borderRadius: radii.pill,
     minHeight: touchTarget.min,
     alignItems: "center",
     justifyContent: "center",

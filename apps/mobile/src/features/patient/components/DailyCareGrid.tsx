@@ -17,13 +17,26 @@ export type DailyCareGridProps = {
   items: DailyCareItem[];
 };
 
+function cardBackground(category: DailyCareItem["category"]) {
+  switch (category) {
+    case "glucose":
+      return colors.tileYellow;
+    case "meals":
+      return colors.tileGreen;
+    case "medication":
+      return colors.tileLavender;
+    case "tasks":
+      return colors.tilePink;
+  }
+}
+
 export function DailyCareGrid({ items }: DailyCareGridProps) {
   return (
     <View style={styles.grid}>
       {items.map((item) => (
         <TouchableOpacity
           key={item.id}
-          style={styles.card}
+          style={[styles.card, { backgroundColor: cardBackground(item.category) }]}
           onPress={item.onPress}
           activeOpacity={0.7}
           accessibilityRole="button"
@@ -72,13 +85,17 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     minWidth: "46%",
-    backgroundColor: colors.surface,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#FFFFFF",
     padding: spacing.md,
-    minHeight: 110,
+    minHeight: 124,
     justifyContent: "space-between",
+    shadowColor: colors.primaryInk,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
+    elevation: 2,
   },
   topRow: {
     flexDirection: "row",
@@ -90,14 +107,14 @@ const styles = StyleSheet.create({
     fontSize: 22,
   },
   badge: {
-    backgroundColor: "#EBF5FB",
+    backgroundColor: "#FFFFFFAA",
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: radii.sm,
+    borderRadius: radii.pill,
   },
   badgeText: {
     fontSize: 10,
-    color: colors.info,
+    color: colors.primaryInk,
     fontWeight: typography.weight.bold,
   },
   value: {

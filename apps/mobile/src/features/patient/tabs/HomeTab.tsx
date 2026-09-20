@@ -200,6 +200,15 @@ export function HomeTab({
           />
         }
       >
+        <View style={styles.commandHeader}>
+          <Text style={styles.commandKicker} allowFontScaling>
+            TODAY&apos;S CARE
+          </Text>
+          <Text style={styles.commandTitle} allowFontScaling>
+            Care Command
+          </Text>
+        </View>
+
         {/* Section 1: Today Summary Card */}
         <TodaySummaryCard items={todayItems} />
 
@@ -297,6 +306,22 @@ const styles = StyleSheet.create({
   content: {
     padding: spacing.md,
     gap: spacing.lg,
+    paddingBottom: 100,
+  },
+  commandHeader: {
+    gap: spacing.xxs,
+  },
+  commandKicker: {
+    fontSize: typography.fontSize.caption,
+    fontWeight: typography.weight.bold,
+    color: colors.primary,
+    letterSpacing: 1.2,
+  },
+  commandTitle: {
+    fontSize: typography.fontSize.headline,
+    lineHeight: typography.lineHeight.headline,
+    fontWeight: typography.weight.bold,
+    color: colors.primary,
   },
   section: {
     gap: spacing.sm,
@@ -317,11 +342,16 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   upcomingBox: {
-    backgroundColor: "#FDF9F5",
-    borderRadius: radii.md,
+    backgroundColor: colors.tileCream,
+    borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: "#FAD7A0",
+    borderColor: "#FFFFFF",
     padding: spacing.md,
+    shadowColor: colors.primaryInk,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 2,
   },
   upcomingHeaderRow: {
     flexDirection: "row",
@@ -361,11 +391,16 @@ const styles = StyleSheet.create({
   },
   emptyRecentBox: {
     backgroundColor: colors.surface,
-    borderRadius: radii.md,
+    borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#FFFFFF",
     padding: spacing.lg,
     alignItems: "center",
+    shadowColor: colors.primaryInk,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 2,
   },
   emptyRecentText: {
     fontSize: typography.fontSize.bodySmall,
@@ -374,7 +409,7 @@ const styles = StyleSheet.create({
   },
   quickRecordButton: {
     backgroundColor: colors.primary,
-    borderRadius: radii.md,
+    borderRadius: radii.pill,
     minHeight: touchTarget.min,
     paddingHorizontal: spacing.lg,
     alignItems: "center",

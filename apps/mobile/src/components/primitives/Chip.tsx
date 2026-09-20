@@ -67,12 +67,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#FFFFFF",
     backgroundColor: colors.surface,
+    shadowColor: colors.primaryInk,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 1,
   },
   selected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: colors.primaryInk,
+    borderColor: colors.primaryInk,
   },
   pressed: {
     opacity: 0.7,
@@ -83,9 +88,10 @@ const styles = StyleSheet.create({
   label: {
     fontSize: typography.fontSize.bodySmall,
     color: colors.textPrimary,
+    fontWeight: "700",
   },
   labelSelected: {
     color: colors.textOnPrimary,
-    fontWeight: "600",
+    fontWeight: "800",
   },
 });

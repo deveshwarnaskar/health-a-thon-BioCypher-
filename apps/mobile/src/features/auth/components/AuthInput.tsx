@@ -85,7 +85,7 @@ export function AuthInput({
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor={colors.disabled}
+          placeholderTextColor="#8E9FA5"
           editable={!disabled}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
@@ -172,7 +172,7 @@ export function PasswordInput({
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor={colors.disabled}
+          placeholderTextColor="#8E9FA5"
           editable={!disabled}
           secureTextEntry={!visible}
           autoCapitalize="none"
@@ -226,7 +226,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: typography.fontSize.bodySmall,
     fontWeight: "600",
-    color: colors.textPrimary,
+    color: "#1E293B",
   },
   inputContainer: {
     minHeight: 56,
@@ -234,25 +234,31 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: radii.pill,
     borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: "#D8E3E8",
+    backgroundColor: "#F8FAFC",
     paddingHorizontal: spacing.md,
   },
   inputFocused: {
-    borderColor: colors.primary,
-    backgroundColor: colors.surface,
+    borderColor: "#0D5C75",
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#0D5C75",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 1,
   },
   inputError: {
-    borderColor: colors.critical,
+    borderColor: "#EF4444",
+    backgroundColor: "#FEF2F2",
   },
   inputDisabled: {
-    backgroundColor: colors.background,
-    borderColor: colors.border,
+    backgroundColor: "#EEF2F4",
+    borderColor: "#D5DFE3",
   },
   textInput: {
     flex: 1,
     fontSize: typography.fontSize.body,
-    color: colors.textPrimary,
+    color: "#0F172A",
     minHeight: 50,
     paddingVertical: 10,
     paddingHorizontal: 0,
@@ -270,16 +276,16 @@ const styles = StyleSheet.create({
   },
   toggleText: {
     fontSize: typography.fontSize.caption,
-    fontWeight: "600",
-    color: colors.primary,
+    fontWeight: "700",
+    color: "#0D5C75",
   },
   errorText: {
     fontSize: typography.fontSize.caption,
-    color: colors.critical,
+    color: "#EF4444",
     fontWeight: "500",
   },
   hintText: {
     fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+    color: "#64748B",
   },
 });

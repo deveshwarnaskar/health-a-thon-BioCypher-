@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, type TextInput as RNTextInputRef, View } f
 import { Redirect, useRouter } from "expo-router";
 import { AlertBanner } from "../../src/components/primitives/AlertBanner";
 import { useAuth } from "../../src/auth/AuthProvider";
-import { colors, radii, spacing, typography } from "../../src/theming/tokens";
+import { colors, spacing, typography } from "../../src/theming/tokens";
 import type { AuthFlowState } from "../../src/auth/authStateMachine";
 import {
   AuthButton,
@@ -166,15 +166,6 @@ export default function LoginScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.guidanceBox}>
-          <Text style={styles.guidanceTitle} allowFontScaling>
-            Clinic Enrollment &amp; Access
-          </Text>
-          <Text style={styles.guidanceText} allowFontScaling>
-            Patients, caregivers, and doctors access their glycemic health workflows using verified account credentials.
-          </Text>
-        </View>
-
         <AuthFooter />
       </AuthPanel>
     </AuthScreen>
@@ -245,22 +236,5 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.bodySmall,
     color: colors.primary,
     fontWeight: "700",
-  },
-  guidanceBox: {
-    backgroundColor: "#F4F7F8",
-    padding: spacing.md,
-    borderRadius: radii.lg,
-    borderWidth: 0,
-    gap: spacing.xs,
-  },
-  guidanceTitle: {
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: "600",
-    color: colors.textPrimary,
-  },
-  guidanceText: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
-    lineHeight: 18,
   },
 });

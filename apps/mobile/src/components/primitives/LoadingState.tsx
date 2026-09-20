@@ -32,9 +32,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: spacing.md,
     padding: spacing.xl,
+    backgroundColor: colors.background,
   },
   label: {
     fontSize: typography.fontSize.body,
     color: colors.textSecondary,
+    fontWeight: "700",
   },
 });

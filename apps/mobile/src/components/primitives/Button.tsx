@@ -30,7 +30,7 @@ const variantBackground: Record<ButtonVariant, string> = {
 
 const variantForeground: Record<ButtonVariant, string> = {
   primary: colors.textOnPrimary,
-  assistive: colors.textOnAssistive,
+  assistive: colors.primaryInk,
   outline: colors.primary,
   danger: colors.textOnPrimary,
   ghost: colors.primary,
@@ -76,6 +76,8 @@ export function Button({
           backgroundColor: variantBackground[variant],
           borderColor: variantBorder[variant],
           opacity: isDisabled ? 0.5 : pressed ? 0.85 : 1,
+          shadowOpacity: variant === "ghost" ? 0 : 0.08,
+          elevation: variant === "ghost" ? 0 : 2,
         },
         style,
       ]}
@@ -95,12 +97,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: spacing.lg,
-    borderRadius: radii.md,
+    borderRadius: radii.pill,
     borderWidth: 1,
+    shadowColor: colors.primaryInk,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 2,
   },
   label: {
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "800",
   },
   iconButton: {
     alignItems: "center",

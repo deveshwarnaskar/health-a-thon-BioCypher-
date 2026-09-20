@@ -186,10 +186,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   filterContainer: {
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingVertical: spacing.xs,
+    backgroundColor: colors.background,
+    paddingVertical: spacing.sm,
   },
   filterScroll: {
     paddingHorizontal: spacing.md,
@@ -199,16 +197,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 6,
     borderRadius: radii.pill,
-    backgroundColor: "#F4F6F7",
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#FFFFFF",
     minHeight: 34,
     alignItems: "center",
     justifyContent: "center",
   },
   filterChipSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: colors.primaryInk,
+    borderColor: colors.primaryInk,
   },
   filterChipText: {
     fontSize: typography.fontSize.caption,
@@ -221,6 +219,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.md,
+    paddingBottom: 100,
   },
   groupSection: {
     marginBottom: spacing.md,
@@ -245,7 +244,11 @@ const styles = StyleSheet.create({
   emptyContainer: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: spacing.xxl,
+    padding: spacing.xl,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: "#FFFFFF",
   },
   emptyIcon: {
     fontSize: 48,

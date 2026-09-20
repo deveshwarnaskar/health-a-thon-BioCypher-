@@ -61,10 +61,10 @@ export function AuthHeader({ title, subtitle, badge, compactLogo = true }: AuthH
         { paddingTop: insets.top + spacing.lg },
       ]}
     >
-      <View style={styles.decorPanelPrimary} />
-      <View style={styles.decorPanelSecondary} />
-      <View style={styles.decorPillTop} />
-      <View style={styles.decorPillBottom} />
+      <View style={styles.decorOrbPrimary} />
+      <View style={styles.decorOrbSecondary} />
+      <View style={styles.decorRing} />
+      <View style={styles.decorGlowBottom} />
 
       <AuthLogo compact={compactLogo} tone="light" />
       {badge ? (
@@ -122,8 +122,8 @@ const styles = StyleSheet.create({
     borderColor: "#BCE0EB",
   },
   tagLight: {
-    backgroundColor: "#FFFFFF1F",
-    borderColor: "#FFFFFF52",
+    backgroundColor: "rgba(255, 255, 255, 0.16)",
+    borderColor: "rgba(255, 255, 255, 0.28)",
   },
   tagText: {
     fontSize: 10,
@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   tagTextLight: {
-    color: colors.textOnPrimary,
+    color: "#E0F7FA",
   },
   subtext: {
     fontSize: typography.fontSize.caption,
@@ -144,82 +144,78 @@ const styles = StyleSheet.create({
     color: "#D9EEF4",
   },
   headerContainer: {
-    minHeight: 232,
-    backgroundColor: colors.primary,
+    minHeight: 224,
+    backgroundColor: "#0A4658",
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,
     justifyContent: "center",
-    gap: spacing.sm,
+    gap: spacing.xs,
     overflow: "hidden",
   },
   badgeWrapper: {
     alignSelf: "center",
-    backgroundColor: "#FFFFFF24",
-    paddingVertical: 2,
-    paddingHorizontal: spacing.xs,
+    backgroundColor: "rgba(255, 255, 255, 0.16)",
+    paddingVertical: 3,
+    paddingHorizontal: spacing.sm,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: "#FFFFFF40",
+    borderColor: "rgba(255, 255, 255, 0.28)",
     zIndex: 1,
   },
   badgeText: {
     fontSize: 11,
     fontWeight: "700",
-    color: colors.textOnPrimary,
-    letterSpacing: 0.5,
+    color: "#E0F7FA",
+    letterSpacing: 0.6,
   },
   title: {
     fontSize: typography.fontSize.display,
     fontWeight: "800",
-    color: colors.textOnPrimary,
+    color: "#FFFFFF",
     lineHeight: typography.lineHeight.display,
     textAlign: "center",
     zIndex: 1,
   },
   subtitle: {
     fontSize: typography.fontSize.body,
-    color: "#E5F5F8",
+    color: "#D0E9F0",
     lineHeight: typography.lineHeight.body,
     textAlign: "center",
     zIndex: 1,
   },
-  decorPanelPrimary: {
+  decorOrbPrimary: {
     position: "absolute",
-    width: 152,
-    height: 120,
-    borderRadius: 28,
-    backgroundColor: "#FFFFFF14",
-    transform: [{ rotate: "-18deg" }],
-    left: -18,
-    top: 48,
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: "rgba(34, 211, 238, 0.09)",
+    top: -60,
+    right: -40,
   },
-  decorPanelSecondary: {
+  decorOrbSecondary: {
     position: "absolute",
-    width: 164,
-    height: 132,
-    borderRadius: 32,
-    backgroundColor: "#E67E2230",
-    transform: [{ rotate: "18deg" }],
-    right: -22,
-    top: 58,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: "rgba(45, 212, 191, 0.08)",
+    bottom: -40,
+    left: -50,
   },
-  decorPillTop: {
+  decorRing: {
     position: "absolute",
-    width: 104,
-    height: 28,
-    borderRadius: radii.pill,
-    backgroundColor: "#FFFFFF22",
-    right: 28,
-    top: 30,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    top: 24,
+    left: 20,
   },
-  decorPillBottom: {
+  decorGlowBottom: {
     position: "absolute",
-    width: 230,
-    height: 76,
-    borderTopLeftRadius: 48,
-    borderTopRightRadius: 48,
-    backgroundColor: "#E67E2240",
-    alignSelf: "center",
+    width: "100%",
+    height: 48,
     bottom: 0,
+    backgroundColor: "rgba(255, 255, 255, 0.04)",
   },
 });

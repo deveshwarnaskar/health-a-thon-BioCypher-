@@ -69,9 +69,11 @@ export default function WelcomeScreen() {
 
 const styles = StyleSheet.create({
   pillarSection: {
-    backgroundColor: "#F4F7F8",
+    backgroundColor: "#F0F8FA",
     padding: spacing.md,
     borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: "#D5EBF0",
     gap: spacing.sm,
   },
   pillarRow: {
@@ -87,7 +89,7 @@ const styles = StyleSheet.create({
   },
   pillarText: {
     fontSize: typography.fontSize.caption,
-    color: colors.textPrimary,
+    color: "#1E293B",
     fontWeight: "500",
   },
   actionSection: {

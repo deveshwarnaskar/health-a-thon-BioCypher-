@@ -1,6 +1,6 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { colors, radii, spacing, typography } from "../../../theming/tokens";
+import { colors, radii, typography } from "../../../theming/tokens";
 
 export type AuthMode = "login" | "signup";
 
@@ -54,40 +54,42 @@ export function AuthModeTabs({
 
 const styles = StyleSheet.create({
   container: {
-    minHeight: 64,
+    minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F4F6F7",
+    backgroundColor: "#EDF3F6",
     borderRadius: radii.pill,
-    padding: spacing.xs,
-    gap: spacing.xs,
+    borderWidth: 1,
+    borderColor: "#DCE6EA",
+    padding: 4,
+    gap: 4,
   },
   tab: {
     flex: 1,
-    minHeight: 48,
+    minHeight: 46,
     borderRadius: radii.pill,
     alignItems: "center",
     justifyContent: "center",
   },
   tabActive: {
     backgroundColor: colors.surface,
-    shadowColor: "#0A2833",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 2,
+    shadowColor: "#0D5C75",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 3,
   },
   tabPressed: {
-    opacity: 0.76,
+    opacity: 0.78,
   },
   tabText: {
-    fontSize: typography.fontSize.body,
-    color: colors.textSecondary,
+    fontSize: typography.fontSize.bodySmall,
+    color: "#5B727D",
     fontWeight: "600",
-    letterSpacing: 0,
+    letterSpacing: 0.1,
   },
   tabTextActive: {
-    color: colors.textPrimary,
+    color: "#0A485C",
     fontWeight: "700",
   },
 });

@@ -98,16 +98,15 @@ export function TodaySummaryCard({ items }: TodaySummaryCardProps) {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.tileBlue,
     borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    borderWidth: 0,
+    padding: spacing.lg,
+    shadowColor: colors.primaryInk,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.16,
+    shadowRadius: 22,
+    elevation: 6,
   },
   headerRow: {
     flexDirection: "row",
@@ -118,13 +117,13 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.caption,
     fontWeight: typography.weight.bold,
     letterSpacing: 1.2,
-    color: colors.primary,
+    color: "#DFF7FF",
     marginBottom: 2,
   },
   title: {
     fontSize: typography.fontSize.body,
     fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
+    color: colors.textOnPrimary,
   },
   countPill: {
     paddingHorizontal: spacing.sm,
@@ -132,24 +131,24 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
   },
   countPillAttention: {
-    backgroundColor: "#FDF2E9",
+    backgroundColor: colors.assistive,
   },
   countPillComplete: {
-    backgroundColor: "#E8F8F5",
+    backgroundColor: colors.tileGreen,
   },
   countPillText: {
     fontSize: typography.fontSize.caption,
     fontWeight: typography.weight.semibold,
   },
   countPillTextAttention: {
-    color: colors.assistive,
+    color: colors.primaryInk,
   },
   countPillTextComplete: {
     color: colors.leafGreen,
   },
   divider: {
     height: 1,
-    backgroundColor: colors.border,
+    backgroundColor: "#FFFFFF55",
     marginVertical: spacing.sm,
   },
   list: {
@@ -163,10 +162,10 @@ const styles = StyleSheet.create({
   itemLabel: {
     fontSize: typography.fontSize.bodySmall,
     fontWeight: typography.weight.medium,
-    color: colors.textPrimary,
+    color: colors.textOnPrimary,
   },
   itemLabelDone: {
-    color: colors.textSecondary,
+    color: "#DCEBFF",
     textDecorationLine: "line-through",
   },
   itemStatusContainer: {
@@ -176,7 +175,7 @@ const styles = StyleSheet.create({
   },
   itemTime: {
     fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+    color: "#DCEBFF",
   },
   statusIndicator: {
     width: 24,
@@ -188,7 +187,7 @@ const styles = StyleSheet.create({
   statusIndicatorPending: {
     borderWidth: 1.5,
     borderColor: colors.assistive,
-    backgroundColor: "transparent",
+    backgroundColor: colors.assistive,
   },
   statusIndicatorDone: {
     backgroundColor: colors.leafGreen,
@@ -198,7 +197,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   indicatorIconPending: {
-    color: colors.assistive,
+    color: colors.primaryInk,
   },
   indicatorIconDone: {
     color: colors.textOnPrimary,

@@ -89,11 +89,16 @@ export function PatientMedicationCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: radii.md,
+    borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#FFFFFF",
     padding: spacing.md,
     marginBottom: spacing.sm,
+    shadowColor: colors.primaryInk,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
+    elevation: 2,
   },
   topRow: {
     flexDirection: "row",
@@ -104,8 +109,8 @@ const styles = StyleSheet.create({
   iconTag: {
     width: 32,
     height: 32,
-    borderRadius: radii.sm,
-    backgroundColor: "#F0F7F9",
+    borderRadius: radii.pill,
+    backgroundColor: colors.tileAqua,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -118,10 +123,10 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
   },
   statusBadgeTaken: {
-    backgroundColor: "#E8F8F5",
+    backgroundColor: colors.tileGreen,
   },
   statusBadgeDue: {
-    backgroundColor: "#FDF2E9",
+    backgroundColor: colors.tileCream,
   },
   statusText: {
     fontSize: typography.fontSize.caption,
@@ -162,7 +167,7 @@ const styles = StyleSheet.create({
   },
   takenButton: {
     backgroundColor: colors.primary,
-    borderRadius: radii.md,
+    borderRadius: radii.pill,
     minHeight: touchTarget.min,
     alignItems: "center",
     justifyContent: "center",

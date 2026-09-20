@@ -104,15 +104,20 @@ export function PatientTaskCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: radii.md,
+    borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#FFFFFF",
     padding: spacing.md,
     marginBottom: spacing.sm,
+    shadowColor: colors.primaryInk,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
+    elevation: 2,
   },
   cardCompleted: {
-    backgroundColor: "#FAFBFB",
-    borderColor: "#E5EBEB",
+    backgroundColor: colors.backgroundRaised,
+    borderColor: "#FFFFFF",
   },
   leftColumn: {
     flexDirection: "row",
@@ -177,10 +182,10 @@ const styles = StyleSheet.create({
     borderRadius: radii.sm,
   },
   badgePending: {
-    backgroundColor: "#FDF2E9",
+    backgroundColor: colors.tileCream,
   },
   badgeCompleted: {
-    backgroundColor: "#E8F8F5",
+    backgroundColor: colors.tileGreen,
   },
   badgeText: {
     fontSize: 10,

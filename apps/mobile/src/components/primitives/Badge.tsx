@@ -10,21 +10,21 @@ export type BadgeProps = {
 };
 
 const toneBackground: Record<BadgeTone, string> = {
-  neutral: colors.border,
-  success: colors.leafGreen,
-  warning: colors.warning,
-  critical: colors.critical,
-  info: colors.info,
-  assistive: colors.assistive,
+  neutral: colors.backgroundRaised,
+  success: colors.tileGreen,
+  warning: colors.tileCream,
+  critical: colors.tilePink,
+  info: colors.tileAqua,
+  assistive: colors.tileYellow,
 };
 
 const toneForeground: Record<BadgeTone, string> = {
-  neutral: colors.textPrimary,
-  success: colors.textOnPrimary,
-  warning: colors.textPrimary,
-  critical: colors.textOnPrimary,
-  info: colors.textOnPrimary,
-  assistive: colors.textOnAssistive,
+  neutral: colors.textSecondary,
+  success: colors.leafGreen,
+  warning: colors.warning,
+  critical: colors.critical,
+  info: colors.primary,
+  assistive: colors.primaryInk,
 };
 
 export function Badge({ label, tone = "neutral" }: BadgeProps) {
@@ -40,12 +40,14 @@ export function Badge({ label, tone = "neutral" }: BadgeProps) {
 const styles = StyleSheet.create({
   base: {
     alignSelf: "flex-start",
-    paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.xxs / 2,
-    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: "#FFFFFF99",
   },
   label: {
     fontSize: typography.fontSize.caption,
-    fontWeight: "600",
+    fontWeight: "800",
   },
 });

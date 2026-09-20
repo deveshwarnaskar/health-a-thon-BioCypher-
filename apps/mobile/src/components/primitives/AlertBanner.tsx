@@ -11,17 +11,17 @@ export type AlertBannerProps = {
 };
 
 const toneBackground: Record<AlertTone, string> = {
-  critical: colors.critical,
-  warning: colors.warning,
-  info: colors.info,
-  success: colors.leafGreen,
+  critical: colors.tilePink,
+  warning: colors.tileCream,
+  info: colors.tileAqua,
+  success: colors.tileGreen,
 };
 
 const toneForeground: Record<AlertTone, string> = {
-  critical: colors.textOnPrimary,
-  warning: colors.textPrimary,
-  info: colors.textOnPrimary,
-  success: colors.textOnPrimary,
+  critical: colors.critical,
+  warning: colors.primaryInk,
+  info: colors.primary,
+  success: colors.leafGreen,
 };
 
 export function AlertBanner({ tone, message, title }: AlertBannerProps) {
@@ -46,13 +46,20 @@ export function AlertBanner({ tone, message, title }: AlertBannerProps) {
 
 const styles = StyleSheet.create({
   base: {
-    borderRadius: radii.md,
+    borderRadius: radii.lg,
     padding: spacing.md,
     gap: spacing.xxs,
+    borderWidth: 1,
+    borderColor: "#FFFFFF",
+    shadowColor: colors.primaryInk,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    elevation: 2,
   },
   title: {
     fontSize: typography.fontSize.body,
-    fontWeight: "600",
+    fontWeight: "800",
   },
   message: {
     fontSize: typography.fontSize.bodySmall,

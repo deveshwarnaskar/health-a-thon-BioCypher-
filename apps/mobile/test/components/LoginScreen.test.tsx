@@ -81,9 +81,9 @@ describe("LoginScreen (component-level a11y)", () => {
     expect(mockSignIn).toHaveBeenCalledTimes(1);
   });
 
-  it("renders clinic enrollment guidance", () => {
+  it("does not render clinic enrollment guidance", () => {
     render(<LoginScreen />);
-    expect(screen.getByText(/Clinic Enrollment & Access/i)).toBeTruthy();
+    expect(screen.queryByText(/Clinic Enrollment & Access/i)).toBeNull();
   });
 
   it("does not render the extra reset credentials button below sign in", () => {
