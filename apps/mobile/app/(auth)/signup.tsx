@@ -117,7 +117,7 @@ export default function SignupScreen() {
   return (
     <AuthScreen>
       <AuthHeader
-        title="Create your THALI account"
+        title="Create your account"
         subtitle="Join THALI × P.L.A.T.E. to access your glycemic health journey."
       />
 

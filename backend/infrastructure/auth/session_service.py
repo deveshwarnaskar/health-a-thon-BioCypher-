@@ -170,6 +170,7 @@ class SessionService:
             is_active=True,
         )
         session.add(user_session)
+        session.flush()
 
         # High-entropy opaque refresh token secret
         raw_refresh = f"thali_rt_{TokenService.generate_secure_secret(48)}"
