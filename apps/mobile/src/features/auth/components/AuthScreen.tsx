@@ -74,14 +74,15 @@ export function AuthPanel({ children, overlapHeader = true, style }: AuthPanelPr
 const styles = StyleSheet.create({
   keyboardAvoiding: {
     flex: 1,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.surface,
   },
   scrollView: {
     flex: 1,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.surface,
   },
   scrollContent: {
     flexGrow: 1,
+    backgroundColor: colors.surface,
   },
   centerContainer: {
     flexGrow: 1,
@@ -89,6 +90,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   panel: {
+    flex: 1,
     backgroundColor: colors.surface,
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,

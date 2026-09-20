@@ -26,7 +26,7 @@ export default function AuthLayout() {
         animation: "fade",
         animationDuration: 180,
         gestureEnabled: false,
-        contentStyle: { backgroundColor: colors.primary },
+        contentStyle: { backgroundColor: colors.surface },
       }}
     />
   );
