@@ -11,17 +11,17 @@ export function AuthLogo({ compact = false }: AuthLogoProps) {
     <View style={styles.container} accessibilityRole="header">
       <View style={styles.brandRow}>
         <Text style={[styles.wordmark, compact && styles.wordmarkCompact]} allowFontScaling>
-          THALI
+          THALI × P.L.A.T.E.
         </Text>
         <View style={styles.tag}>
           <Text style={styles.tagText} allowFontScaling>
-            CLINICAL ACCESS
+            HEALTHCARE PLATFORM
           </Text>
         </View>
       </View>
       {!compact && (
         <Text style={styles.subtext} allowFontScaling>
-          Telemetry &amp; Household Assistive Logbook for Interventions
+          Telemetry &amp; Household Assistive Logbook × Precision Lifestyle Assessment &amp; Treatment Engine
         </Text>
       )}
     </View>
@@ -66,17 +66,18 @@ const styles = StyleSheet.create({
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
+    flexWrap: "wrap",
+    gap: spacing.xs,
   },
   wordmark: {
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: "800",
     color: colors.primary,
-    letterSpacing: 1.5,
+    letterSpacing: 0.8,
   },
   wordmarkCompact: {
-    fontSize: 22,
-    letterSpacing: 1.2,
+    fontSize: 18,
+    letterSpacing: 0.5,
   },
   tag: {
     backgroundColor: "#E0F2F7",

@@ -68,7 +68,7 @@ export default function LoginScreen() {
     <AuthScreen>
       <AuthHeader
         title="Welcome back"
-        subtitle="Sign in to continue to your THALI account."
+        subtitle="Sign in to continue to your THALI × P.L.A.T.E. account."
       />
 
       {localError ? (
@@ -124,7 +124,7 @@ export default function LoginScreen() {
           disabled={busy}
           busy={busy}
           accessibilityLabel={busy ? "Secure sign-in (in progress)…" : "Continue with clinic sign-in"}
-          accessibilityHint="Authenticates your credentials with the THALI service."
+          accessibilityHint="Authenticates your credentials with the THALI × P.L.A.T.E. service."
         />
       </View>
 

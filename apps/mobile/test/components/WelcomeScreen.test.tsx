@@ -17,9 +17,9 @@ describe("WelcomeScreen (component-level UX & navigation)", () => {
 
   it("renders THALI brand mark, tagline, and clinical pillars", () => {
     render(<WelcomeScreen />);
-    expect(screen.getByText("THALI")).toBeTruthy();
+    expect(screen.getByText(/^THALI × P\.L\.A\.T\.E\.$/i)).toBeTruthy();
     expect(screen.getByText("Care, connected.")).toBeTruthy();
-    expect(screen.getByText(/Your everyday health information, organized in one secure place/i)).toBeTruthy();
+    expect(screen.getByText(/Unified healthcare platform/i)).toBeTruthy();
     expect(screen.getByText(/Patient self-service glycemic and meal logging/i)).toBeTruthy();
     expect(screen.getByText(/Caregiver delegated monitoring/i)).toBeTruthy();
     expect(screen.getByText(/Verified clinician review/i)).toBeTruthy();
@@ -41,6 +41,6 @@ describe("WelcomeScreen (component-level UX & navigation)", () => {
 
   it("renders the THALI security controls footer", () => {
     render(<WelcomeScreen />);
-    expect(screen.getByText(/Your information is protected by THALI's security controls/i)).toBeTruthy();
+    expect(screen.getByText(/Your information is protected by THALI × P\.L\.A\.T\.E\. security controls/i)).toBeTruthy();
   });
 });

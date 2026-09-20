@@ -28,7 +28,7 @@ export default function WelcomeScreen() {
             Care, connected.
           </Text>
           <Text style={styles.description} allowFontScaling>
-            Your everyday health information, organized in one secure place.
+            Unified healthcare platform — patient and caregiver health logging with THALI, clinician review with P.L.A.T.E.
           </Text>
         </View>
 

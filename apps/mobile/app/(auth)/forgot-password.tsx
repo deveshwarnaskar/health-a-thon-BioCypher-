@@ -108,7 +108,7 @@ export default function ForgotPasswordScreen() {
           <AuthHeader
             badge={stepBadge}
             title="Reset your password"
-            subtitle="Enter the email address associated with your THALI account. If an account exists, we'll send instructions to reset your password."
+            subtitle="Enter the email address associated with your THALI × P.L.A.T.E. account. If an account exists, we'll send instructions to reset your password."
           />
 
           {errorMsg ? <AlertBanner tone="critical" message={errorMsg} /> : null}
@@ -157,7 +157,7 @@ export default function ForgotPasswordScreen() {
           <AuthHeader
             badge={stepBadge}
             title="Create a new password"
-            subtitle="Choose a new password for your THALI account."
+            subtitle="Choose a new password for your THALI × P.L.A.T.E. account."
           />
 
           {errorMsg ? <AlertBanner tone="critical" message={errorMsg} /> : null}

@@ -7,7 +7,7 @@ export type AuthFooterProps = {
 };
 
 export function AuthFooter({
-  text = "Your information is protected by THALI's security controls.",
+  text = "Your information is protected by THALI × P.L.A.T.E. security controls.",
 }: AuthFooterProps) {
   return (
     <View style={styles.container}>

@@ -45,7 +45,7 @@ export function RoleSelector({
     <View style={styles.container} accessibilityRole="radiogroup">
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle} allowFontScaling>
-          How will you use THALI?
+          How will you use THALI × P.L.A.T.E.?
         </Text>
         <Text style={styles.sectionSubtitle} allowFontScaling>
           Choose the account type that applies to you.
