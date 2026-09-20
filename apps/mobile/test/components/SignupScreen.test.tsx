@@ -40,7 +40,7 @@ describe("SignupScreen (component-level a11y & workflows)", () => {
 
   it("renders the create account title and subtitle", () => {
     render(<SignupScreen />);
-    expect(screen.getByText(/Create Account/i)).toBeTruthy();
+    expect(screen.getByText("Create Account")).toBeTruthy();
     expect(screen.getByText(/Join THALI × P.L.A.T.E./i)).toBeTruthy();
   });
 
@@ -211,6 +211,7 @@ describe("SignupScreen (component-level a11y & workflows)", () => {
     render(<SignupScreen />);
     const signInButton = screen.getByRole("button", { name: /Already have an account\? Sign In/i });
     fireEvent.press(signInButton);
-    expect(mockRouterPush).toHaveBeenCalledWith("/(auth)/login");
+    expect(mockRouterReplace).toHaveBeenCalledWith("/(auth)/login");
+    expect(mockRouterPush).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import React from "react";
 import { Redirect, Stack } from "expo-router";
 import { useAuth } from "../../src/auth/AuthProvider";
+import { colors } from "../../src/theming/tokens";
 
 /**
  * Routes in the (auth) group are reached when a session has not been
@@ -18,5 +19,15 @@ export default function AuthLayout() {
     return <Redirect href="/(app)/access-denied" />;
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        animation: "fade",
+        animationDuration: 180,
+        gestureEnabled: false,
+        contentStyle: { backgroundColor: colors.primary },
+      }}
+    />
+  );
 }

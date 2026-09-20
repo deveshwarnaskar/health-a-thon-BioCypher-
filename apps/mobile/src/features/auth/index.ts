@@ -2,6 +2,7 @@ export * from "./components/AuthScreen";
 export * from "./components/AuthHeader";
 export * from "./components/AuthInput";
 export * from "./components/AuthButton";
+export * from "./components/AuthModeTabs";
 export * from "./components/PasswordRequirements";
 export * from "./components/RoleSelector";
 export * from "./components/PendingVerificationCard";

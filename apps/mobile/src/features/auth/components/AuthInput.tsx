@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   Pressable,
   StyleSheet,
   Text,
   TextInput as RNTextInput,
+  type TextInput as RNTextInputRef,
   type TextInputProps as RNTextInputProps,
   View,
 } from "react-native";
@@ -43,9 +44,15 @@ export function AuthInput({
   testID,
 }: AuthInputProps) {
   const [isFocused, setIsFocused] = useState(false);
+  const inputRef = useRef<RNTextInputRef>(null);
+  const focusInput = () => {
+    if (!disabled) {
+      inputRef.current?.focus();
+    }
+  };
 
   return (
-    <View style={styles.fieldContainer}>
+    <View style={styles.fieldContainer} onTouchEnd={focusInput}>
       <Text style={styles.label} allowFontScaling>
         {label}
       </Text>
@@ -58,6 +65,7 @@ export function AuthInput({
         ]}
       >
         <RNTextInput
+          ref={inputRef}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
@@ -109,9 +117,15 @@ export function PasswordInput({
 }: PasswordInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [visible, setVisible] = useState(false);
+  const inputRef = useRef<RNTextInputRef>(null);
+  const focusInput = () => {
+    if (!disabled) {
+      inputRef.current?.focus();
+    }
+  };
 
   return (
-    <View style={styles.fieldContainer}>
+    <View style={styles.fieldContainer} onTouchEnd={focusInput}>
       <Text style={styles.label} allowFontScaling>
         {label}
       </Text>
@@ -124,6 +138,7 @@ export function PasswordInput({
         ]}
       >
         <RNTextInput
+          ref={inputRef}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
@@ -178,18 +193,23 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   inputContainer: {
-    minHeight: 52,
+    minHeight: 58,
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: radii.md,
-    borderWidth: 1.5,
+    borderRadius: radii.pill,
+    borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
   },
   inputFocused: {
     borderColor: colors.primary,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 2,
   },
   inputError: {
     borderColor: colors.critical,
@@ -202,7 +222,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: typography.fontSize.body,
     color: colors.textPrimary,
-    minHeight: 48,
+    minHeight: 54,
     paddingVertical: 0,
   },
   passwordTextInput: {

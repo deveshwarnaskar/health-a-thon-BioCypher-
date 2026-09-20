@@ -1,5 +1,13 @@
 import React from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  type StyleProp,
+  View,
+  type ViewStyle,
+} from "react-native";
 import { colors, radii, spacing, typography } from "../../../theming/tokens";
 
 export type AuthButtonProps = {
@@ -12,7 +20,7 @@ export type AuthButtonProps = {
   accessibilityHint?: string;
   accessibilityLabel?: string;
   testID?: string;
-  style?: View["props"]["style"];
+  style?: StyleProp<ViewStyle>;
 };
 
 export function AuthButton({
@@ -92,17 +100,23 @@ export function AuthButton({
 
 const styles = StyleSheet.create({
   base: {
-    minHeight: 52,
+    minHeight: 58,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: spacing.lg,
-    borderRadius: radii.md,
+    borderRadius: radii.pill,
     borderWidth: 1.5,
+    overflow: "hidden",
   },
   primary: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: colors.assistive,
+    borderColor: colors.assistive,
+    shadowColor: "#7A3500",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    elevation: 3,
   },
   secondary: {
     backgroundColor: "#F0F7F9",
@@ -129,8 +143,8 @@ const styles = StyleSheet.create({
   },
   labelText: {
     fontSize: typography.fontSize.body,
-    fontWeight: "600",
-    letterSpacing: 0.2,
+    fontWeight: "700",
+    letterSpacing: 0,
   },
   labelPrimary: {
     color: "#FFFFFF",

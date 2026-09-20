@@ -3,10 +3,12 @@ import { render, screen, fireEvent } from "@testing-library/react-native";
 import WelcomeScreen from "../../app/(auth)/welcome";
 
 const mockRouterPush = jest.fn();
+const mockRouterReplace = jest.fn();
 
 jest.mock("expo-router", () => ({
   useRouter: () => ({
     push: mockRouterPush,
+    replace: mockRouterReplace,
   }),
 }));
 
@@ -29,14 +31,16 @@ describe("WelcomeScreen (component-level UX & navigation)", () => {
     render(<WelcomeScreen />);
     const signInButton = screen.getByRole("button", { name: /Sign in/i });
     fireEvent.press(signInButton);
-    expect(mockRouterPush).toHaveBeenCalledWith("/(auth)/login");
+    expect(mockRouterReplace).toHaveBeenCalledWith("/(auth)/login");
+    expect(mockRouterPush).not.toHaveBeenCalled();
   });
 
   it("navigates to Sign Up screen when Create account button is pressed", () => {
     render(<WelcomeScreen />);
     const createAccountButton = screen.getByRole("button", { name: /Create account/i });
     fireEvent.press(createAccountButton);
-    expect(mockRouterPush).toHaveBeenCalledWith("/(auth)/signup");
+    expect(mockRouterReplace).toHaveBeenCalledWith("/(auth)/signup");
+    expect(mockRouterPush).not.toHaveBeenCalled();
   });
 
   it("renders the THALI security controls footer", () => {

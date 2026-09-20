@@ -9,6 +9,8 @@ import {
   AuthFooter,
   AuthHeader,
   AuthInput,
+  AuthModeTabs,
+  AuthPanel,
   AuthScreen,
   PasswordInput,
   PasswordRequirements,
@@ -98,18 +100,20 @@ export default function SignupScreen() {
           badge="CLINICIAN ENROLLMENT"
         />
 
-        <PendingVerificationCard role={role} />
+        <AuthPanel>
+          <PendingVerificationCard role={role} />
 
-        <AuthButton
-          label="Continue to Clinician Portal"
-          onPress={() => {
-            setPendingDoctorNotice(false);
-            router.replace("/(app)/shell");
-          }}
-          accessibilityHint="Enters the clinician portal with pending verification status."
-        />
+          <AuthButton
+            label="Continue to Clinician Portal"
+            onPress={() => {
+              setPendingDoctorNotice(false);
+              router.replace("/(app)/shell");
+            }}
+            accessibilityHint="Enters the clinician portal with pending verification status."
+          />
 
-        <AuthFooter />
+          <AuthFooter />
+        </AuthPanel>
       </AuthScreen>
     );
   }
@@ -117,149 +121,161 @@ export default function SignupScreen() {
   return (
     <AuthScreen>
       <AuthHeader
-        title="Create your account"
+        title="Create Account"
         subtitle="Join THALI × P.L.A.T.E. to access your glycemic health journey."
       />
 
-      {localError ? <AlertBanner tone="critical" message={localError} /> : null}
-
-      <View style={styles.formContainer}>
-        {/* STEP 1: Role Selection */}
-        <RoleSelector
-          selectedRole={role}
-          onSelectRole={setRole}
+      <AuthPanel>
+        <AuthModeTabs
+          activeMode="signup"
           disabled={busy}
+          onSelectMode={(mode) => {
+            if (mode === "login") {
+              router.replace("/(auth)/login");
+            }
+          }}
         />
 
-        {/* Role-Specific Guidance */}
-        {role === "caregiver" ? (
-          <View style={styles.roleNoticeBox}>
-            <Text style={styles.roleNoticeTitle} allowFontScaling>
-              Caregiver Connection
-            </Text>
-            <Text style={styles.roleNoticeText} allowFontScaling>
-              After creating your account, you&apos;ll need to be connected to a patient before you can access their care information.
-            </Text>
-          </View>
-        ) : null}
+        {localError ? <AlertBanner tone="critical" message={localError} /> : null}
 
-        {role === "doctor" ? (
-          <View style={styles.doctorInviteBox}>
-            <View style={styles.doctorNoticeHeader}>
-              <Text style={styles.doctorNoticeTitle} allowFontScaling>
-                Clinical verification
+        <View style={styles.formContainer}>
+          {/* STEP 1: Role Selection */}
+          <RoleSelector
+            selectedRole={role}
+            onSelectRole={setRole}
+            disabled={busy}
+          />
+
+          {/* Role-Specific Guidance */}
+          {role === "caregiver" ? (
+            <View style={styles.roleNoticeBox}>
+              <Text style={styles.roleNoticeTitle} allowFontScaling>
+                Caregiver Connection
               </Text>
-              <Text style={styles.doctorNoticeText} allowFontScaling>
-                Doctor accounts require authorization before clinical access is enabled. If you have an authorized facility code, enter it below.
+              <Text style={styles.roleNoticeText} allowFontScaling>
+                After creating your account, you&apos;ll need to be connected to a patient before you can access their care information.
               </Text>
             </View>
+          ) : null}
+
+          {role === "doctor" ? (
+            <View style={styles.doctorInviteBox}>
+              <View style={styles.doctorNoticeHeader}>
+                <Text style={styles.doctorNoticeTitle} allowFontScaling>
+                  Clinical verification
+                </Text>
+                <Text style={styles.doctorNoticeText} allowFontScaling>
+                  Doctor accounts require authorization before clinical access is enabled. If you have an authorized facility code, enter it below.
+                </Text>
+              </View>
+              <AuthInput
+                label="Clinical invite code (Optional)"
+                value={inviteCode}
+                onChangeText={setInviteCode}
+                placeholder="e.g. CLINIC-VERIFIED-2026"
+                autoCapitalize="characters"
+                disabled={busy}
+                accessibilityLabel="Clinician invite code input"
+                hint="Without an approved code, your account will be registered in pending verification status."
+              />
+            </View>
+          ) : null}
+
+          {/* STEP 2: Personal Details */}
+          <View style={styles.stepSection}>
+            <Text style={styles.stepTitle} allowFontScaling>
+              Your details
+            </Text>
+
             <AuthInput
-              label="Clinical invite code (Optional)"
-              value={inviteCode}
-              onChangeText={setInviteCode}
-              placeholder="e.g. CLINIC-VERIFIED-2026"
-              autoCapitalize="characters"
+              label="Full name"
+              value={name}
+              onChangeText={setName}
+              placeholder="e.g. Sita Sharma"
+              autoCapitalize="words"
+              textContentType="name"
               disabled={busy}
-              accessibilityLabel="Clinician invite code input"
-              hint="Without an approved code, your account will be registered in pending verification status."
+              accessibilityLabel="Full name input"
+            />
+
+            <AuthInput
+              label="Email address"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="you@example.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              textContentType="emailAddress"
+              disabled={busy}
+              accessibilityLabel="Email address input"
+            />
+
+            <AuthInput
+              label="Phone number (Optional)"
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="+91 98765 43210"
+              keyboardType="phone-pad"
+              textContentType="telephoneNumber"
+              disabled={busy}
+              accessibilityLabel="Phone number input"
             />
           </View>
-        ) : null}
 
-        {/* STEP 2: Personal Details */}
-        <View style={styles.stepSection}>
-          <Text style={styles.stepTitle} allowFontScaling>
-            Your details
-          </Text>
+          {/* STEP 3: Password */}
+          <View style={styles.stepSection}>
+            <Text style={styles.stepTitle} allowFontScaling>
+              Secure your account
+            </Text>
 
-          <AuthInput
-            label="Full name"
-            value={name}
-            onChangeText={setName}
-            placeholder="e.g. Sita Sharma"
-            autoCapitalize="words"
-            textContentType="name"
-            disabled={busy}
-            accessibilityLabel="Full name input"
-          />
+            <PasswordInput
+              label="Password"
+              value={password}
+              onChangeText={setPassword}
+              placeholder="At least 8 characters"
+              disabled={busy}
+              accessibilityLabel="Password input"
+            />
 
-          <AuthInput
-            label="Email address"
-            value={email}
-            onChangeText={setEmail}
-            placeholder="you@example.com"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoComplete="email"
-            textContentType="emailAddress"
-            disabled={busy}
-            accessibilityLabel="Email address input"
-          />
+            <PasswordInput
+              label="Confirm password"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              placeholder="Re-enter password"
+              disabled={busy}
+              accessibilityLabel="Confirm password input"
+            />
 
-          <AuthInput
-            label="Phone number (Optional)"
-            value={phone}
-            onChangeText={setPhone}
-            placeholder="+91 98765 43210"
-            keyboardType="phone-pad"
-            textContentType="telephoneNumber"
-            disabled={busy}
-            accessibilityLabel="Phone number input"
-          />
-        </View>
+            <PasswordRequirements
+              password={password}
+              confirmPassword={confirmPassword}
+            />
+          </View>
 
-        {/* STEP 3: Password */}
-        <View style={styles.stepSection}>
-          <Text style={styles.stepTitle} allowFontScaling>
-            Secure your account
-          </Text>
-
-          <PasswordInput
-            label="Password"
-            value={password}
-            onChangeText={setPassword}
-            placeholder="At least 8 characters"
-            disabled={busy}
-            accessibilityLabel="Password input"
-          />
-
-          <PasswordInput
-            label="Confirm password"
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            placeholder="Re-enter password"
-            disabled={busy}
-            accessibilityLabel="Confirm password input"
-          />
-
-          <PasswordRequirements
-            password={password}
-            confirmPassword={confirmPassword}
+          {/* Submit Button */}
+          <AuthButton
+            label="Sign up"
+            loadingLabel="Creating account..."
+            onPress={handleSignup}
+            disabled={busy || !email.trim() || !password || !confirmPassword}
+            busy={busy}
+            accessibilityLabel={busy ? "Creating account..." : "Register & Sign In"}
+            accessibilityHint="Submits your account registration to THALI."
           />
         </View>
 
-        {/* Submit Button */}
+        {/* Navigation to Sign In */}
         <AuthButton
-          label="Create account"
-          loadingLabel="Creating account..."
-          onPress={handleSignup}
-          disabled={busy || !email.trim() || !password || !confirmPassword}
-          busy={busy}
-          accessibilityLabel={busy ? "Creating account..." : "Register & Sign In"}
-          accessibilityHint="Submits your account registration to THALI."
+          label="Already have an account? Sign In"
+          variant="ghost"
+          onPress={() => router.replace("/(auth)/login")}
+          disabled={busy}
+          accessibilityHint="Navigates back to the sign in screen."
         />
-      </View>
 
-      {/* Navigation to Sign In */}
-      <AuthButton
-        label="Already have an account? Sign In"
-        variant="ghost"
-        onPress={() => router.push("/(auth)/login")}
-        disabled={busy}
-        accessibilityHint="Navigates back to the sign in screen."
-      />
-
-      <AuthFooter />
+        <AuthFooter />
+      </AuthPanel>
     </AuthScreen>
   );
 }

@@ -5,7 +5,8 @@ import { colors, radii, spacing, typography } from "../../src/theming/tokens";
 import {
   AuthButton,
   AuthFooter,
-  AuthLogo,
+  AuthHeader,
+  AuthPanel,
   AuthScreen,
 } from "../../src/features/auth";
 
@@ -18,20 +19,12 @@ export default function WelcomeScreen() {
 
   return (
     <AuthScreen>
-      <View style={styles.content}>
-        <View style={styles.logoSection}>
-          <AuthLogo />
-        </View>
+      <AuthHeader
+        title="Care, connected."
+        subtitle="Unified healthcare platform — patient and caregiver health logging with THALI, clinician review with P.L.A.T.E."
+      />
 
-        <View style={styles.headlineSection}>
-          <Text style={styles.tagline} allowFontScaling>
-            Care, connected.
-          </Text>
-          <Text style={styles.description} allowFontScaling>
-            Unified healthcare platform — patient and caregiver health logging with THALI, clinician review with P.L.A.T.E.
-          </Text>
-        </View>
-
+      <AuthPanel>
         <View style={styles.pillarSection}>
           <View style={styles.pillarRow}>
             <View style={styles.pillarDot} />
@@ -56,53 +49,29 @@ export default function WelcomeScreen() {
         <View style={styles.actionSection}>
           <AuthButton
             label="Sign in"
-            onPress={() => router.push("/(auth)/login")}
+            onPress={() => router.replace("/(auth)/login")}
             accessibilityHint="Navigates to the sign in screen."
           />
 
           <AuthButton
             label="Create account"
             variant="outline"
-            onPress={() => router.push("/(auth)/signup")}
+            onPress={() => router.replace("/(auth)/signup")}
             accessibilityHint="Navigates to the account registration screen."
           />
         </View>
 
         <AuthFooter />
-      </View>
+      </AuthPanel>
     </AuthScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
-    gap: spacing.xl,
-    paddingVertical: spacing.md,
-  },
-  logoSection: {
-    alignItems: "flex-start",
-  },
-  headlineSection: {
-    gap: spacing.xs,
-  },
-  tagline: {
-    fontSize: typography.fontSize.display,
-    fontWeight: "800",
-    color: colors.primary,
-    letterSpacing: -0.5,
-    lineHeight: 38,
-  },
-  description: {
-    fontSize: typography.fontSize.body,
-    color: colors.textSecondary,
-    lineHeight: 24,
-  },
   pillarSection: {
-    backgroundColor: colors.surface,
+    backgroundColor: "#F4F7F8",
     padding: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: radii.lg,
     gap: spacing.sm,
   },
   pillarRow: {

@@ -28,8 +28,8 @@ export default function RootLayout() {
     return (
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
-          <NotConfiguredSessionProvider>{shell}</NotConfiguredSessionProvider>
           <StatusBar style="dark" />
+          <NotConfiguredSessionProvider>{shell}</NotConfiguredSessionProvider>
         </QueryClientProvider>
       </SafeAreaProvider>
     );
@@ -38,8 +38,8 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
-        <SessionProvider>{shell}</SessionProvider>
         <StatusBar style="dark" />
+        <SessionProvider>{shell}</SessionProvider>
       </QueryClientProvider>
     </SafeAreaProvider>
   );

@@ -14,11 +14,12 @@ jest.mock("../../src/auth/AuthProvider", () => ({
 }));
 
 const mockRouterPush = jest.fn();
+const mockRouterReplace = jest.fn();
 
 jest.mock("expo-router", () => ({
   useRouter: () => ({
     push: mockRouterPush,
-    replace: jest.fn(),
+    replace: mockRouterReplace,
     back: jest.fn(),
   }),
 }));
@@ -128,7 +129,8 @@ describe("ForgotPasswordScreen (component-level a11y & workflows)", () => {
 
     const proceedButton = screen.getByRole("button", { name: /Proceed to Sign In/i });
     fireEvent.press(proceedButton);
-    expect(mockRouterPush).toHaveBeenCalledWith("/(auth)/login");
+    expect(mockRouterReplace).toHaveBeenCalledWith("/(auth)/login");
+    expect(mockRouterPush).not.toHaveBeenCalled();
   });
 
   it("displays error banner when reset fails", async () => {
@@ -156,6 +158,7 @@ describe("ForgotPasswordScreen (component-level a11y & workflows)", () => {
     render(<ForgotPasswordScreen />);
     const returnButton = screen.getByRole("button", { name: /Return to Sign In/i });
     fireEvent.press(returnButton);
-    expect(mockRouterPush).toHaveBeenCalledWith("/(auth)/login");
+    expect(mockRouterReplace).toHaveBeenCalledWith("/(auth)/login");
+    expect(mockRouterPush).not.toHaveBeenCalled();
   });
 });

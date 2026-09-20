@@ -10,6 +10,8 @@ import {
   AuthFooter,
   AuthHeader,
   AuthInput,
+  AuthModeTabs,
+  AuthPanel,
   AuthScreen,
   PasswordInput,
 } from "../../src/features/auth";
@@ -20,7 +22,7 @@ import {
  */
 export default function LoginScreen() {
   const router = useRouter();
-  const { state, signIn, recoverPassword, isBootstrapping, isAuthenticated } = useAuth();
+  const { state, signIn, isBootstrapping, isAuthenticated } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -67,108 +69,107 @@ export default function LoginScreen() {
   return (
     <AuthScreen>
       <AuthHeader
-        title="Welcome back"
+        title="Welcome Back"
         subtitle="Sign in to continue to your THALI × P.L.A.T.E. account."
       />
 
-      {localError ? (
-        <AlertBanner tone="critical" message={localError} />
-      ) : state.name === "failed" || state.name === "session_expired" ? (
-        <AlertBanner tone="critical" message={messageForState(state)} />
-      ) : null}
-
-      <View style={styles.formContainer}>
-        <AuthInput
-          label="Email address"
-          value={email}
-          onChangeText={setEmail}
-          placeholder="you@example.com"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoComplete="email"
-          textContentType="emailAddress"
+      <AuthPanel>
+        <AuthModeTabs
+          activeMode="login"
           disabled={busy}
-          accessibilityLabel="Email address input"
+          onSelectMode={(mode) => {
+            if (mode === "signup") {
+              router.replace("/(auth)/signup");
+            }
+          }}
         />
 
-        <View style={styles.passwordFieldWrapper}>
-          <PasswordInput
-            label="Password"
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Enter your password"
+        {localError ? (
+          <AlertBanner tone="critical" message={localError} />
+        ) : state.name === "failed" || state.name === "session_expired" ? (
+          <AlertBanner tone="critical" message={messageForState(state)} />
+        ) : null}
+
+        <View style={styles.formContainer}>
+          <AuthInput
+            label="Email address"
+            value={email}
+            onChangeText={setEmail}
+            placeholder="you@example.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            textContentType="emailAddress"
             disabled={busy}
-            accessibilityLabel="Password input"
+            accessibilityLabel="Email address input"
           />
 
-          <View style={styles.forgotPasswordRow}>
-            <Pressable
-              accessibilityRole="link"
-              accessibilityLabel="Forgot password recovery link"
-              accessibilityHint="Navigates to the password recovery screen"
-              onPress={() => router.push("/(auth)/forgot-password")}
+          <View style={styles.passwordFieldWrapper}>
+            <PasswordInput
+              label="Password"
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Enter your password"
               disabled={busy}
-              style={styles.forgotButton}
-            >
-              <Text style={styles.forgotText} allowFontScaling>
-                Forgot password?
-              </Text>
-            </Pressable>
+              accessibilityLabel="Password input"
+            />
+
+            <View style={styles.forgotPasswordRow}>
+              <Pressable
+                accessibilityRole="link"
+                accessibilityLabel="Forgot password recovery link"
+                accessibilityHint="Navigates to the password recovery screen"
+                onPress={() => router.replace("/(auth)/forgot-password")}
+                disabled={busy}
+                style={styles.forgotButton}
+              >
+                <Text style={styles.forgotText} allowFontScaling>
+                  Forgot password?
+                </Text>
+              </Pressable>
+            </View>
           </View>
+
+          <AuthButton
+            label="Sign in"
+            loadingLabel="Signing in..."
+            onPress={handleLogin}
+            disabled={busy}
+            busy={busy}
+            accessibilityLabel={busy ? "Secure sign-in (in progress)…" : "Continue with clinic sign-in"}
+            accessibilityHint="Authenticates your credentials with the THALI × P.L.A.T.E. service."
+          />
         </View>
 
-        <AuthButton
-          label="Sign in"
-          loadingLabel="Signing in..."
-          onPress={handleLogin}
-          disabled={busy}
-          busy={busy}
-          accessibilityLabel={busy ? "Secure sign-in (in progress)…" : "Continue with clinic sign-in"}
-          accessibilityHint="Authenticates your credentials with the THALI × P.L.A.T.E. service."
-        />
-      </View>
-
-      {recoverPassword ? (
-        <AuthButton
-          label="Forgot password / Reset credentials"
-          variant="outline"
-          onPress={async () => {
-            await recoverPassword();
-          }}
-          disabled={busy}
-          accessibilityLabel="Forgot password / Reset credentials"
-          accessibilityHint="Opens identity provider self-service credential recovery."
-        />
-      ) : null}
-
-      <View style={styles.signupNavRow}>
-        <Text style={styles.signupPromptText} allowFontScaling>
-          Don&apos;t have an account?{" "}
-        </Text>
-        <Pressable
-          accessibilityRole="link"
-          accessibilityLabel="Create account sign up link"
-          accessibilityHint="Navigates to the account registration screen"
-          onPress={() => router.push("/(auth)/signup")}
-          disabled={busy}
-          style={styles.signupLink}
-        >
-          <Text style={styles.signupActionText} allowFontScaling>
-            Create account
+        <View style={styles.signupNavRow}>
+          <Text style={styles.signupPromptText} allowFontScaling>
+            Don&apos;t have an account?{" "}
           </Text>
-        </Pressable>
-      </View>
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel="Create account sign up link"
+            accessibilityHint="Navigates to the account registration screen"
+            onPress={() => router.replace("/(auth)/signup")}
+            disabled={busy}
+            style={styles.signupLink}
+          >
+            <Text style={styles.signupActionText} allowFontScaling>
+              Create account
+            </Text>
+          </Pressable>
+        </View>
 
-      <View style={styles.guidanceBox}>
-        <Text style={styles.guidanceTitle} allowFontScaling>
-          Clinic Enrollment &amp; Access
-        </Text>
-        <Text style={styles.guidanceText} allowFontScaling>
-          Patients, caregivers, and doctors access their glycemic health workflows using verified account credentials.
-        </Text>
-      </View>
+        <View style={styles.guidanceBox}>
+          <Text style={styles.guidanceTitle} allowFontScaling>
+            Clinic Enrollment &amp; Access
+          </Text>
+          <Text style={styles.guidanceText} allowFontScaling>
+            Patients, caregivers, and doctors access their glycemic health workflows using verified account credentials.
+          </Text>
+        </View>
 
-      <AuthFooter />
+        <AuthFooter />
+      </AuthPanel>
     </AuthScreen>
   );
 }
@@ -239,11 +240,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   guidanceBox: {
-    backgroundColor: colors.surface,
+    backgroundColor: "#F4F7F8",
     padding: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderWidth: 0,
     gap: spacing.xs,
   },
   guidanceTitle: {

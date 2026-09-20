@@ -86,19 +86,15 @@ describe("LoginScreen (component-level a11y)", () => {
     expect(screen.getByText(/Clinic Enrollment & Access/i)).toBeTruthy();
   });
 
-  it("calls recoverPassword when the reset password button is pressed", () => {
+  it("does not render the extra reset credentials button below sign in", () => {
     const fn = jest.fn();
     mockRecoverPassword = fn;
     render(<LoginScreen />);
-    const buttons = screen.getAllByRole("button");
-    const recoverButton = buttons.find((b) =>
-      b.props.accessibilityLabel?.match(/reset|credential/i)
-    );
-    expect(recoverButton).toBeTruthy();
-    if (recoverButton) {
-      fireEvent.press(recoverButton);
-      expect(fn).toHaveBeenCalledTimes(1);
-    }
+    expect(
+      screen.queryByRole("button", { name: /Forgot password \/ Reset credentials/i })
+    ).toBeNull();
+    expect(screen.getByLabelText(/Forgot password recovery link/i)).toBeTruthy();
+    expect(fn).not.toHaveBeenCalled();
   });
 
   it("redirects when authenticated", () => {
@@ -150,14 +146,16 @@ describe("LoginScreen (component-level a11y)", () => {
     render(<LoginScreen />);
     const forgotLink = screen.getByLabelText(/Forgot password recovery link/i);
     fireEvent.press(forgotLink);
-    expect(mockRouterPush).toHaveBeenCalledWith("/(auth)/forgot-password");
+    expect(mockRouterReplace).toHaveBeenCalledWith("/(auth)/forgot-password");
+    expect(mockRouterPush).not.toHaveBeenCalled();
   });
 
   it("navigates to signup screen when signup link is tapped", () => {
     render(<LoginScreen />);
     const signupLink = screen.getByLabelText(/Create account sign up link/i);
     fireEvent.press(signupLink);
-    expect(mockRouterPush).toHaveBeenCalledWith("/(auth)/signup");
+    expect(mockRouterReplace).toHaveBeenCalledWith("/(auth)/signup");
+    expect(mockRouterPush).not.toHaveBeenCalled();
   });
 
   it("displays backend error details like account locked", () => {

@@ -9,6 +9,7 @@ import {
   AuthFooter,
   AuthHeader,
   AuthInput,
+  AuthPanel,
   AuthScreen,
   PasswordInput,
   PasswordRequirements,
@@ -103,160 +104,170 @@ export default function ForgotPasswordScreen() {
 
   return (
     <AuthScreen>
-      {step === "request" && (
-        <>
-          <AuthHeader
-            badge={stepBadge}
-            title="Reset your password"
-            subtitle="Enter the email address associated with your THALI × P.L.A.T.E. account. If an account exists, we'll send instructions to reset your password."
-          />
+      {step === "request" ? (
+        <AuthHeader
+          badge={stepBadge}
+          title="Reset your password"
+          subtitle="Enter the email address associated with your THALI × P.L.A.T.E. account. If an account exists, we'll send instructions to reset your password."
+        />
+      ) : null}
 
-          {errorMsg ? <AlertBanner tone="critical" message={errorMsg} /> : null}
-          {successMsg ? <AlertBanner tone="info" message={successMsg} /> : null}
+      {step === "reset" ? (
+        <AuthHeader
+          badge={stepBadge}
+          title="Create a new password"
+          subtitle="Choose a new password for your THALI × P.L.A.T.E. account."
+        />
+      ) : null}
 
-          <View style={styles.formContainer}>
-            <AuthInput
-              label="Registered Email"
-              value={email}
-              onChangeText={setEmail}
-              placeholder="you@example.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoComplete="email"
-              textContentType="emailAddress"
-              disabled={busy}
-              accessibilityLabel="Email address for password recovery"
-            />
+      {step === "complete" ? (
+        <AuthHeader
+          badge={stepBadge}
+          title="Password updated"
+          subtitle="Your password has been changed successfully. You can now sign in with your new credentials."
+        />
+      ) : null}
+
+      <AuthPanel>
+        {step === "request" && (
+          <>
+            {errorMsg ? <AlertBanner tone="critical" message={errorMsg} /> : null}
+            {successMsg ? <AlertBanner tone="info" message={successMsg} /> : null}
+
+            <View style={styles.formContainer}>
+              <AuthInput
+                label="Registered Email"
+                value={email}
+                onChangeText={setEmail}
+                placeholder="you@example.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+                textContentType="emailAddress"
+                disabled={busy}
+                accessibilityLabel="Email address for password recovery"
+              />
+
+              <AuthButton
+                label="Send reset link"
+                loadingLabel="Sending..."
+                onPress={handleRequestReset}
+                disabled={busy || !email.trim()}
+                busy={busy}
+                accessibilityLabel="Request Reset Token"
+                accessibilityHint="Requests a password reset token for your account."
+              />
+
+              <AuthButton
+                label="I already have a reset token"
+                variant="outline"
+                onPress={() => {
+                  setErrorMsg(null);
+                  setStep("reset");
+                }}
+                disabled={busy}
+                accessibilityHint="Proceeds directly to the token entry step."
+              />
+            </View>
+          </>
+        )}
+
+        {step === "reset" && (
+          <>
+            {errorMsg ? <AlertBanner tone="critical" message={errorMsg} /> : null}
+            {successMsg ? <AlertBanner tone="info" message={successMsg} /> : null}
+
+            <View style={styles.formContainer}>
+              <AuthInput
+                label="Reset Token"
+                value={resetToken}
+                onChangeText={setResetToken}
+                placeholder="Paste your reset token here"
+                autoCapitalize="none"
+                disabled={busy}
+                accessibilityLabel="Reset token input"
+                hint="Enter the token received in your password reset email."
+              />
+
+              <PasswordInput
+                label="New password"
+                value={newPassword}
+                onChangeText={setNewPassword}
+                placeholder="At least 8 characters"
+                disabled={busy}
+                accessibilityLabel="New password input"
+              />
+
+              <PasswordInput
+                label="Confirm new password"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder="Re-enter new password"
+                disabled={busy}
+                accessibilityLabel="Confirm new password input"
+              />
+
+              <PasswordRequirements
+                password={newPassword}
+                confirmPassword={confirmPassword}
+              />
+
+              <AuthButton
+                label="Update password"
+                loadingLabel="Updating..."
+                onPress={handlePerformReset}
+                disabled={busy || !resetToken.trim() || !newPassword || !confirmPassword}
+                busy={busy}
+                accessibilityLabel="Update Password"
+                accessibilityHint="Resets your account password with the provided token."
+              />
+
+              <AuthButton
+                label="Back to Email Request"
+                variant="ghost"
+                onPress={() => {
+                  setErrorMsg(null);
+                  setStep("request");
+                }}
+                disabled={busy}
+                accessibilityHint="Returns to the email request step."
+              />
+            </View>
+          </>
+        )}
+
+        {step === "complete" && (
+          <>
+            <View style={styles.successCard}>
+              <Text style={styles.successCardTitle} allowFontScaling>
+                Security Notice
+              </Text>
+              <Text style={styles.successCardBody} allowFontScaling>
+                Your account password has been updated successfully. Existing sessions have been revoked for your protection.
+              </Text>
+            </View>
 
             <AuthButton
-              label="Send reset link"
-              loadingLabel="Sending..."
-              onPress={handleRequestReset}
-              disabled={busy || !email.trim()}
-              busy={busy}
-              accessibilityLabel="Request Reset Token"
-              accessibilityHint="Requests a password reset token for your account."
+              label="Sign in"
+              onPress={() => router.replace("/(auth)/login")}
+              accessibilityLabel="Proceed to Sign In"
+              accessibilityHint="Navigates to the sign-in screen."
             />
+          </>
+        )}
 
-            <AuthButton
-              label="I already have a reset token"
-              variant="outline"
-              onPress={() => {
-                setErrorMsg(null);
-                setStep("reset");
-              }}
-              disabled={busy}
-              accessibilityHint="Proceeds directly to the token entry step."
-            />
-          </View>
-        </>
-      )}
-
-      {step === "reset" && (
-        <>
-          <AuthHeader
-            badge={stepBadge}
-            title="Create a new password"
-            subtitle="Choose a new password for your THALI × P.L.A.T.E. account."
-          />
-
-          {errorMsg ? <AlertBanner tone="critical" message={errorMsg} /> : null}
-          {successMsg ? <AlertBanner tone="info" message={successMsg} /> : null}
-
-          <View style={styles.formContainer}>
-            <AuthInput
-              label="Reset Token"
-              value={resetToken}
-              onChangeText={setResetToken}
-              placeholder="Paste your reset token here"
-              autoCapitalize="none"
-              disabled={busy}
-              accessibilityLabel="Reset token input"
-              hint="Enter the token received in your password reset email."
-            />
-
-            <PasswordInput
-              label="New password"
-              value={newPassword}
-              onChangeText={setNewPassword}
-              placeholder="At least 8 characters"
-              disabled={busy}
-              accessibilityLabel="New password input"
-            />
-
-            <PasswordInput
-              label="Confirm new password"
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              placeholder="Re-enter new password"
-              disabled={busy}
-              accessibilityLabel="Confirm new password input"
-            />
-
-            <PasswordRequirements
-              password={newPassword}
-              confirmPassword={confirmPassword}
-            />
-
-            <AuthButton
-              label="Update password"
-              loadingLabel="Updating..."
-              onPress={handlePerformReset}
-              disabled={busy || !resetToken.trim() || !newPassword || !confirmPassword}
-              busy={busy}
-              accessibilityLabel="Update Password"
-              accessibilityHint="Resets your account password with the provided token."
-            />
-
-            <AuthButton
-              label="Back to Email Request"
-              variant="ghost"
-              onPress={() => {
-                setErrorMsg(null);
-                setStep("request");
-              }}
-              disabled={busy}
-              accessibilityHint="Returns to the email request step."
-            />
-          </View>
-        </>
-      )}
-
-      {step === "complete" && (
-        <>
-          <AuthHeader
-            badge={stepBadge}
-            title="Password updated"
-            subtitle="Your password has been changed successfully. You can now sign in with your new credentials."
-          />
-
-          <View style={styles.successCard}>
-            <Text style={styles.successCardTitle} allowFontScaling>
-              Security Notice
-            </Text>
-            <Text style={styles.successCardBody} allowFontScaling>
-              Your account password has been updated successfully. Existing sessions have been revoked for your protection.
-            </Text>
-          </View>
-
+        {step !== "complete" ? (
           <AuthButton
-            label="Sign in"
-            onPress={() => router.push("/(auth)/login")}
-            accessibilityLabel="Proceed to Sign In"
-            accessibilityHint="Navigates to the sign-in screen."
+            label="Return to Sign In"
+            variant="ghost"
+            onPress={() => router.replace("/(auth)/login")}
+            disabled={busy}
+            accessibilityHint="Navigates back to sign in screen."
           />
-        </>
-      )}
+        ) : null}
 
-      <AuthButton
-        label="Return to Sign In"
-        variant="ghost"
-        onPress={() => router.push("/(auth)/login")}
-        disabled={busy}
-        accessibilityHint="Navigates back to sign in screen."
-      />
-
-      <AuthFooter />
+        <AuthFooter />
+      </AuthPanel>
     </AuthScreen>
   );
 }
