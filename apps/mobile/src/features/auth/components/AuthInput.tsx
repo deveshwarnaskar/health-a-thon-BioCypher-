@@ -67,12 +67,7 @@ export function AuthInput({
 
   return (
     <View style={styles.fieldContainer}>
-      <Text
-        style={styles.label}
-        onPress={focusInput}
-        allowFontScaling
-        accessibilityRole="text"
-      >
+      <Text style={styles.label} allowFontScaling>
         {label}
       </Text>
       <Pressable
@@ -159,12 +154,7 @@ export function PasswordInput({
 
   return (
     <View style={styles.fieldContainer}>
-      <Text
-        style={styles.label}
-        onPress={focusInput}
-        allowFontScaling
-        accessibilityRole="text"
-      >
+      <Text style={styles.label} allowFontScaling>
         {label}
       </Text>
       <Pressable
