@@ -76,30 +76,6 @@ services:
     networks:
       - thali_rehearsal_net
 
-  keycloak:
-    image: quay.io/keycloak/keycloak:24.0.5
-    container_name: thali-keycloak
-    restart: unless-stopped
-    command: ["start-dev", "--import-realm"]
-    environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin_dev_password
-      KC_HEALTH_ENABLED: "true"
-      KC_METRICS_ENABLED: "true"
-      KC_HTTP_PORT: 8080
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./config/keycloak-local-realm.json:/opt/keycloak/data/import/keycloak-local-realm.json:ro
-    healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200 OK' || exit 0"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    networks:
-      - thali_rehearsal_net
-
   migrate:
     build:
       context: .
@@ -107,6 +83,7 @@ services:
     container_name: thali-migrate
     environment:
       THALI_DATABASE__URL: postgresql+psycopg://thali_user:thali_rehearsal_password@postgres:5432/thali_db
+      THALI_SEED_ADMIN_PASSWORD: ${THALI_SEED_ADMIN_PASSWORD:-admin-change-me-2026}
     depends_on:
       postgres:
         condition: service_healthy
@@ -130,11 +107,12 @@ services:
       THALI_STORAGE__ENDPOINT_URL: http://minio:9000
       THALI_STORAGE__BUCKET: thali-documents
       THALI_STORAGE__REGION: ap-south-1
-      THALI_STORAGE__ACCESS_KEY_ID: minioadmin
-      THALI_STORAGE__SECRET_ACCESS_KEY: minioadmin
-      THALI_IDENTITY__ISSUER_URL: http://keycloak:8080/realms/thali
-      THALI_IDENTITY__CLIENT_ID: thali-backend-api
-      THALI_IDENTITY__CLIENT_SECRET: rehearsal-secret-for-idempotency-only
+      THALI_STORAGE__ACCESS_KEY_ID: ${THALI_STORAGE__ACCESS_KEY_ID:-minioadmin}
+      THALI_STORAGE__SECRET_ACCESS_KEY: ${THALI_STORAGE__SECRET_ACCESS_KEY:-minioadmin}
+      THALI_AUTH__PRIVATE_KEY_PEM: ${THALI_AUTH__PRIVATE_KEY_PEM:-}
+      THALI_AUTH__PUBLIC_KEY_PEM: ${THALI_AUTH__PUBLIC_KEY_PEM:-}
+      THALI_AUTH__ACCESS_TOKEN_EXPIRE_MINUTES: ${THALI_AUTH__ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      THALI_AUTH__REFRESH_TOKEN_EXPIRE_DAYS: ${THALI_AUTH__REFRESH_TOKEN_EXPIRE_DAYS:-7}
       THALI_OBSERVABILITY__LOG_LEVEL: INFO
       THALI_OBSERVABILITY__STRUCTURED_LOGS: "true"
       WEB_CONCURRENCY: 2
@@ -170,9 +148,8 @@ services:
       THALI_STORAGE__ENDPOINT_URL: http://minio:9000
       THALI_STORAGE__BUCKET: thali-documents
       THALI_STORAGE__REGION: ap-south-1
-      THALI_STORAGE__ACCESS_KEY_ID: minioadmin
-      THALI_STORAGE__SECRET_ACCESS_KEY: minioadmin
-      THALI_IDENTITY__CLIENT_SECRET: rehearsal-secret-for-idempotency-only
+      THALI_STORAGE__ACCESS_KEY_ID: ${THALI_STORAGE__ACCESS_KEY_ID:-minioadmin}
+      THALI_STORAGE__SECRET_ACCESS_KEY: ${THALI_STORAGE__SECRET_ACCESS_KEY:-minioadmin}
       WORKER_POLL_INTERVAL: 5.0
     depends_on:
       postgres:

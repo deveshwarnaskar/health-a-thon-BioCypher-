@@ -1,9 +1,3 @@
-"""Identity infrastructure package (Gate 05)."""
+"""Identity infrastructure package (custom auth)."""
 
-from .keycloak_client import KeycloakConfig, KeycloakTokenValidator, KeycloakUserClaims
-
-__all__ = [
-    "KeycloakConfig",
-    "KeycloakTokenValidator",
-    "KeycloakUserClaims",
-]
+__all__: list[str] = []

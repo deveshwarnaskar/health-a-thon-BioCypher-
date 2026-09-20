@@ -178,6 +178,130 @@ class ClinicalPdfRenderer:
         else:
             elements.append(Paragraph("<i>No glucose readings recorded.</i>", cell_style))
 
+        # 4b. Glycemic Analytics & Time-in-Range (TIR)
+        metrics = context.get("metrics", {})
+        if metrics:
+            elements.append(Spacer(1, 6))
+            elements.append(Paragraph("<b>Glycemic Metrics & Window Analytics (14-Day)</b>", section_style))
+
+            tir_in = metrics.get("tir_in_range_pct", "—")
+            tir_above = metrics.get("tir_above_range_pct", "—")
+            tir_below = metrics.get("tir_below_range_pct", "—")
+            adherence = metrics.get("adherence_index", "—")
+            cvi = metrics.get("cvi", "—")
+            pearson = metrics.get("pearson_r", "—")
+            fpg = metrics.get("mean_fpg", "—")
+            ppbg = metrics.get("mean_ppbg", "—")
+            wkday = metrics.get("weekday_ppbg", "—")
+            wkend = metrics.get("weekend_ppbg", "—")
+            delta = metrics.get("weekday_weekend_delta", "—")
+
+            m_data = [
+                [
+                    Paragraph(f"<b>Time in Range (70-180):</b> {tir_in}%", cell_style),
+                    Paragraph(f"<b>Above Range (>180):</b> {tir_above}%", cell_style),
+                    Paragraph(f"<b>Below Range (<70):</b> {tir_below}%", cell_style),
+                ],
+                [
+                    Paragraph(f"<b>Adherence Index:</b> {adherence}%", cell_style),
+                    Paragraph(f"<b>Carb Volatility Index (CVI):</b> {cvi}", cell_style),
+                    Paragraph(f"<b>Pearson Correlation (r):</b> {pearson}", cell_style),
+                ],
+                [
+                    Paragraph(f"<b>Mean FPG:</b> {fpg} mg/dL", cell_style),
+                    Paragraph(f"<b>Mean PPBG:</b> {ppbg} mg/dL", cell_style),
+                    Paragraph(f"<b>Wkday/Wkend PPBG:</b> {wkday} / {wkend} (&Delta; {delta})", cell_style),
+                ],
+            ]
+            m_grid = Table(m_data, colWidths=[173, 173, 174])
+            m_grid.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+                ("PADDING", (0, 0), (-1, -1), 4),
+            ]))
+            elements.append(m_grid)
+            elements.append(Spacer(1, 6))
+
+            # Meal-slot PPBG breakdown table
+            elements.append(Paragraph("<b>Postprandial Meal-Slot Breakdown</b>", cell_style))
+            slot_pb = metrics.get("slot_pb", {})
+            slot_pl = metrics.get("slot_pl", {})
+            slot_pd = metrics.get("slot_pd", {})
+            slot_rows = [
+                [
+                    Paragraph("Meal Slot", cell_bold),
+                    Paragraph("Readings Count", cell_bold),
+                    Paragraph("Overall Mean (mg/dL)", cell_bold),
+                    Paragraph("Weekday Mean", cell_bold),
+                    Paragraph("Weekend Mean", cell_bold),
+                ],
+                [
+                    Paragraph("Post-Breakfast (PB)", cell_style),
+                    Paragraph(str(slot_pb.get("count", 0)), cell_style),
+                    Paragraph(str(slot_pb.get("mean") or "—"), cell_style),
+                    Paragraph(str(slot_pb.get("weekday") or "—"), cell_style),
+                    Paragraph(str(slot_pb.get("weekend") or "—"), cell_style),
+                ],
+                [
+                    Paragraph("Post-Lunch (PL)", cell_style),
+                    Paragraph(str(slot_pl.get("count", 0)), cell_style),
+                    Paragraph(str(slot_pl.get("mean") or "—"), cell_style),
+                    Paragraph(str(slot_pl.get("weekday") or "—"), cell_style),
+                    Paragraph(str(slot_pl.get("weekend") or "—"), cell_style),
+                ],
+                [
+                    Paragraph("Post-Dinner (PD)", cell_style),
+                    Paragraph(str(slot_pd.get("count", 0)), cell_style),
+                    Paragraph(str(slot_pd.get("mean") or "—"), cell_style),
+                    Paragraph(str(slot_pd.get("weekday") or "—"), cell_style),
+                    Paragraph(str(slot_pd.get("weekend") or "—"), cell_style),
+                ],
+            ]
+            slot_table = Table(slot_rows, colWidths=[140, 95, 95, 95, 95])
+            slot_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0B4A58")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+                ("PADDING", (0, 0), (-1, -1), 3),
+            ]))
+            elements.append(slot_table)
+            elements.append(Spacer(1, 6))
+
+            # Chronobiology Daily Series Table (if available)
+            series = metrics.get("series", [])
+            if series:
+                elements.append(Paragraph("<b>Chronobiology & Daily Glycemic Pattern</b>", cell_style))
+                chrono_rows = [
+                    [
+                        Paragraph("Date", cell_bold),
+                        Paragraph("Day Type", cell_bold),
+                        Paragraph("FPG (mg/dL)", cell_bold),
+                        Paragraph("PPBG (mg/dL)", cell_bold),
+                        Paragraph("Carbs (g)", cell_bold),
+                        Paragraph("High GI %", cell_bold),
+                    ]
+                ]
+                for s in series[:7]:
+                    day_type = "Weekend" if s.get("weekend") else "Weekday"
+                    ppbg_list = s.get("ppbg", [])
+                    ppbg_str = f"{round(sum(ppbg_list)/len(ppbg_list), 1)}" if ppbg_list else "—"
+                    chrono_rows.append([
+                        Paragraph(str(s.get("date", "")), cell_style),
+                        Paragraph(day_type, cell_style),
+                        Paragraph(str(s.get("fpg") or "—"), cell_style),
+                        Paragraph(ppbg_str, cell_style),
+                        Paragraph(str(s.get("carbs", 0.0)), cell_style),
+                        Paragraph(f"{s.get('high_gi_share', 0.0)}%", cell_style),
+                    ])
+                chrono_table = Table(chrono_rows, colWidths=[90, 85, 85, 85, 85, 90])
+                chrono_table.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0B4A58")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+                    ("PADDING", (0, 0), (-1, -1), 3),
+                ]))
+                elements.append(chrono_table)
+
         elements.append(Spacer(1, 10))
 
         # 5. Meal Observations (Full clinical detail: Carbs + GI)

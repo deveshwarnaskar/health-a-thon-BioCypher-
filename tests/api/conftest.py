@@ -60,12 +60,13 @@ def _test_config(monkeypatch):
     monkeypatch.setenv("THALI_IDENTITY__ISSUER_URL", TEST_ISSUER)
     # Audience is validated against client_id at the trust boundary.
     monkeypatch.setenv("THALI_IDENTITY__CLIENT_ID", TEST_CLIENT_ID)
-    # These legacy HS256 boundary tests stay on the development-only HS256
-    # algorithm via an EXPLICIT per-test override — RS256 remains the default.
-    monkeypatch.setenv("THALI_IDENTITY__ALLOWED_ALGORITHMS", "HS256")
+    # Development and test environment accepts both RS256 (custom JWT) and HS256 (mock JWT)
+    monkeypatch.setenv("THALI_IDENTITY__ALLOWED_ALGORITHMS", "RS256,HS256")
     monkeypatch.setenv("THALI_IDENTITY__JWKS_URI", "")
     monkeypatch.setenv("THALI_APP__ENV", "development")
     monkeypatch.setenv("THALI_DATABASE__URL", "")
+    monkeypatch.setenv("THALI_WHATSAPP__VERIFY_TOKEN", "thali-dev-verify-token")
+    monkeypatch.setenv("THALI_WHATSAPP__APP_SECRET", "dev-webhook-secret-change-in-production")
     reset_config_cache()
     yield
     reset_config_cache()

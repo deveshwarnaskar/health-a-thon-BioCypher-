@@ -8,6 +8,10 @@ from ..ports.id_generation import IdGenerator
 from ..ports.unit_of_work import UnitOfWork
 from ...domain.entities import MealObservation
 from ...domain.events import MealObservationRecorded
+from ...domain.services.carbohydrate_calculator import (
+    CarbohydrateCalculator,
+    UnknownFoodItemError,
+)
 from ._transaction import in_transaction
 
 
@@ -23,18 +27,33 @@ class LogMealDraftHandler:
         self._events = events
         self._clock = clock
         self._id_gen = id_gen
+        self._calc = CarbohydrateCalculator()
 
     def handle(self, cmd: LogMealDraft) -> MealDraftAccepted:
         return in_transaction(self._uow, lambda: self._run(cmd))
 
     def _run(self, cmd: LogMealDraft) -> MealDraftAccepted:
         self._uow.patients.get(cmd.patient_id)
+
+        carbs_grams = cmd.carbs_grams
+        glycemic_index = cmd.gi_category
+
+        if carbs_grams is None and cmd.portion is not None:
+            try:
+                calc_res = self._calc.calculate_for_portion(cmd.portion)
+                carbs_grams = calc_res.carbs_grams
+                glycemic_index = calc_res.glycemic_index
+            except (UnknownFoodItemError, Exception):
+                pass
+
         observation = MealObservation(
             id=self._id_gen.new_uuid(),
             patient_id=cmd.patient_id,
             recorded_at=cmd.recorded_at,
             description=cmd.description,
             portion=cmd.portion,
+            carbs_grams=carbs_grams,
+            glycemic_index=glycemic_index,
             created_at=self._clock.now(),
         )
         self._uow.meal_observations.add(observation)

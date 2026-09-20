@@ -156,11 +156,59 @@ export class OidcSessionManager implements AuthSessionProvider {
     await this.restoreSession();
   }
 
-  async signIn(): Promise<void> {
+  async signIn(email?: string, password?: string): Promise<void> {
     if (this.state.name === "authenticating") return;
 
     this.dispatch({ type: "AUTH_INITIATED" });
     authLog({ event: "auth_initiated" });
+
+    if (email !== undefined && password !== undefined) {
+      try {
+        const response = await this.apiClient.request<{
+          access_token: string;
+          refresh_token: string;
+          token_type?: string;
+          expires_in?: number;
+        }>({
+          method: "POST",
+          path: "/api/v2/auth/login",
+          body: { email, password },
+        });
+
+        await this.tokenStore.saveTokens({
+          accessToken: response.access_token,
+          refreshToken: response.refresh_token,
+        });
+
+        const user = await this.verifyWithBackend();
+        if (user === null) return;
+
+        if (!user.role) {
+          this.dispatch({ type: "ACCESS_DENIED", reason: "unknown_role", user });
+          return;
+        }
+
+        authLog({ event: "auth_success", status: "ok" });
+        this.dispatch({
+          type: "AUTH_SUCCESS",
+          user,
+          accessToken: response.access_token,
+        });
+        return;
+      } catch (cause: any) {
+        const category =
+          cause instanceof AuthTransientError
+            ? cause.category
+            : this.categorizeError(cause);
+        authLog({ event: "auth_error", category, status: String(cause) });
+        this.dispatch({
+          type: "AUTH_ERROR",
+          category,
+          error: cause?.message || cause,
+        });
+        return;
+      }
+    }
 
     try {
       const result = await this.oidcFlow.authorize(this.config, this.discovery);
@@ -197,11 +245,20 @@ export class OidcSessionManager implements AuthSessionProvider {
   async signOut(): Promise<void> {
     authLog({ event: "sign_out" });
 
+    const refreshToken = await this.tokenStore.getRefreshToken();
     const idToken = await this.tokenStore.getIdToken();
     await this.tokenStore.clear();
     this.onProtectedStateInvalidated?.();
 
-    if (idToken) {
+    if (refreshToken && !this.discovery.tokenEndpoint.includes("openid-connect")) {
+      try {
+        await this.apiClient.request({
+          method: "POST",
+          path: "/api/v2/auth/logout",
+          body: { refresh_token: refreshToken },
+        });
+      } catch {}
+    } else if (idToken) {
       await this.oidcFlow
         .endSession(this.discovery, idToken, this.config.redirectUri)
         .catch(() => {});
@@ -214,6 +271,82 @@ export class OidcSessionManager implements AuthSessionProvider {
     if (this.oidcFlow.recoverPassword) {
       await this.oidcFlow.recoverPassword(this.config, this.discovery);
     }
+  }
+
+  async signUp(data: {
+    email: string;
+    password: string;
+    name?: string;
+    phone?: string;
+    role?: string;
+  }): Promise<void> {
+    if (this.state.name === "authenticating") return;
+
+    this.dispatch({ type: "AUTH_INITIATED" });
+    authLog({ event: "auth_initiated" });
+
+    try {
+      const response = await this.apiClient.request<{
+        access_token: string;
+        refresh_token: string;
+        token_type?: string;
+        expires_in?: number;
+      }>({
+        method: "POST",
+        path: "/api/v2/auth/signup",
+        body: data,
+      });
+
+      await this.tokenStore.saveTokens({
+        accessToken: response.access_token,
+        refreshToken: response.refresh_token,
+      });
+
+      const user = await this.verifyWithBackend();
+      if (user === null) return;
+
+      authLog({ event: "auth_success", status: "ok" });
+      this.dispatch({
+        type: "AUTH_SUCCESS",
+        user,
+        accessToken: response.access_token,
+      });
+    } catch (cause: any) {
+      const category =
+        cause instanceof AuthTransientError
+          ? cause.category
+          : this.categorizeError(cause);
+      authLog({ event: "auth_error", category, status: String(cause) });
+      this.dispatch({
+        type: "AUTH_ERROR",
+        category,
+        error: cause?.message || cause,
+      });
+      throw cause;
+    }
+  }
+
+  async forgotPassword(email: string): Promise<{ status: string; message: string; reset_token?: string | null }> {
+    return await this.apiClient.request<{
+      status: string;
+      message: string;
+      reset_token?: string | null;
+    }>({
+      method: "POST",
+      path: "/api/v2/auth/forgot-password",
+      body: { email },
+    });
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<{ status: string; message: string }> {
+    return await this.apiClient.request<{
+      status: string;
+      message: string;
+    }>({
+      method: "POST",
+      path: "/api/v2/auth/reset-password",
+      body: { token, new_password: newPassword },
+    });
   }
 
   // ─── internals ───────────────────────────────────────────────────────────
@@ -337,21 +470,38 @@ export class OidcSessionManager implements AuthSessionProvider {
     }
 
     try {
-      const response = await this.oidcFlow.refresh(
-        this.discovery,
-        refreshToken,
-        this.config.clientId,
-        this.config.scopes
-      );
+      let accessToken: string;
+      let newRefreshToken: string | undefined;
+
+      if (!this.discovery.tokenEndpoint.includes("openid-connect")) {
+        const refreshRes = await this.apiClient.request<{
+          access_token: string;
+          refresh_token: string;
+        }>({
+          method: "POST",
+          path: "/api/v2/auth/refresh",
+          body: { refresh_token: refreshToken },
+        });
+        accessToken = refreshRes.access_token;
+        newRefreshToken = refreshRes.refresh_token;
+      } else {
+        const response = await this.oidcFlow.refresh(
+          this.discovery,
+          refreshToken,
+          this.config.clientId,
+          this.config.scopes
+        );
+        accessToken = response.access_token;
+        newRefreshToken = response.refresh_token;
+      }
 
       await this.tokenStore.saveTokens({
-        accessToken: response.access_token,
-        refreshToken: response.refresh_token,
-        idToken: response.id_token,
+        accessToken,
+        refreshToken: newRefreshToken,
       });
 
       authLog({ event: "refresh_success", status: "ok" });
-      return { accessToken: response.access_token };
+      return { accessToken };
     } catch (cause) {
       const outcome = classifyRefreshOutcome(cause);
       authLog({

@@ -12,8 +12,7 @@
 ```mermaid
 flowchart TD
     subgraph Public_Internet["Public Internet & Edge Network"]
-        ClientMobile["Physical Android App\n(in.thali.plate.mobile)"]
-        ClientAdmin["Admin Web Portal\n(admin.plate.thali.health)"]
+        ClientMobile["Universal Mobile App\n(in.thali.plate.mobile)"]
         MetaWebhook["Meta WhatsApp\nWebhook Dispatcher"]
         DNS["Route 53 DNS\n+ ACM TLS 1.3"]
         WAF["AWS WAF\nRate Limiting & OWASP Rules"]
@@ -103,7 +102,7 @@ Production credentials must never be committed into source control, Dockerfiles,
 - **Issuer URL:** `https://auth.plate.thali.health/realms/thali-production`
 - **Audience:** `thali-backend-api`
 - **Algorithms Allowed:** `RS256` only (all symmetric algorithms like `HS256` unconditionally rejected)
-- **PKCE:** Enforced with `S256` for all public clients (`thali-admin-web` and `thali-mobile-app`).
+- **PKCE:** Enforced with `S256` for the public client (`thali-mobile-app`).
 - **Session Policies:**
   - Access Token Lifespan: 5 minutes (300 seconds)
   - Refresh Token Lifespan: 8 hours (28,800 seconds) with one-time rotation

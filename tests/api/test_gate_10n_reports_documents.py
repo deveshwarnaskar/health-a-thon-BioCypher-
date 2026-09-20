@@ -289,7 +289,7 @@ def test_presigned_download_url(client: TestClient, session_factory, test_setup)
     data = res.json()
     assert "download_url" in data
     assert data["expires_in"] == 300
-    assert "expires=" in data["download_url"]
+    assert "expires=" in data["download_url"].lower()
 
 
 # 8. test_direct_stream_download

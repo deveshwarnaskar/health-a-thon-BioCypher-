@@ -146,6 +146,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(metrics_router)
 
+    # Static assets and clinical dashboard
+    import os
+    from starlette.responses import FileResponse
+    from starlette.staticfiles import StaticFiles
+
+    static_dir = os.path.join(os.path.dirname(__file__), "static")
+    if os.path.isdir(static_dir):
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+        @app.get("/login", include_in_schema=False)
+        async def _login_page():
+            login_file = os.path.join(static_dir, "login.html")
+            if os.path.isfile(login_file):
+                return FileResponse(login_file)
+            return JSONResponse({"error": "login page not found"}, status_code=404)
+
+        @app.get("/", include_in_schema=False)
+        async def _dashboard_page():
+            index_file = os.path.join(static_dir, "index.html")
+            if os.path.isfile(index_file):
+                return FileResponse(index_file)
+            return JSONResponse({"error": "dashboard page not found"}, status_code=404)
+
     # Observability initialization
     if settings.observability.structured_logs:
         from backend.infrastructure.observability.logging import configure_logging

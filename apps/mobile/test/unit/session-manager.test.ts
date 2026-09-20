@@ -397,4 +397,132 @@ describe("OidcSessionManager", () => {
     }
     expect(await tokenStore.getAccessToken()).toBe("at-code-2");
   });
+
+  it("signIn with email and password performs direct authentication", async () => {
+    const fakeApi = {
+      request: vi.fn(async ({ path, method }: any) => {
+        if (path === "/api/v2/auth/login" && method === "POST") {
+          return {
+            access_token: "at-direct-123",
+            refresh_token: "rt-direct-456",
+            token_type: "bearer",
+            expires_in: 900,
+          };
+        }
+        if (path === "/api/v2/auth/context" || path === "/api/v2/auth/verify") {
+          return {
+            actor_id: "patient-direct-1",
+            tenant_id: "thali-dev",
+            roles: ["patient"],
+            facility_id: "fac-1",
+            patient_id: "pat-1",
+          };
+        }
+        throw new Error(`Unexpected path: ${path}`);
+      }),
+    } as any;
+
+    const mgr = new OidcSessionManager({
+      config: testConfig,
+      discovery: testDiscovery,
+      tokenStore,
+      oidcFlow: fakeOidcFlow(),
+      apiClient: fakeApi,
+      onAuthExpiredSignal: signal,
+    });
+
+    await mgr.init();
+    await mgr.signIn("patient@thali.dev", "password123");
+
+    const state = mgr.getState();
+    expect(state.name).toBe("authenticated");
+    if (state.name === "authenticated") {
+      expect(state.user.actor_id).toBe("patient-direct-1");
+      expect(state.user.tenant_id).toBe("thali-dev");
+      expect(state.user.role).toBe("Patient");
+      expect(state.accessToken).toBe("at-direct-123");
+    }
+    expect(await tokenStore.getAccessToken()).toBe("at-direct-123");
+    expect(await tokenStore.getRefreshToken()).toBe("rt-direct-456");
+  });
+
+  it("signUp registers user and establishes authenticated session", async () => {
+    const fakeApi = {
+      request: vi.fn(async ({ path, body }: any) => {
+        if (path === "/api/v2/auth/signup") {
+          return {
+            access_token: "at-signup-123",
+            refresh_token: "rt-signup-456",
+            token_type: "bearer",
+            expires_in: 3600,
+          };
+        }
+        if (path === "/api/v2/auth/context" || path === "/api/v2/auth/verify") {
+          return {
+            actor_id: "new-user-id",
+            tenant_id: "thali-dev",
+            roles: ["patient"],
+            facility_id: "fac-1",
+            patient_id: "pat-1",
+          };
+        }
+        throw new Error(`Unexpected path: ${path}`);
+      }),
+    } as any;
+
+    const mgr = new OidcSessionManager({
+      config: testConfig,
+      discovery: testDiscovery,
+      tokenStore,
+      oidcFlow: fakeOidcFlow(),
+      apiClient: fakeApi,
+      onAuthExpiredSignal: signal,
+    });
+
+    await mgr.init();
+    await mgr.signUp({
+      email: "newpatient@thali.dev",
+      password: "password123",
+      name: "New Patient",
+      role: "patient",
+    });
+
+    const state = mgr.getState();
+    expect(state.name).toBe("authenticated");
+    if (state.name === "authenticated") {
+      expect(state.user.actor_id).toBe("new-user-id");
+      expect(state.accessToken).toBe("at-signup-123");
+    }
+  });
+
+  it("forgotPassword and resetPassword invoke correct endpoints", async () => {
+    const fakeApi = {
+      request: vi.fn(async ({ path }: any) => {
+        if (path === "/api/v2/auth/forgot-password") {
+          return { status: "ok", message: "Instructions sent", reset_token: "tok-123" };
+        }
+        if (path === "/api/v2/auth/reset-password") {
+          return { status: "ok", message: "Password updated" };
+        }
+        throw new Error(`Unexpected path: ${path}`);
+      }),
+    } as any;
+
+    const mgr = new OidcSessionManager({
+      config: testConfig,
+      discovery: testDiscovery,
+      tokenStore,
+      oidcFlow: fakeOidcFlow(),
+      apiClient: fakeApi,
+      onAuthExpiredSignal: signal,
+    });
+
+    const forgotRes = await mgr.forgotPassword("user@thali.dev");
+    expect(forgotRes.status).toBe("ok");
+    expect(forgotRes.reset_token).toBe("tok-123");
+
+    const resetRes = await mgr.resetPassword("tok-123", "newPassword123");
+    expect(resetRes.status).toBe("ok");
+  });
 });
+

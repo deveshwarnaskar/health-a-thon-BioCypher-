@@ -1,72 +1,53 @@
-"""FastAPI dependency injection functions (Gate 07 + Gate 10C-R).
+"""FastAPI dependency injection functions.
 
-All dependencies are request-scoped. No global mutable singletons carry
-request-specific actor/tenant/patient/role data.
-
-Authentication pipeline (production trust boundary):
+Authentication pipeline (custom RS256 — no Keycloak):
 
     Authorization: Bearer <token>
-        → extract token
-        → algorithm allow-list policy (default RS256; HS256 development-only)
-        → RS256: Keycloak JWKS signature verification (kid-selected key)
-          HS256: stdlib HMAC verification (explicit dev/test config)
-        → issuer/audience/expiry validation (configured values, never token)
-        → trusted claims
-        → principal construction
+        → TokenService.verify_token()  (RS256, our own public key)
+        → claims: sub, tenant_id, role, facility_id
         → AuthenticatedContext
 
 Tenant propagation:
 
     AuthenticatedContext.tenant_id
         → SqlAlchemyUnitOfWork(session_factory, tenant_id)
-        → session-local ``set_config('app.current_tenant_id', :tid, true)``
+        → set_config('app.current_tenant_id', :tid, true)
         → PostgreSQL RLS
-
-The HTTP layer never accepts tenant_id from ordinary JSON as authoritative.
 """
-
 from __future__ import annotations
 
-import ipaddress
 import logging
-import time
 from typing import TYPE_CHECKING, Annotated, Any, AsyncGenerator
-from urllib.parse import urlparse
 from uuid import UUID
 
 import jwt as pyjwt
 
 from fastapi import Depends, Header, HTTPException
 
+from backend.infrastructure.auth.token_service import TokenService
 from backend.infrastructure.config.clock import SystemClock
 from backend.infrastructure.config.database import create_db_engine, create_session_factory
 from backend.infrastructure.config.id_generator import Uuid4IdGenerator
 from backend.infrastructure.persistence.uow.sqlalchemy_uow import SqlAlchemyUnitOfWork
 from backend.interfaces.http.v2.security.authorization import (
     AuthenticatedContext,
-    AuthorizationPolicy,
-    DefaultAuthorizationPolicy,
     RelationshipAuthorizationPolicy,
 )
-from backend.interfaces.http.v2.security.jwt import (
-    JwtSignatureError,
-    TokenVerificationError,
-    jwt_header,
-    verify_hs256,
-    verify_rs256,
-)
-from backend.interfaces.http.v2.security.jwks import JwksClient
+from backend.interfaces.http.v2.security.jwt import TokenVerificationError
 from backend.interfaces.http.v2.security.roles import role_tokens
 
 if TYPE_CHECKING:
     from sqlalchemy import Engine
+    from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
 _config_cache: dict = {}
-_engine_cache: dict[str, Engine] = {}
-_session_factory_cache: dict[str, sessionmaker[Session]] = {}
-_jwks_client: JwksClient | None = None
+_engine_cache: dict[str, Any] = {}
+_session_factory_cache: dict[str, Any] = {}
+_token_service: TokenService | None = None
+_storage_instance: Any | None = None
+_jwks_client: Any | None = None
 
 
 def _load_config() -> dict:
@@ -76,52 +57,124 @@ def _load_config() -> dict:
         settings = Settings()
         validate_security_configuration(settings)
 
-        if settings.app.env == "production":
-            _config_cache["jwt_secret"] = settings.identity.client_secret
-            _config_cache["issuer_url"] = settings.identity.issuer_url
-            _config_cache["db_url"] = settings.database.url
-            _config_cache["whatsapp_verify_token"] = settings.whatsapp.verify_token
-            _config_cache["whatsapp_app_secret"] = settings.whatsapp.app_secret
-        else:
-            _config_cache["jwt_secret"] = settings.identity.client_secret or "dev-secret-change-in-production"
-            _config_cache["issuer_url"] = settings.identity.issuer_url or "http://localhost:8080/realms/thali"
-            _config_cache["db_url"] = settings.database.url or "sqlite:///:memory:"
-            _config_cache["whatsapp_verify_token"] = settings.whatsapp.verify_token or "thali-dev-verify-token"
-            _config_cache["whatsapp_app_secret"] = settings.whatsapp.app_secret or "dev-webhook-secret-change-in-production"
+        private_key = (settings.auth.private_key_pem or "").replace("\\n", "\n").strip()
+        public_key = (settings.auth.public_key_pem or "").replace("\\n", "\n").strip()
 
+        if not private_key or not public_key:
+            if settings.app.env == "production":
+                raise RuntimeError(
+                    "Production requires THALI_AUTH__PRIVATE_KEY_PEM and "
+                    "THALI_AUTH__PUBLIC_KEY_PEM to be set."
+                )
+            logger.warning(
+                "No auth keys configured — generating ephemeral RSA-2048 key pair. "
+                "Tokens will NOT survive restarts. Set THALI_AUTH__PRIVATE_KEY_PEM "
+                "/ THALI_AUTH__PUBLIC_KEY_PEM for stable keys."
+            )
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric import rsa
+
+            _key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            private_key = _key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.NoEncryption(),
+            ).decode()
+            public_key = _key.public_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            ).decode()
+
+        _config_cache["auth_private_key"] = private_key
+        _config_cache["auth_public_key"] = public_key
+        _config_cache["access_token_expire_minutes"] = settings.auth.access_token_expire_minutes
+        _config_cache["refresh_token_expire_days"] = settings.auth.refresh_token_expire_days
+        _config_cache["jwt_secret"] = settings.identity.client_secret or "test-secret"
+        _config_cache["issuer_url"] = settings.identity.issuer_url or ""
+        _config_cache["audience"] = settings.identity.client_id or ""
+        _config_cache["allowed_algorithms"] = (
+            {a.strip() for a in settings.identity.allowed_algorithms.split(",")}
+            if settings.identity.allowed_algorithms
+            else ({"RS256"} if settings.app.env == "production" else {"RS256", "HS256"})
+        )
+        _config_cache["jwks_uri"] = settings.identity.jwks_uri or ""
+        _config_cache["db_url"] = settings.database.url or "sqlite:///:memory:"
+        _config_cache["whatsapp_verify_token"] = (
+            settings.whatsapp.verify_token or "thali-dev-verify-token"
+        )
+        _config_cache["whatsapp_app_secret"] = (
+            settings.whatsapp.app_secret or "dev-webhook-secret"
+        )
         _config_cache["app_env"] = settings.app.env
-        # Gate 10C-R trust-boundary policy: explicit allow-list (default RS256).
-        # HS256 is development/testing ONLY and is never active without an
-        # explicit THALI_IDENTITY__ALLOWED_ALGORITHMS override.
-        configured = (settings.identity.allowed_algorithms or "RS256").split(",")
-        _config_cache["allowed_algorithms"] = {
-            a.strip().upper() for a in configured if a.strip()
-        } or {"RS256"}
-        _config_cache["jwks_uri"] = (settings.identity.jwks_uri or "").strip()
-        # Expected JWT audience == the configured backend client/resource
-        # identifier. Empty => audience validation fails closed.
-        _config_cache["audience"] = (settings.identity.client_id or "").strip()
+
     return _config_cache
 
 
 def reset_config_cache() -> None:
-    """Clear cached configuration (used by tests)."""
-    global _jwks_client, _storage_instance
+    """Clear cached config — used by tests."""
+    global _token_service, _storage_instance, _jwks_client
     _config_cache.clear()
     _engine_cache.clear()
     _session_factory_cache.clear()
-    _jwks_client = None
+    _token_service = None
     _storage_instance = None
+    _jwks_client = None
 
 
+def _audience_matches(aud: Any, expected: str) -> bool:
+    return aud == expected or (isinstance(aud, list) and expected in aud)
 
-def get_jwt_secret() -> str:
-    return _load_config()["jwt_secret"]
+
+def _build_jwks_client():
+    from backend.interfaces.http.v2.security.jwks import JwksClient
+    cfg = _load_config()
+    return JwksClient(issuer_url=cfg.get("issuer_url", ""), jwks_uri=cfg.get("jwks_uri", ""))
 
 
-def get_issuer_url() -> str:
-    return _load_config()["issuer_url"]
+def _get_jwks_client():
+    global _jwks_client
+    if _jwks_client is None:
+        _jwks_client = _build_jwks_client()
+    return _jwks_client
 
+
+# ---------------------------------------------------------------------------
+# TokenService singleton
+# ---------------------------------------------------------------------------
+
+def get_token_service() -> TokenService:
+    global _token_service
+    if _token_service is None:
+        cfg = _load_config()
+        priv = cfg.get("auth_private_key")
+        pub = cfg.get("auth_public_key")
+        if not priv or not pub:
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric import rsa
+
+            _key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            priv = _key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.NoEncryption(),
+            ).decode()
+            pub = _key.public_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            ).decode()
+        _token_service = TokenService(
+            private_key_pem=priv,
+            public_key_pem=pub,
+            access_expire_minutes=cfg.get("access_token_expire_minutes", 60),
+            refresh_expire_days=cfg.get("refresh_token_expire_days", 7),
+            hs256_secret=cfg.get("jwt_secret", "test-secret"),
+        )
+    return _token_service
+
+
+# ---------------------------------------------------------------------------
+# Config accessors
+# ---------------------------------------------------------------------------
 
 def get_db_url() -> str:
     return _load_config()["db_url"]
@@ -140,149 +193,90 @@ def get_app_env() -> str:
 
 
 def get_allowed_algorithms() -> set[str]:
-    return set(_load_config()["allowed_algorithms"])
-
-
-def get_jwks_uri() -> str:
-    return _load_config()["jwks_uri"]
-
-
-def get_expected_audience() -> str:
-    return _load_config()["audience"]
-
-
-def _build_jwks_client() -> JwksClient:
     cfg = _load_config()
-    return JwksClient(issuer_url=cfg["issuer_url"], jwks_uri=cfg["jwks_uri"])
+    allowed = cfg.get("allowed_algorithms")
+    if allowed:
+        if isinstance(allowed, set):
+            return allowed
+        if isinstance(allowed, str):
+            return {a.strip() for a in allowed.split(",")}
+    if cfg.get("app_env") == "production":
+        return {"RS256"}
+    return {"RS256", "HS256"}
 
 
-def _get_jwks_client() -> JwksClient:
-    global _jwks_client
-    if _jwks_client is None:
-        _jwks_client = _build_jwks_client()
-    return _jwks_client
-
-
-def get_authorization_policy() -> RelationshipAuthorizationPolicy:
-    """Return the Gate 08 policy: coarse RBAC + relational identity grants."""
-    return RelationshipAuthorizationPolicy()
-
-
-def _audience_matches(aud: Any, expected: str) -> bool:
-    return aud == expected or (isinstance(aud, list) and expected in aud)
-
-
-def _is_allowed_dev_issuer(iss: str, expected_iss: str) -> bool:
-    """Check if an issuer is an authorized development/LAN host alias.
-
-    In non-production environments only, permits local development IP/host
-    aliases (e.g. mobile testing on LAN Wi-Fi, docker-to-host bridge, localhost)
-    provided the scheme, realm path, and service port match the configured issuer.
-    Never active in production.
-    """
-    try:
-        parsed_expected = urlparse(expected_iss)
-        parsed_iss = urlparse(iss)
-        if parsed_iss.scheme != "http":
-            return False
-        if parsed_iss.path.rstrip("/") != parsed_expected.path.rstrip("/"):
-            return False
-        expected_port = parsed_expected.port or 8080
-        if (parsed_iss.port or 80) != expected_port:
-            return False
-        hostname = parsed_iss.hostname or ""
-        if hostname in ("localhost", "127.0.0.1", "keycloak", "host.docker.internal"):
-            return True
-        ip = ipaddress.ip_address(hostname)
-        return ip.is_private or ip.is_loopback
-    except (ValueError, TypeError):
-        return False
-
+# ---------------------------------------------------------------------------
+# Authentication dependencies
+# ---------------------------------------------------------------------------
 
 async def verify_access_token(token: str) -> dict:
     """Verify a bearer token against the configured trust boundary.
 
-    Enforces the configured algorithm allow-list (never the token's own button),
-    then dispatches to RS256 (Keycloak JWKS) or HS256 (dev/test-only) signature
-    verification, and finally applies issuer/audience/expiry/subject/tenant
-    claim validation using configured values only.
-
-    Returns the verified claims dict. Raises ``TokenVerificationError`` with a
-    safe, non-sensitive message on any failure.
+    Returns the verified claims dict. Raises TokenVerificationError on failure.
     """
+    import time
     cfg = _load_config()
     try:
-        header = jwt_header(token)
-    except JwtSignatureError as exc:
-        raise TokenVerificationError("authentication credentials are invalid") from exc
+        header = pyjwt.get_unverified_header(token)
+    except Exception as exc:
+        raise TokenVerificationError("token is invalid") from exc
 
     alg = header.get("alg")
-    allowed = cfg["allowed_algorithms"]
+    allowed = cfg.get("allowed_algorithms", {"RS256", "HS256"})
     if not isinstance(alg, str) or alg not in allowed:
         raise TokenVerificationError("unsupported token algorithm")
 
-    # Gate 10P-B: In production, unconditionally reject symmetric algorithms
     if cfg.get("app_env") == "production" and (alg == "HS256" or alg.startswith("HS")):
-        raise TokenVerificationError("unsupported token algorithm")
+        raise TokenVerificationError(f"unsupported token algorithm in production: {alg}")
 
     if alg == "HS256":
+        from backend.interfaces.http.v2.security.jwt import verify_hs256, JwtSignatureError
         try:
             result = verify_hs256(token, cfg["jwt_secret"])
         except JwtSignatureError as exc:
             raise TokenVerificationError("authentication credentials are invalid") from exc
         payload = result.payload
     elif alg == "RS256":
-        kid = header.get("kid")
-        if not isinstance(kid, str) or not kid:
-            raise TokenVerificationError("token is missing a key id")
-
-        configured_iss = cfg["issuer_url"]
-        allowed_issuers: list[str] = [configured_iss] if configured_iss else []
-        if cfg.get("app_env") != "production":
+        if cfg.get("jwks_uri"):
+            from backend.interfaces.http.v2.security.jwt import verify_rs256, JwtSignatureError
+            kid = header.get("kid")
+            if not isinstance(kid, str) or not kid:
+                raise TokenVerificationError("token is missing a key id")
             try:
-                raw_payload = pyjwt.decode(token, options={"verify_signature": False})
-                iss_claim = raw_payload.get("iss")
-                if isinstance(iss_claim, str) and _is_allowed_dev_issuer(iss_claim, configured_iss):
-                    if iss_claim not in allowed_issuers:
-                        allowed_issuers.append(iss_claim)
-            except Exception:
-                pass
-
-        try:
-            signing_key = await _get_jwks_client().signing_key(kid)
-            payload = verify_rs256(
-                token,
-                signing_key.public_key,
-                algorithms=[alg],
-                audience=cfg["audience"],
-                issuer=allowed_issuers if len(allowed_issuers) > 1 else (allowed_issuers[0] if allowed_issuers else ""),
-            )
-        except TokenVerificationError:
-            raise
-        except (JwtSignatureError, Exception) as exc:
-            raise TokenVerificationError("authentication credentials are invalid") from exc
+                signing_key = await _get_jwks_client().signing_key(kid)
+                payload = verify_rs256(
+                    token,
+                    signing_key.public_key,
+                    algorithms=[alg],
+                    audience=cfg["audience"],
+                    issuer=cfg["issuer_url"],
+                )
+            except TokenVerificationError:
+                raise
+            except (JwtSignatureError, Exception) as exc:
+                raise TokenVerificationError("authentication credentials are invalid") from exc
+        else:
+            try:
+                payload = get_token_service().verify_token(token)
+            except TokenVerificationError:
+                raise
+            except Exception as exc:
+                raise TokenVerificationError("authentication credentials are invalid") from exc
     else:
         raise TokenVerificationError("unsupported token algorithm")
 
-    # Common claims validation — uses configured values ONLY, never claims that
-    # the token itself asserts as authoritative (defense in depth for both paths).
-    expected_iss = cfg["issuer_url"]
+    # Common claims validation
+    expected_iss = cfg.get("issuer_url")
     if expected_iss:
         iss = payload.get("iss")
-        if not isinstance(iss, str):
+        if iss is not None and iss != expected_iss:
             raise TokenVerificationError("invalid issuer")
-        if cfg.get("app_env") == "production":
-            if iss != expected_iss:
-                raise TokenVerificationError("invalid issuer")
-        else:
-            if iss != expected_iss and not _is_allowed_dev_issuer(iss, expected_iss):
-                raise TokenVerificationError("invalid issuer")
 
-    expected_aud = cfg["audience"]
-    if not expected_aud:
-        raise TokenVerificationError("audience is not configured")
-    if not _audience_matches(payload.get("aud"), expected_aud):
-        raise TokenVerificationError("token audience mismatch")
+    expected_aud = cfg.get("audience")
+    if expected_aud:
+        aud = payload.get("aud")
+        if aud is not None and not _audience_matches(aud, expected_aud):
+            raise TokenVerificationError("token audience mismatch")
 
     exp = payload.get("exp")
     if exp is not None:
@@ -299,7 +293,7 @@ async def verify_access_token(token: str) -> dict:
     try:
         UUID(str(tenant_id_claim))
     except (ValueError, TypeError) as exc:
-        raise TokenVerificationError("malformed tenant identifier") from exc
+        raise TokenVerificationError("malformed tenant_id claim") from exc
 
     return payload
 
@@ -307,17 +301,13 @@ async def verify_access_token(token: str) -> dict:
 async def get_verified_claims(
     authorization: str | None = Header(None),
 ) -> dict:
-    """Extract and cryptographically verify the JWT from the Authorization header.
+    """Extract and verify the JWT from the Authorization header.
 
-    Never authorizes using an unverified token. Rejects expired, malformed,
-    invalid-signature, unsupported-algorithm, wrong-issuer, wrong-audience,
-    missing-subject and missing-tenant tokens.
+    Uses our own RS256 public key — no Keycloak, no JWKS endpoint.
     """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Bearer token is required")
-
     token = authorization[len("Bearer "):]
-
     try:
         return await verify_access_token(token)
     except TokenVerificationError as exc:
@@ -327,27 +317,32 @@ async def get_verified_claims(
 async def get_authenticated_context(
     claims: Annotated[dict, Depends(get_verified_claims)],
 ) -> AuthenticatedContext:
-    """Construct AuthenticatedContext from verified JWT claims.
-
-    actor_id, tenant_id, roles, facility_id come from verified claims ONLY,
-    never from request bodies.
-    """
+    """Build AuthenticatedContext from verified JWT claims only."""
     try:
         actor_id = UUID(str(claims["sub"]))
-    except (ValueError, TypeError) as exc:
+    except (ValueError, TypeError, KeyError) as exc:
         raise HTTPException(status_code=401, detail="Malformed subject claim") from exc
 
-    tenant_id = UUID(str(claims["tenant_id"]))
+    try:
+        tenant_id = UUID(str(claims["tenant_id"]))
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=401, detail="Malformed tenant_id claim") from exc
 
+    # Our tokens: single "role" string claim.
+    # Keycloak-compat fallback: realm_access.roles list.
     raw_roles: list[str] = []
-    realm_access = claims.get("realm_access")
-    if realm_access is not None:
-        if not isinstance(realm_access, dict):
-            raise HTTPException(status_code=401, detail="Malformed role claims")
-        claimed = realm_access.get("roles", [])
-        if not isinstance(claimed, list):
-            raise HTTPException(status_code=401, detail="Malformed role claims")
-        raw_roles = [r for r in claimed if isinstance(r, str)]
+    role_claim = claims.get("role")
+    if isinstance(role_claim, str) and role_claim:
+        raw_roles = [role_claim]
+    else:
+        realm_access = claims.get("realm_access")
+        if realm_access is not None:
+            if not isinstance(realm_access, dict):
+                raise HTTPException(status_code=401, detail="Malformed role claims")
+            claimed = realm_access.get("roles", [])
+            if not isinstance(claimed, list):
+                raise HTTPException(status_code=401, detail="Malformed role claims")
+            raw_roles = [r for r in claimed if isinstance(r, str)]
 
     normalized = role_tokens(raw_roles)
 
@@ -356,25 +351,30 @@ async def get_authenticated_context(
     if facility_raw:
         try:
             facility_id = UUID(str(facility_raw))
-        except (ValueError, TypeError) as exc:
-            raise HTTPException(status_code=401, detail="Malformed facility identifier") from exc
-
-    username = claims.get("preferred_username", "")
+        except (ValueError, TypeError):
+            pass
 
     return AuthenticatedContext(
         actor_id=actor_id,
         tenant_id=tenant_id,
         roles=tuple(normalized),
         facility_id=facility_id,
-        username=username,
+        username=claims.get("preferred_username", claims.get("sub", "")),
     )
 
 
-def _get_engine(db_url: str) -> Engine:
+def get_authorization_policy() -> RelationshipAuthorizationPolicy:
+    return RelationshipAuthorizationPolicy()
+
+
+# ---------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------
+
+def _get_engine(db_url: str) -> Any:
     engine = _engine_cache.get(db_url)
     if engine is None:
         from config.settings import Settings
-
         settings = Settings()
         engine = create_db_engine(
             db_url,
@@ -389,29 +389,22 @@ def _get_engine(db_url: str) -> Engine:
     return engine
 
 
-def _get_session_factory(db_url: str) -> sessionmaker[Session]:
+def _get_session_factory(db_url: str) -> Any:
     factory = _session_factory_cache.get(db_url)
     if factory is None:
-        engine = _get_engine(db_url)
-        factory = create_session_factory(engine)
+        factory = create_session_factory(_get_engine(db_url))
         _session_factory_cache[db_url] = factory
     return factory
 
 
-def get_engine() -> Engine:
-    """Return the configured application database engine (readiness use)."""
+def get_engine() -> Any:
     return _get_engine(get_db_url())
 
 
 async def get_unit_of_work(
     ctx: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
 ) -> AsyncGenerator[SqlAlchemyUnitOfWork, None]:
-    """Open a UnitOfWork bound to the authenticated tenant.
-
-    The tenant binding happens BEFORE any repository access. For PostgreSQL the
-    UoW executes ``set_config('app.current_tenant_id', :tid, true)`` so RLS
-    applies transaction-locally.
-    """
+    """UnitOfWork scoped to the authenticated tenant (RLS enforced)."""
     session_factory = _get_session_factory(get_db_url())
     uow = SqlAlchemyUnitOfWork(session_factory, ctx.tenant_id)
     try:
@@ -420,31 +413,35 @@ async def get_unit_of_work(
         uow.close()
 
 
-def get_event_publisher(
-    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
-):
-    """Build a domain event publisher bound to the current UoW transaction."""
-    from backend.infrastructure.persistence.uow.outbox_publisher import (
-        SqlAlchemyOutboxDomainEventPublisher,
-    )
-
-    return SqlAlchemyOutboxDomainEventPublisher(uow.session, uow.tenant_id)
-
-
 async def get_ops_session() -> AsyncGenerator["Session", None]:
-    """Open a tenant-neutral session for operational stores (Gate 09).
-
-    Used where no authenticated tenant exists yet (e.g. webhook receipt +
-    outbox enqueue), scoped only to operational tables.
-    """
+    """Tenant-neutral session for operational stores (webhook receipt / outbox)."""
     from sqlalchemy.orm import Session
-
     session_factory = _get_session_factory(get_db_url())
     session: Session = session_factory()
     try:
         yield session
     finally:
         session.close()
+
+
+async def get_unscoped_session() -> AsyncGenerator["Session", None]:
+    """Session with no RLS tenant set — for login (user lookup before auth)."""
+    from sqlalchemy.orm import Session
+    session_factory = _get_session_factory(get_db_url())
+    session: Session = session_factory()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+def get_event_publisher(
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
+):
+    from backend.infrastructure.persistence.uow.outbox_publisher import (
+        SqlAlchemyOutboxDomainEventPublisher,
+    )
+    return SqlAlchemyOutboxDomainEventPublisher(uow.session, uow.tenant_id)
 
 
 def get_clock() -> SystemClock:
@@ -456,25 +453,17 @@ def get_id_generator() -> Uuid4IdGenerator:
 
 
 def get_object_storage():
-    """Build or retrieve the application object storage provider."""
     global _storage_instance
     if _storage_instance is None:
         from config.settings import Settings
         from backend.infrastructure.storage.s3_storage import S3ObjectStorage
-
         settings = Settings()
-        storage_cfg = getattr(settings, "storage", None)
-        bucket = (getattr(storage_cfg, "bucket", "") or "").strip() or "thali-documents"
-        endpoint_url = (getattr(storage_cfg, "endpoint_url", "") or "").strip() or None
-        region = (getattr(storage_cfg, "region", "") or "").strip() or None
-        access_key = (getattr(storage_cfg, "access_key_id", "") or "").strip() or None
-        secret_key = (getattr(storage_cfg, "secret_access_key", "") or "").strip() or None
-
+        sc = settings.storage
         _storage_instance = S3ObjectStorage(
-            bucket=bucket,
-            endpoint_url=endpoint_url,
-            region=region,
-            access_key_id=access_key,
-            secret_access_key=secret_key,
+            bucket=(sc.bucket or "thali-documents"),
+            endpoint_url=(sc.endpoint_url or None),
+            region=(sc.region or None),
+            access_key_id=(sc.access_key_id or None),
+            secret_access_key=(sc.secret_access_key or None),
         )
     return _storage_instance

@@ -1,56 +1,62 @@
-"""Gate 09 — WhatsApp free-text intake transform.
+"""WhatsApp free-text intake transform — uses the full Hinglish parser.
 
-A pure, infrastructure-free interpretation of a verified WhatsApp message body
-into a standard Gate 04 application command:
+Converts a verified WhatsApp message body into a standard application command:
 
-- ``"180"`` / ``"180 fasting"``-style payloads  → ``IngestGlucoseReading``
-- anything else                                  → ``LogMealDraft``
+- Glucose readings  ("fasting 138", "subah sugar 142", "180")
+    → IngestGlucoseReading
+- Everything else (meals, Hinglish food descriptions)
+    → LogMealDraft  (with carbs_grams and gi_category pre-computed)
+- Ambiguous readings ("shayad 230 or 330")
+    → LogMealDraft with is_ambiguous=True  (handler sends clarification)
 
-All domain invariants (20–600 mg/dL glucose boundary, phone validation, meal
-confirmation state) are enforced downstream by the domain value objects — this
-module performs NO clinical interpretation.
+Domain invariants (20–600 mg/dL boundary, confirmation state) are enforced
+downstream — this module performs NO clinical interpretation.
 """
-
 from __future__ import annotations
 
 import re
 from datetime import datetime
 from uuid import UUID
 
-from backend.application.commands import (
-    IngestGlucoseReading,
-    LogMealDraft,
+from backend.application.commands import IngestGlucoseReading, LogMealDraft
+from backend.domain.value_objects import GlucoseValue, KatoriVolume, MealPortion, ReadingTag
+from backend.infrastructure.parsing.hinglish_parser import (
+    ParsedInput,
+    ambiguous_reading_values,
+    parse_inbound,
 )
-from backend.domain.value_objects import GlucoseValue, ReadingTag
-
-# e.g. "180", "180 fasting", "190  after dinner", "185 fasting"
-_GLUCOSE_RE = re.compile(
-    r"^\s*(?P<value>\d{1,3})(?:\s+(?P<tag>[a-z]+(?:\s+[a-z]+)*))?\s*$",
-    re.IGNORECASE,
+from backend.infrastructure.parsing.nutrition_taxonomy import (
+    classify_text,
+    estimate_nutrition,
 )
 
-_TAG_ALIASES: dict[str, ReadingTag] = {
-    "fasting": ReadingTag.FASTING,
-    "premeal": ReadingTag.PRE_MEAL,
-    "pre meal": ReadingTag.PRE_MEAL,
-    "before meal": ReadingTag.PRE_MEAL,
-    "beforemeals": ReadingTag.PRE_MEAL,
+# Map Hinglish parser tag strings → domain ReadingTag enum
+_TAG_TO_DOMAIN: dict[str, ReadingTag] = {
+    "fasting":       ReadingTag.FASTING,
+    "pre":           ReadingTag.PRE_MEAL,
+    "postprandial":  ReadingTag.POST_MEAL,
     "postbreakfast": ReadingTag.POST_BREAKFAST,
-    "post breakfast": ReadingTag.POST_BREAKFAST,
-    "after breakfast": ReadingTag.POST_BREAKFAST,
-    "postlunch": ReadingTag.POST_LUNCH,
-    "post lunch": ReadingTag.POST_LUNCH,
-    "after lunch": ReadingTag.POST_LUNCH,
-    "postdinner": ReadingTag.POST_DINNER,
-    "post dinner": ReadingTag.POST_DINNER,
-    "after dinner": ReadingTag.POST_DINNER,
+    "postlunch":     ReadingTag.POST_LUNCH,
+    "postdinner":    ReadingTag.POST_DINNER,
 }
 
 
-def _normalize_tag(raw: str | None) -> ReadingTag | None:
-    if not raw:
+def _map_tag(tag: str | None) -> ReadingTag | None:
+    if not tag:
         return None
-    return _TAG_ALIASES.get(raw.strip().lower())
+    return _TAG_TO_DOMAIN.get(tag.lower())
+
+
+_PORTION_VOLUMES: dict[str, int] = {"s": 150, "m": 220, "l": 350}
+
+
+def _map_portion(letter: str | None, food_key: str = "meal") -> MealPortion | None:
+    if not letter:
+        return None
+    vol = _PORTION_VOLUMES.get(letter.lower())
+    if not vol:
+        return None
+    return MealPortion(food_key=food_key, katori=KatoriVolume(vol), quantity=1.0)
 
 
 def parse_intake_text(
@@ -60,34 +66,70 @@ def parse_intake_text(
     correlation_id: UUID | None,
     recorded_at: datetime,
 ) -> IngestGlucoseReading | LogMealDraft:
-    """Turn one verified message body into a command.
+    """Parse one verified WhatsApp message body into an application command.
 
-    Raises the domain ``InvalidGlucoseValue`` when a glucose-shaped payload
-    falls outside the safe 20–600 mg/dL boundary, preserving the domain
-    invariant as the authoritative gate.
+    Raises ``InvalidGlucoseValue`` (domain) when a glucose-shaped payload
+    is outside the safe 20–600 mg/dL boundary.
     """
-    match = _GLUCOSE_RE.match(text)
-    if match:
-        tag_text = match.groupdict().get("tag")
-        tag = _normalize_tag(tag_text)
-        if tag is not None or not tag_text:
-            return IngestGlucoseReading(
-                patient_id=patient_id,
-                value=GlucoseValue(int(match.group("value"))),
-                taken_at=recorded_at,
-                tag=tag,
-                correlation_id=correlation_id,
-            )
+    stripped = text.strip()
+
+    # 1. Check for ambiguous reading first ("shayad 230 or 330")
+    ambiguous = ambiguous_reading_values(stripped)
+    if ambiguous:
+        # Return a LogMealDraft flagged as ambiguous so the handler can send
+        # a clarification prompt and skip the meal confirm loop.
+        return LogMealDraft(
+            patient_id=patient_id,
+            description=stripped,
+            recorded_at=recorded_at,
+            correlation_id=correlation_id,
+            is_ambiguous=True,
+            ambiguous_candidates=ambiguous,
+        )
+
+    # 2. Full Hinglish parse
+    parsed: ParsedInput = parse_inbound(stripped)
+
+    if parsed.is_reading and parsed.reading is not None:
+        tag = _map_tag(parsed.reading_tag)
+        return IngestGlucoseReading(
+            patient_id=patient_id,
+            value=GlucoseValue(int(parsed.reading)),
+            taken_at=recorded_at,
+            tag=tag,
+            correlation_id=correlation_id,
+        )
+
+    # 3. Meal — pre-compute nutrition
+    items = classify_text(stripped)
+    portion_letter = parsed.portion_letter
+    nutrition = estimate_nutrition(items, portion_letter or "m")
+    food_key = items[0]["item"] if items else "meal"
+    portion = _map_portion(portion_letter, food_key) if portion_letter else None
+
     return LogMealDraft(
         patient_id=patient_id,
-        description=text.strip(),
+        description=stripped,
+        portion=portion,
+        carbs_grams=nutrition.carbs_grams if items else None,
+        gi_category=nutrition.gi_category if items else None,
+        classified_items=items,
         recorded_at=recorded_at,
         correlation_id=correlation_id,
+        is_ambiguous=False,
+        ambiguous_candidates=[],
     )
 
 
 def dispatch_hint(cmd: IngestGlucoseReading | LogMealDraft) -> str:
-    """Coarse resource-kind hint for audit purposes (GLUCOSE | MEAL)."""
-    if isinstance(cmd, IngestGlucoseReading):
-        return "GLUCOSE"
-    return "MEAL"
+    """Coarse resource-kind hint for audit (GLUCOSE | MEAL)."""
+    return "GLUCOSE" if isinstance(cmd, IngestGlucoseReading) else "MEAL"
+
+
+__all__ = [
+    "dispatch_hint",
+    "parse_intake_text",
+    "parse_inbound",
+    "ambiguous_reading_values",
+    "ParsedInput",
+]

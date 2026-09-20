@@ -11,6 +11,10 @@ anyio==4.15.1
     #   httpx
     #   starlette
     #   watchfiles
+bcrypt==5.0.0
+    # via
+    #   -r requirements.txt
+    #   passlib
 boto3==1.43.97
     # via -r requirements.txt
 botocore==1.43.97
@@ -73,6 +77,8 @@ packaging==26.3
     # via
     #   matplotlib
     #   pytest
+passlib==1.7.4
+    # via -r requirements.txt
 pillow==12.3.0
     # via
     #   matplotlib

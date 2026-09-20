@@ -15,6 +15,7 @@ from .outbox_models import DomainEventOutboxModel
 from .ops_models import AuditEventModel, IdempotencyRecordModel, WebhookReceiptModel
 from .notification_models import NotificationModel
 from .document_models import DocumentReferenceModel
+from .user_models import UserModel
 
 __all__ = [
     "Base",
@@ -35,5 +36,6 @@ __all__ = [
     "AuditEventModel",
     "NotificationModel",
     "DocumentReferenceModel",
+    "UserModel",
 ]
 

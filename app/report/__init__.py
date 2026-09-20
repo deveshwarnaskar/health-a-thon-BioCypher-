@@ -1,1 +1,0 @@
-"""Doctor-report renderers (PNG charts + 2-page PDF)."""

@@ -4,6 +4,7 @@
 !.env.example
 *.local
 docker-compose.override.yml
+config/dev_keys/
 
 # Python
 __pycache__/

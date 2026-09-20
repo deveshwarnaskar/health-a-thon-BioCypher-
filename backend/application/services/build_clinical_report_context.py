@@ -13,6 +13,7 @@ from typing import Any
 from ..ports.unit_of_work import UnitOfWork
 from ..queries.build_clinical_report_context import BuildClinicalReportContext
 from ...domain.exceptions import EntityNotFound
+from ...domain.services.glycemic_metrics import compute_window_metrics
 
 
 class BuildClinicalReportContextHandler:
@@ -133,6 +134,46 @@ class BuildClinicalReportContextHandler:
                     "model_name": getattr(a, "model_name", None),
                 })
 
+        # Compute window metrics
+        metric_readings = []
+        for g in sorted_glucose:
+            val = _glucose_int(g)
+            if val is not None:
+                ts = getattr(g, "taken_at", getattr(g, "recorded_at", getattr(g, "created_at", None)))
+                ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+                tag_str = g.tag.value if hasattr(getattr(g, "tag", None), "value") else str(getattr(g, "tag", "") or "")
+                metric_readings.append({
+                    "value": float(val),
+                    "tag": tag_str,
+                    "taken_at": ts_str,
+                })
+
+        metric_meals = []
+        for m in sorted_meals:
+            ts = getattr(m, "recorded_at", getattr(m, "logged_at", getattr(m, "created_at", None)))
+            ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+            conf_val = getattr(getattr(m, "confirmation", None), "value", str(getattr(m, "confirmation", "") or ""))
+            metric_meals.append({
+                "carbs_grams": getattr(m, "carbs_grams", None),
+                "gi_category": getattr(m, "glycemic_index", None),
+                "recorded_at": ts_str,
+                "confirmation": conf_val,
+            })
+
+        window_metrics = compute_window_metrics(metric_readings, metric_meals, window_days=14)
+
+        if q.report_type == "patient_summary":
+            metrics_payload = {
+                "total_readings": window_metrics.get("total_readings", 0),
+                "adherence_index": window_metrics.get("adherence_index", 0.0),
+                "tir_in_range_pct": window_metrics.get("tir_in_range_pct", 0.0),
+                "tir_above_range_pct": window_metrics.get("tir_above_range_pct", 0.0),
+                "tir_below_range_pct": window_metrics.get("tir_below_range_pct", 0.0),
+                "mean_glucose": window_metrics.get("mean_glucose"),
+            }
+        else:
+            metrics_payload = window_metrics
+
         return {
             "patient": {
                 "id": str(patient.id),
@@ -148,8 +189,13 @@ class BuildClinicalReportContextHandler:
                 "min_glucose": min_glucose,
                 "max_glucose": max_glucose,
                 "readings": readings_list,
+                "tir_in_range_pct": window_metrics.get("tir_in_range_pct"),
+                "tir_above_range_pct": window_metrics.get("tir_above_range_pct"),
+                "tir_below_range_pct": window_metrics.get("tir_below_range_pct"),
+                "adherence_index": window_metrics.get("adherence_index"),
             },
             "meals": meals_list,
             "medication_plans": plans_list,
             "ai_artifacts": artifacts_list,
+            "metrics": metrics_payload,
         }

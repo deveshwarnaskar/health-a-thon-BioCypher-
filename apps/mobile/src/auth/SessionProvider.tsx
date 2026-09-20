@@ -5,7 +5,8 @@ import { apiClient } from "../services/api/client";
 import { queryClient } from "../store/query";
 import { useUiStore } from "../store/uiStore";
 import { readOidcConfig } from "./oidcConfig";
-import { discoverOidc } from "./discovery";
+import { discoverOidc, type OidcDiscovery } from "./discovery";
+import { readApiConfig } from "../services/api/config";
 import { SecureStoreTokenStore } from "./secureTokenStore";
 import { createOidcFlow } from "./oidcFlow";
 import { globalAuthExpiredSignal } from "./globalAuthSignal";
@@ -15,11 +16,9 @@ import { localSessionIsolation } from "../db/isolation";
 import { localDatabase } from "../db/database";
 
 /**
- * Composes the real OidcSessionManager, fetches OIDC discovery on mount, and
- * renders the application shell once the session is ready.  While the session
- * is restoring the user sees a loading screen — never an unauthenticated
- * protected route.  Discovery/configuration failures surface a clear safe
- * error instead of an indefinite spinner.
+ * Composes the real OidcSessionManager, fetches OIDC discovery on mount (or falls back
+ * to custom backend JWT auth endpoints), and renders the application shell once the
+ * session is ready.
  */
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [manager, setManager] = useState<OidcSessionManager | null>(null);
@@ -30,7 +29,17 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     void (async () => {
       const oidcConfig = readOidcConfig();
-      const discovery = await discoverOidc(oidcConfig.issuerUrl);
+      let discovery: OidcDiscovery;
+      try {
+        discovery = await discoverOidc(oidcConfig.issuerUrl);
+      } catch {
+        const baseUrl = readApiConfig().apiBaseUrl || "http://localhost:8000";
+        discovery = {
+          issuer: baseUrl,
+          authorizationEndpoint: `${baseUrl}/api/v2/auth/login`,
+          tokenEndpoint: `${baseUrl}/api/v2/auth/refresh`,
+        };
+      }
 
       const newManager = new OidcSessionManager({
         config: oidcConfig,

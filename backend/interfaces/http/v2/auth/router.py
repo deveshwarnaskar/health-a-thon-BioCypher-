@@ -178,3 +178,10 @@ async def get_auth_context(
         capabilities=capabilities,
         available_patient_contexts=available_contexts,
     )
+
+
+# Mount custom auth routes (/login, /refresh, /logout, /register)
+from .login import auth_custom_router
+
+auth_router.include_router(auth_custom_router)
+

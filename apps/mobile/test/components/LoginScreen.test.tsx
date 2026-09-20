@@ -20,7 +20,15 @@ jest.mock("../../src/auth/AuthProvider", () => ({
 }));
 
 const redirectHrefs: string[] = [];
+const mockRouterPush = jest.fn();
+const mockRouterReplace = jest.fn();
+
 jest.mock("expo-router", () => ({
+  useRouter: () => ({
+    push: mockRouterPush,
+    replace: mockRouterReplace,
+    back: jest.fn(),
+  }),
   Redirect: ({ href }: { href: string }) => {
     redirectHrefs.push(href);
     return null;

@@ -13,3 +13,5 @@ class ReadingTag(str, Enum):
     POST_BREAKFAST = "postbreakfast"
     POST_LUNCH = "postlunch"
     POST_DINNER = "postdinner"
+    POST_PRANDIAL = "postprandial"
+    POST_MEAL = "postprandial"

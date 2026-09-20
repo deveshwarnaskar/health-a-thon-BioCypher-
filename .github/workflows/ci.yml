@@ -41,34 +41,6 @@ jobs:
       - name: Run Backend Pytest Suite
         run: uv run pytest -v
 
-  admin-web-tests:
-    name: Admin Web Tests & Build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'pnpm'
-          cache-dependency-path: apps/admin-web/pnpm-lock.yaml
-
-      - name: Install dependencies
-        run: pnpm --dir apps/admin-web install --frozen-lockfile
-
-      - name: Run Vitest Suite
-        run: pnpm --dir apps/admin-web test
-
-      - name: Run Production Build
-        run: pnpm --dir apps/admin-web build
-
   mobile-tests:
     name: Mobile Typecheck, Tests & Export
     runs-on: ubuntu-latest

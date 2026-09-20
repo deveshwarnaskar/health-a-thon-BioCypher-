@@ -4,7 +4,7 @@ from config.settings import Settings
 
 
 def test_defaults_are_safe_and_secret_free():
-    s = Settings()
+    s = Settings(_env_file=None)
     assert s.app.env == "development"
     assert s.database.url == ""
     assert s.redis.host == "localhost"
@@ -32,6 +32,7 @@ def test_all_expected_config_sections_exist():
         "database",
         "redis",
         "storage",
+        "auth",
         "identity",
         "whatsapp",
         "ai",

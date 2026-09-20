@@ -72,69 +72,6 @@
       "protocol": "openid-connect"
     },
     {
-      "clientId": "thali-admin-web",
-      "name": "THALI Clinical & Administrative Web Portal",
-      "description": "Single-Page Application for facility administration and care coordination",
-      "enabled": true,
-      "publicClient": true,
-      "standardFlowEnabled": true,
-      "implicitFlowEnabled": false,
-      "directAccessGrantsEnabled": false,
-      "attributes": {
-        "pkce.code.challenge.method": "S256"
-      },
-      "rootUrl": "https://admin.plate.thali.health",
-      "baseUrl": "https://admin.plate.thali.health",
-      "redirectUris": [
-        "https://admin.plate.thali.health/*"
-      ],
-      "webOrigins": [
-        "https://admin.plate.thali.health"
-      ],
-      "protocol": "openid-connect",
-      "protocolMappers": [
-        {
-          "name": "tenant_id",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-attribute-mapper",
-          "consentRequired": false,
-          "config": {
-            "userinfo.token.claim": "true",
-            "user.attribute": "tenant_id",
-            "id.token.claim": "true",
-            "access.token.claim": "true",
-            "claim.name": "tenant_id",
-            "jsonType.label": "String"
-          }
-        },
-        {
-          "name": "facility_id",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-attribute-mapper",
-          "consentRequired": false,
-          "config": {
-            "userinfo.token.claim": "true",
-            "user.attribute": "facility_id",
-            "id.token.claim": "true",
-            "access.token.claim": "true",
-            "claim.name": "facility_id",
-            "jsonType.label": "String"
-          }
-        },
-        {
-          "name": "audience_mapper",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-audience-mapper",
-          "consentRequired": false,
-          "config": {
-            "included.client.audience": "thali-backend-api",
-            "id.token.claim": "true",
-            "access.token.claim": "true"
-          }
-        }
-      ]
-    },
-    {
       "clientId": "thali-mobile-app",
       "name": "THALI Mobile Android Client",
       "description": "React Native physical Android client for patients and caregivers",

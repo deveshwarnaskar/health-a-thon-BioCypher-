@@ -57,6 +57,7 @@ from tests.api.conftest import make_jwt
 def _make_valid_production_settings() -> Settings:
     """Construct a valid, fully-hardened production Settings instance."""
     return Settings(
+        _env_file=None,
         app=AppConfig(env="production"),
         identity=IdentityConfig(
             client_secret="a-secure-production-secret-with-more-than-32-chars-entropy!",

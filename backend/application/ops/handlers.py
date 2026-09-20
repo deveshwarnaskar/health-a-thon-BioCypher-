@@ -22,15 +22,26 @@ from datetime import datetime, timezone
 from typing import Callable
 from uuid import UUID
 
-from backend.application.commands import IngestGlucoseReading, LogMealDraft
+from backend.application.commands import (
+    ConfirmMealObservation,
+    IngestGlucoseReading,
+    LogMealDraft,
+)
 from backend.application.ports.clock import Clock
 from backend.application.ports.events import DomainEventPublisher
 from backend.application.ports.id_generation import IdGenerator
 from backend.application.ports.unit_of_work import UnitOfWork
+from backend.application.services.confirm_meal_observation import ConfirmMealObservationHandler
 from backend.application.services.ingest_glucose import IngestGlucoseHandler
 from backend.application.services.log_meal_draft import LogMealDraftHandler
 from backend.domain.entities import AIReviewArtifact, ReviewAuthority, ReviewState
 from backend.domain.exceptions import DomainError
+from backend.domain.value_objects import (
+    KatoriVolume,
+    MealPortion,
+    PatientConfirmationState,
+    PhoneNumber,
+)
 from backend.application.ports.ai import (
     AIProvider,
     AITaskDefinition,
@@ -51,7 +62,12 @@ from .contracts import (
     OutboxJob,
 )
 from .errors import PermanentWorkerFailure
-from .intake_text import dispatch_hint, parse_intake_text
+from .intake_text import (
+    ambiguous_reading_values,
+    dispatch_hint,
+    parse_inbound,
+    parse_intake_text,
+)
 from .ports import AuditStore, ChannelSender, ChannelTenantResolver
 
 logger = logging.getLogger(__name__)
@@ -96,6 +112,7 @@ class WhatsAppIntakeHandler:
         audit_factory: Callable[[UnitOfWork], AuditStore],
         clock: Clock,
         id_gen: IdGenerator,
+        sender: ChannelSender | None = None,
     ) -> None:
         self._tenant_resolver = tenant_resolver
         self._uow_factory = uow_factory
@@ -103,6 +120,24 @@ class WhatsAppIntakeHandler:
         self._audit_factory = audit_factory
         self._clock = clock
         self._id_gen = id_gen
+        self._sender = sender
+
+    def _send_reply(self, phone: str, body: str, tenant_id: UUID, correlation_id: UUID | None) -> None:
+        if self._sender is None:
+            return
+        try:
+            msg = OutboundMessage(
+                message_id=self._id_gen.new_uuid(),
+                tenant_id=tenant_id,
+                recipient_phone=phone.strip(),
+                channel_type="WHATSAPP",
+                template_name="text",
+                template_params={"body": body},
+                correlation_id=str(correlation_id) if correlation_id else "",
+            )
+            self._sender.send(msg)
+        except Exception as exc:
+            logger.warning("failed to send whatsapp reply: %s", exc)
 
     def handle(self, job: OutboxJob) -> DeliveryOutcome:
         payload = dict(job.payload or {})
@@ -122,28 +157,89 @@ class WhatsAppIntakeHandler:
         patient_id = resolved.patient_id
         uow = self._uow_factory(tenant_id)
         try:
-            # Parse + re-confirm the patient inside the tenant's RLS scope. If
-            # the routing anchor changed, the patient vanished, or the payload
-            # violates a domain invariant, the failure is permanent (no retries
-            # can fix the payload) and is recorded as a FAILED audit row.
-            try:
-                cmd = parse_intake_text(
-                    text,
-                    patient_id=patient_id,
-                    correlation_id=job.correlation_id,
-                    recorded_at=self._clock.now(),
+            patient = uow.patients.get(patient_id)
+            if not getattr(patient, "active", True):
+                raise DomainError(f"patient {patient_id} is deactivated; channel intake denied")
+
+            # 1. Ambiguity detection
+            ambiguous = ambiguous_reading_values(text)
+            if ambiguous:
+                self._send_reply(
+                    phone,
+                    "Aapka glucose reading clear nahi hai. Kripya ek reading bhejein (jaise: 140 fasting ya 180).",
+                    tenant_id,
+                    job.correlation_id,
                 )
-                patient = uow.patients.get(patient_id)
-                if not getattr(patient, "active", True):
-                    raise DomainError(f"patient {patient_id} is deactivated; channel intake denied")
-            except DomainError as exc:
-                self._write_failure_audit(
-                    uow, job, tenant_id,
-                    reason=exc,
-                    resource_type="CHANNEL_MESSAGE",
-                    resource_id=str(patient_id),
+                self._audit_factory(uow).record(
+                    _audit_for_worker(
+                        tenant_id=tenant_id,
+                        action=AuditAction.CREATE.value,
+                        resource_type="AMBIGUOUS_READING",
+                        resource_id=str(patient_id),
+                        job=job,
+                        outcome="SUCCESS",
+                        provenance={"channel": "whatsapp", "provider_message_id": message_id},
+                    )
                 )
-                raise PermanentWorkerFailure(f"channel intake rejected by domain: {exc}") from exc
+                uow.commit()
+                return DeliveryOutcome.SUCCESS
+
+            # 2. Confirm / Correct loop for pending meal observations
+            parsed = parse_inbound(text)
+            if parsed.is_confirm or parsed.kind == "correct":
+                meals = uow.meal_observations.list_for_patient(patient_id)
+                pending_meals = [
+                    m for m in meals
+                    if getattr(getattr(m, "confirmation", None), "value", str(getattr(m, "confirmation", ""))) == "pending"
+                ]
+                pending_meals.sort(
+                    key=lambda m: getattr(m, "recorded_at", getattr(m, "created_at", None)),
+                    reverse=True,
+                )
+                if pending_meals:
+                    latest = pending_meals[0]
+                    corrected_desc = parsed.text if parsed.kind == "correct" else None
+                    corrected_portion = None
+                    if parsed.portion_letter:
+                        vol_map = {"s": 150, "m": 220, "l": 350}
+                        vol = vol_map.get(parsed.portion_letter.lower(), 220)
+                        food_key = latest.portion.food_key if latest.portion else "meal"
+                        corrected_portion = MealPortion(food_key=food_key, katori=KatoriVolume(vol), quantity=1.0)
+
+                    confirm_cmd = ConfirmMealObservation(
+                        meal_observation_id=latest.id,
+                        confirmed_by=PhoneNumber(phone.strip()),
+                        corrected_description=corrected_desc,
+                        corrected_portion=corrected_portion,
+                        correlation_id=job.correlation_id,
+                    )
+                    ConfirmMealObservationHandler(uow, self._events_factory(uow), self._clock, self._id_gen).handle(confirm_cmd)
+
+                    self._audit_factory(uow).record(
+                        _audit_for_worker(
+                            tenant_id=tenant_id,
+                            action=AuditAction.UPDATE.value,
+                            resource_type="MEAL",
+                            resource_id=str(latest.id),
+                            job=job,
+                            provenance={"channel": "whatsapp", "provider_message_id": message_id, "kind": parsed.kind},
+                        )
+                    )
+                    self._send_reply(
+                        phone,
+                        "Dhanyawad! Aapka meal record ho gaya hai.",
+                        tenant_id,
+                        job.correlation_id,
+                    )
+                    return DeliveryOutcome.SUCCESS
+
+            # 3. Standard parsing (glucose or meal draft)
+            cmd = parse_intake_text(
+                text,
+                patient_id=patient_id,
+                correlation_id=job.correlation_id,
+                recorded_at=self._clock.now(),
+            )
 
             self._audit_factory(uow).record(
                 _audit_for_worker(
@@ -156,20 +252,31 @@ class WhatsAppIntakeHandler:
                 )
             )
 
-            try:
-                if isinstance(cmd, IngestGlucoseReading):
-                    IngestGlucoseHandler(uow, self._events_factory(uow), self._clock, self._id_gen).handle(cmd)
-                else:
-                    LogMealDraftHandler(uow, self._events_factory(uow), self._clock, self._id_gen).handle(cmd)
-            except DomainError as exc:
-                # in_transaction already rolled the business+audit rows back.
-                self._write_failure_audit(
-                    uow, job, tenant_id,
-                    reason=exc,
-                    resource_type=dispatch_hint(cmd),
-                    resource_id=str(patient_id),
+            if isinstance(cmd, IngestGlucoseReading):
+                IngestGlucoseHandler(uow, self._events_factory(uow), self._clock, self._id_gen).handle(cmd)
+                self._send_reply(
+                    phone,
+                    f"Glucose reading {cmd.value.value_mg_dl} mg/dL darz ho gayi hai.",
+                    tenant_id,
+                    job.correlation_id,
                 )
-                raise PermanentWorkerFailure(f"channel payload rejected by domain: {exc}") from exc
+            else:
+                LogMealDraftHandler(uow, self._events_factory(uow), self._clock, self._id_gen).handle(cmd)
+                self._send_reply(
+                    phone,
+                    f"Aapne '{cmd.description}' khaya? Kripya confirm karein (YES/Haan ya portion: Small / Medium / Large).",
+                    tenant_id,
+                    job.correlation_id,
+                )
+
+        except DomainError as exc:
+            self._write_failure_audit(
+                uow, job, tenant_id,
+                reason=exc,
+                resource_type="CHANNEL_MESSAGE",
+                resource_id=str(patient_id),
+            )
+            raise PermanentWorkerFailure(f"channel payload rejected by domain: {exc}") from exc
         finally:
             uow.close()
         return DeliveryOutcome.SUCCESS

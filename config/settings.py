@@ -1,9 +1,8 @@
-"""Target system configuration schema (Gate 03).
+"""Target system configuration schema.
 
-Pure configuration layer built on pydantic-settings / Pydantic v2. It is NOT
-consumed by the legacy Aahaar prototype yet and connects to NO external
-service. All credentials default to empty values; nothing sensitive is
-embedded in source control.
+Pure configuration layer built on pydantic-settings / Pydantic v2.
+No service is contacted on load.  All credentials default to empty values;
+nothing sensitive is embedded in source control.
 """
 
 from typing import List
@@ -20,73 +19,81 @@ class AppConfig(BaseModel):
 
 class DatabaseConfig(BaseModel):
     url: str = Field(default="", description="SQLAlchemy database URL")
-    pool_size: int = Field(default=5, ge=1, description="number of connections to keep open in the pool")
-    max_overflow: int = Field(default=10, ge=0, description="maximum overflow connections above pool_size")
-    pool_timeout: float = Field(default=5.0, ge=0.5, le=60.0, description="seconds to wait for a connection from the pool")
-    pool_recycle: int = Field(default=3600, ge=60, description="seconds after which a connection is recycled")
-    pool_pre_ping: bool = Field(default=True, description="test connections for liveness on checkout")
+    pool_size: int = Field(default=5, ge=1)
+    max_overflow: int = Field(default=10, ge=0)
+    pool_timeout: float = Field(default=5.0, ge=0.5, le=60.0)
+    pool_recycle: int = Field(default=3600, ge=60)
+    pool_pre_ping: bool = Field(default=True)
 
 
 class RedisConfig(BaseModel):
-    enabled: bool = Field(
-        default=False,
-        description="enable distributed rate-limit coordination (default OFF preserves the offline test baseline)",
-    )
+    enabled: bool = Field(default=False)
     host: str = Field(default="localhost")
     port: int = Field(default=6379, ge=1, le=65535)
-    password: str | None = Field(default=None, description="leave unset; never commit real passwords")
+    password: str | None = Field(default=None)
     db: int = Field(default=0, ge=0)
 
 
 class StorageConfig(BaseModel):
-    endpoint_url: str = Field(default="", description="S3-compatible endpoint (S3 integration deferred)")
+    endpoint_url: str = Field(default="")
     bucket: str = Field(default="")
     region: str = Field(default="")
     access_key_id: str = Field(default="")
     secret_access_key: str = Field(default="")
 
 
-class IdentityConfig(BaseModel):
-    issuer_url: str = Field(default="", description="Keycloak/OIDC issuer (integration deferred)")
-    realm: str = Field(default="")
-    client_id: str = Field(default="", description="backend client/resource identifier; also the expected JWT audience")
-    client_secret: str = Field(default="", description="never commit real secrets")
-    allowed_algorithms: str = Field(
-        default="RS256",
-        description="comma-separated allow-list of JWT algorithms accepted at the trust boundary; RS256 (Keycloak JWKS) is the production policy, HS256 is development/testing only",
-    )
-    jwks_uri: str = Field(
+class AuthConfig(BaseModel):
+    """Custom RS256 JWT auth — replaces Keycloak entirely."""
+
+    private_key_pem: str = Field(
         default="",
-        description="explicit JWKS endpoint; when empty, OIDC discovery metadata from the issuer is used",
+        description="RSA-2048 private key PEM for JWT signing (never commit real keys)",
     )
+    public_key_pem: str = Field(
+        default="",
+        description="RSA-2048 public key PEM for JWT verification",
+    )
+    access_token_expire_minutes: int = Field(default=60, ge=1)
+    refresh_token_expire_days: int = Field(default=7, ge=1)
+
+
+# Kept for any legacy code that reads settings.identity — redirects to AuthConfig.
+# Will be removed after all callers are updated.
+class IdentityConfig(BaseModel):
+    issuer_url: str = Field(default="")
+    realm: str = Field(default="")
+    client_id: str = Field(default="")
+    client_secret: str = Field(default="")
+    allowed_algorithms: str = Field(default="RS256")
+    jwks_uri: str = Field(default="")
 
 
 class WhatsAppConfig(BaseModel):
-    verify_token: str = Field(default="", description="Meta webhook verify token (empty default)")
-    app_secret: str = Field(default="", description="Meta app secret used to verify X-Hub-Signature-256")
+    verify_token: str = Field(default="")
+    app_secret: str = Field(default="")
     access_token: str = Field(default="")
     phone_number_id: str = Field(default="")
     api_version: str = Field(default="v21.0")
 
 
 class AIConfig(BaseModel):
-    provider: str = Field(default="gemini")
+    provider: str = Field(default="deterministic")
     model: str = Field(default="")
-    api_key: str = Field(default="", description="never commit real API keys")
+    api_key: str = Field(default="")
 
 
 class ObservabilityConfig(BaseModel):
-    log_level: str = Field(default="INFO", description="Logging level: DEBUG, INFO, WARNING, ERROR")
-    structured_logs: bool = Field(default=False, description="Enable machine-readable JSON structured logs")
-    service_name: str = Field(default="thali-plate", description="Service identifier for logs, metrics, and traces")
-    metrics_enabled: bool = Field(default=True, description="Enable Prometheus operational metrics collection")
-    metrics_path: str = Field(default="/metrics", description="Endpoint path for Prometheus metrics")
-    metrics_require_auth: bool = Field(default=False, description="Require token or internal network boundary for /metrics")
-    metrics_auth_token: str = Field(default="", description="Bearer / header token for scraping /metrics when auth required")
-    tracing_enabled: bool = Field(default=False, description="Enable OpenTelemetry tracing")
-    tracing_exporter: str = Field(default="memory", description="Span exporter: memory, console, otlp")
-    tracing_otlp_endpoint: str = Field(default="", description="OTLP collector endpoint (e.g. http://collector:4318/v1/traces)")
-    tracing_sample_rate: float = Field(default=1.0, ge=0.0, le=1.0, description="Trace sampling probability [0.0, 1.0]")
+    log_level: str = Field(default="INFO")
+    structured_logs: bool = Field(default=False)
+    service_name: str = Field(default="thali-plate")
+    metrics_enabled: bool = Field(default=True)
+    metrics_path: str = Field(default="/metrics")
+    metrics_require_auth: bool = Field(default=False)
+    metrics_auth_token: str = Field(default="")
+    tracing_enabled: bool = Field(default=False)
+    tracing_exporter: str = Field(default="memory")
+    tracing_otlp_endpoint: str = Field(default="")
+    tracing_sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
 class SecurityConfig(BaseModel):
@@ -95,8 +102,7 @@ class SecurityConfig(BaseModel):
 
 
 class Settings(BaseSettings):
-    """Environment-driven settings. Overridable via ``THALI_APP__ENV``-style
-    variable names or a ``.env`` file. No service is contacted on load."""
+    """Environment-driven settings loaded via THALI_* prefix env vars or .env file."""
 
     model_config = SettingsConfigDict(
         env_prefix="THALI_",
@@ -110,6 +116,8 @@ class Settings(BaseSettings):
     database: DatabaseConfig = DatabaseConfig()
     redis: RedisConfig = RedisConfig()
     storage: StorageConfig = StorageConfig()
+    auth: AuthConfig = AuthConfig()
+    # Kept for backward compatibility — deprecated
     identity: IdentityConfig = IdentityConfig()
     whatsapp: WhatsAppConfig = WhatsAppConfig()
     ai: AIConfig = AIConfig()
@@ -120,8 +128,6 @@ class Settings(BaseSettings):
 class SecurityConfigurationError(ValueError):
     """Raised when security-critical configuration violates production invariants."""
 
-    pass
-
 
 INSECURE_SECRETS_BLOCKLIST: frozenset[str] = frozenset(
     {
@@ -130,6 +136,7 @@ INSECURE_SECRETS_BLOCKLIST: frozenset[str] = frozenset(
         "rehearsal-secret-for-idempotency-only",
         "thali-dev-verify-token",
         "minioadmin",
+        "thali_minio_dev",
         "secret",
         "changeme",
         "password",
@@ -141,44 +148,35 @@ INSECURE_SECRETS_BLOCKLIST: frozenset[str] = frozenset(
     }
 )
 
+SYMMETRIC_JWT_ALGORITHMS: frozenset[str] = frozenset({"HS256", "HS384", "HS512"})
 ASYMMETRIC_JWT_ALGORITHMS: frozenset[str] = frozenset(
     {"RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "PS256", "PS384", "PS512"}
 )
-SYMMETRIC_JWT_ALGORITHMS: frozenset[str] = frozenset({"HS256", "HS384", "HS512"})
 
 
 def validate_security_configuration(settings: Settings) -> None:
-    """Validate security and cryptographic invariants.
+    """Validate security invariants.
 
-    In production (``settings.app.env == 'production'``), this enforces fail-closed
-    validation on all security boundaries:
-    - Rejects default, missing, or short (<32 chars) client secrets
-    - Rejects symmetric algorithms (HS256) and requires asymmetric algorithms (RS256)
-    - Enforces https:// scheme on Keycloak/OIDC issuer URL
-    - Enforces non-empty client_id (JWT audience)
-    - Rejects SQLite databases
-    - Rejects default webhook secrets if provided
-    - Enforces secure Redis credentials when Redis is enabled
-    - Enforces non-placeholder Storage credentials if storage is configured
-    - Forbids wildcard CORS origins
+    In development this is a no-op.  In production it enforces fail-closed
+    checks on all security boundaries.
     """
     env = (settings.app.env or "").strip().lower()
     if env != "production":
         return
 
-    # 1. Identity client_secret
-    client_secret = (settings.identity.client_secret or "").strip()
-    if not client_secret:
+    # 1. Client Secret (minimum length and blocklist check)
+    secret = (settings.identity.client_secret or "").strip()
+    if not secret:
         raise SecurityConfigurationError(
-            "Production environment requires identity.client_secret to be set."
+            "Production environment requires identity.client_secret to be configured."
         )
-    if client_secret.lower() in INSECURE_SECRETS_BLOCKLIST:
+    if secret.lower() in INSECURE_SECRETS_BLOCKLIST:
         raise SecurityConfigurationError(
             "Production environment rejected insecure/placeholder identity.client_secret."
         )
-    if len(client_secret) < 32:
+    if len(secret) < 32:
         raise SecurityConfigurationError(
-            "Production environment requires identity.client_secret to have at least 32 characters of entropy."
+            "Production environment requires identity.client_secret to have at least 32 characters."
         )
 
     # 2. JWT Allowed Algorithms
@@ -305,4 +303,12 @@ def validate_security_configuration(settings: Settings) -> None:
         if not (otlp.startswith("http://") or otlp.startswith("https://")):
             raise SecurityConfigurationError(
                 "Production environment requires observability.tracing_otlp_endpoint to use http:// or https://."
+            )
+
+    # 11. Auth private key if configured
+    if settings.auth.private_key_pem:
+        pk = settings.auth.private_key_pem.strip()
+        if "RSA PRIVATE KEY" not in pk and "PRIVATE KEY" not in pk:
+            raise SecurityConfigurationError(
+                "Production auth.private_key_pem does not appear to be a valid PEM private key."
             )

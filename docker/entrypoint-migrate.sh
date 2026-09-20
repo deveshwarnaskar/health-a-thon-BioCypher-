@@ -15,3 +15,9 @@ alembic upgrade head
 
 echo "[entrypoint-migrate] Migrations completed successfully. Current database state:"
 alembic current
+
+if [ "${THALI_SEED_ENABLED:-true}" = "true" ] || [ "${THALI_SEED_ENABLED:-true}" = "1" ]; then
+    echo "[entrypoint-migrate] Running dev stack seeder..."
+    python -m scripts.seed_dev_stack
+fi
+

@@ -14,9 +14,18 @@ export type AuthController = {
   isBootstrapping: boolean;
   isUnauthenticated: boolean;
   isAuthenticated: boolean;
-  signIn: () => Promise<void>;
+  signIn: (email?: string, password?: string) => Promise<void>;
+  signUp?: (data: {
+    email: string;
+    password: string;
+    name?: string;
+    phone?: string;
+    role?: string;
+  }) => Promise<void>;
   signOut: () => Promise<void>;
   recoverPassword?: () => Promise<void>;
+  forgotPassword?: (email: string) => Promise<{ status: string; message: string; reset_token?: string | null }>;
+  resetPassword?: (token: string, newPassword: string) => Promise<{ status: string; message: string }>;
   sessionProvider: AuthSessionProvider;
 };
 
@@ -53,9 +62,12 @@ export function AuthProvider({ sessionManager, children }: AuthProviderProps) {
         state.name === "session_expired" ||
         state.name === "failed",
       isAuthenticated: state.name === "authenticated",
-      signIn: () => sessionManager.signIn(),
+      signIn: (email?: string, password?: string) => sessionManager.signIn(email, password),
+      signUp: (data) => sessionManager.signUp(data),
       signOut: () => sessionManager.signOut(),
       recoverPassword: () => sessionManager.recoverPassword(),
+      forgotPassword: (email: string) => sessionManager.forgotPassword(email),
+      resetPassword: (token: string, newPassword: string) => sessionManager.resetPassword(token, newPassword),
       sessionProvider: sessionManager,
     }),
     [state, sessionManager]
