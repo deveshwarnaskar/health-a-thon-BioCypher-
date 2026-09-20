@@ -2,9 +2,12 @@
 
 The backend owns its private key and issues tokens directly — no Keycloak,
 no JWKS endpoint, no external identity provider required.
+Supports key identifier (kid) and key rotation dictionaries.
 """
 from __future__ import annotations
 
+import hashlib
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -20,6 +23,8 @@ class TokenService:
         access_expire_minutes: int = 60,
         refresh_expire_days: int = 7,
         hs256_secret: str | None = None,
+        kid: str = "thali-key-2026",
+        rotation_public_keys: dict[str, str] | None = None,
     ) -> None:
         # Normalise escaped newlines that may arrive from env vars
         self._private_key = private_key_pem.replace("\\n", "\n")
@@ -27,6 +32,31 @@ class TokenService:
         self._access_expire = timedelta(minutes=access_expire_minutes)
         self._refresh_expire = timedelta(days=refresh_expire_days)
         self._hs256_secret = hs256_secret or "test-secret"
+        self._kid = kid
+        self._rotation_public_keys: dict[str, str] = {
+            kid: self._public_key
+        }
+        if rotation_public_keys:
+            for k, pem in rotation_public_keys.items():
+                self._rotation_public_keys[k] = pem.replace("\\n", "\n")
+
+    @property
+    def current_kid(self) -> str:
+        return self._kid
+
+    # ------------------------------------------------------------------
+    # Cryptographic Secret Generation & Hashing Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def generate_secure_secret(nbytes: int = 32) -> str:
+        """Generate high-entropy cryptographically random URL-safe secret."""
+        return secrets.token_urlsafe(nbytes)
+
+    @staticmethod
+    def hash_secret(secret: str) -> str:
+        """Compute SHA-256 hex digest of a raw token/secret for storage."""
+        return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
     # ------------------------------------------------------------------
     # Issuance
@@ -38,6 +68,7 @@ class TokenService:
         tenant_id: str,
         role: str,
         facility_id: str | None = None,
+        session_id: str | None = None,
     ) -> str:
         now = datetime.now(timezone.utc)
         payload: dict[str, Any] = {
@@ -50,9 +81,20 @@ class TokenService:
             "jti": str(uuid.uuid4()),
             "typ": "access",
         }
-        return pyjwt.encode(payload, self._private_key, algorithm="RS256")
+        if session_id:
+            payload["session_id"] = session_id
 
-    def issue_refresh_token(self, user_id: str, tenant_id: str) -> str:
+        headers = {"kid": self._kid}
+        return pyjwt.encode(
+            payload, self._private_key, algorithm="RS256", headers=headers
+        )
+
+    def issue_refresh_token(
+        self,
+        user_id: str,
+        tenant_id: str,
+        session_id: str | None = None,
+    ) -> str:
         now = datetime.now(timezone.utc)
         payload: dict[str, Any] = {
             "sub": user_id,
@@ -62,7 +104,13 @@ class TokenService:
             "jti": str(uuid.uuid4()),
             "typ": "refresh",
         }
-        return pyjwt.encode(payload, self._private_key, algorithm="RS256")
+        if session_id:
+            payload["session_id"] = session_id
+
+        headers = {"kid": self._kid}
+        return pyjwt.encode(
+            payload, self._private_key, algorithm="RS256", headers=headers
+        )
 
     # ------------------------------------------------------------------
     # Verification
@@ -71,8 +119,8 @@ class TokenService:
     def verify_token(self, token: str) -> dict[str, Any]:
         """Verify RS256 signature (or HS256 in tests) and return claims.
 
-        Raises ``TokenVerificationError`` on any failure — expired,
-        invalid signature, wrong algorithm, etc.
+        Supports key rotation through header 'kid'.
+        Raises ``TokenVerificationError`` on any failure.
         """
         from backend.interfaces.http.v2.security.jwt import TokenVerificationError
 
@@ -93,9 +141,12 @@ class TokenService:
                     algorithms=["HS256"],
                     options={"verify_aud": False},
                 )
+
+            kid = header.get("kid")
+            pub_key = self._rotation_public_keys.get(kid, self._public_key)
             return pyjwt.decode(
                 token,
-                self._public_key,
+                pub_key,
                 algorithms=["RS256"],
                 options={"verify_aud": False},
             )

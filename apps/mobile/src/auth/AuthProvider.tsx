@@ -21,6 +21,7 @@ export type AuthController = {
     name?: string;
     phone?: string;
     role?: string;
+    invite_code?: string;
   }) => Promise<void>;
   signOut: () => Promise<void>;
   recoverPassword?: () => Promise<void>;

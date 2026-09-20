@@ -279,6 +279,7 @@ export class OidcSessionManager implements AuthSessionProvider {
     name?: string;
     phone?: string;
     role?: string;
+    invite_code?: string;
   }): Promise<void> {
     if (this.state.name === "authenticating") return;
 

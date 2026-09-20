@@ -190,6 +190,7 @@ async def _http_exception_handler(request: Request, exc: Any) -> JSONResponse:
         409: ("CONFLICT", "The operation conflicts with the current state"),
         413: ("PAYLOAD_TOO_LARGE", "Request body too large"),
         422: ("VALIDATION_ERROR", "Request validation failed"),
+        423: ("ACCOUNT_LOCKED", "Account is temporarily locked"),
         429: ("TOO_MANY_REQUESTS", "Too many requests"),
     }
     code, message = mapping.get(status, ("HTTP_ERROR", "Request could not be completed"))

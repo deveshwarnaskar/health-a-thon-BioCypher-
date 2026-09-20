@@ -13,19 +13,17 @@ class SqlAlchemyUserRepository:
 
     This repository intentionally bypasses the RLS unit-of-work because the
     login endpoint has no tenant context yet (the user is not authenticated).
-    It uses a raw session with RLS disabled at the session level so the query
-    can find the user across all tenants by email.
+    It uses an unscoped session so the query can find the user across all tenants by email.
     """
 
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def get_by_email(self, email: str) -> UserModel | None:
-        return (
-            self._session.query(UserModel)
-            .filter_by(email=email.lower().strip(), active=True)
-            .first()
-        )
+    def get_by_email(self, email: str, active_only: bool = False) -> UserModel | None:
+        q = self._session.query(UserModel).filter(UserModel.email == email.lower().strip())
+        if active_only:
+            q = q.filter(UserModel.active.is_(True))
+        return q.first()
 
     def get_by_id(self, user_id: UUID) -> UserModel | None:
         return (

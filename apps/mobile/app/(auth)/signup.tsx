@@ -11,7 +11,6 @@ const ROLES = [
   { label: "Patient", value: "patient" },
   { label: "Caregiver", value: "caregiver" },
   { label: "Doctor", value: "doctor" },
-  { label: "Nurse", value: "nurse" },
 ] as const;
 
 export default function SignupScreen() {
@@ -24,6 +23,7 @@ export default function SignupScreen() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState<string>("patient");
+  const [inviteCode, setInviteCode] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -62,6 +62,7 @@ export default function SignupScreen() {
         name: name.trim() || undefined,
         phone: phone.trim() || undefined,
         role,
+        invite_code: role === "doctor" && inviteCode.trim() ? inviteCode.trim() : undefined,
       });
     } catch (err: any) {
       setLocalError(
@@ -144,6 +145,18 @@ export default function SignupScreen() {
             })}
           </View>
         </View>
+
+        {role === "doctor" ? (
+          <TextInput
+            label="Clinician Invite / Facility Code (Optional)"
+            value={inviteCode}
+            onChangeText={setInviteCode}
+            placeholder="e.g. CLINIC-VERIFIED-2026"
+            autoCapitalize="characters"
+            disabled={busy}
+            accessibilityLabel="Clinician invite code input"
+          />
+        ) : null}
 
         <TextInput
           label="Password (min 8 chars)"

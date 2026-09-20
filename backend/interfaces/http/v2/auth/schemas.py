@@ -1,12 +1,22 @@
 """Pydantic schemas for the custom auth endpoints."""
 from __future__ import annotations
 
-from pydantic import BaseModel
+from enum import Enum
+from pydantic import BaseModel, Field
+
+
+class ApplicationRole(str, Enum):
+    """Exactly the three authorized application roles."""
+
+    PATIENT = "patient"
+    CAREGIVER = "caregiver"
+    DOCTOR = "doctor"
 
 
 class LoginRequest(BaseModel):
     email: str
     password: str
+    device_id: str | None = None
 
 
 class LoginResponse(BaseModel):
@@ -14,6 +24,8 @@ class LoginResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int  # seconds
+    user_status: str | None = "active"
+    role: str | None = None
 
 
 class RefreshRequest(BaseModel):
@@ -22,6 +34,7 @@ class RefreshRequest(BaseModel):
 
 class RefreshResponse(BaseModel):
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
     expires_in: int
 
@@ -42,6 +55,7 @@ class SignupRequest(BaseModel):
     role: str = "patient"
     tenant_id: str | None = None
     facility_id: str | None = None
+    invite_code: str | None = None
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -63,3 +77,21 @@ class ResetPasswordResponse(BaseModel):
     status: str = "ok"
     message: str
 
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class ChangePasswordResponse(BaseModel):
+    status: str = "ok"
+    message: str
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+class VerifyEmailResponse(BaseModel):
+    status: str = "ok"
+    message: str
