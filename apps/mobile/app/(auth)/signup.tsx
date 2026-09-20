@@ -1,41 +1,38 @@
 import React, { useState } from "react";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
-import { Button } from "../../src/components/primitives/Button";
-import { TextInput } from "../../src/components/primitives/TextInput";
 import { AlertBanner } from "../../src/components/primitives/AlertBanner";
 import { useAuth } from "../../src/auth/AuthProvider";
 import { colors, radii, spacing, typography } from "../../src/theming/tokens";
+import {
+  AuthButton,
+  AuthFooter,
+  AuthHeader,
+  AuthInput,
+  AuthScreen,
+  PasswordInput,
+  PasswordRequirements,
+  PendingVerificationCard,
+  RoleOption,
+  RoleSelector,
+} from "../../src/features/auth";
 
-const ROLES = [
-  {
-    label: "Patient",
-    value: "patient",
-    description: "Track glycemic health, log meals & manage medications",
-  },
-  {
-    label: "Caregiver",
-    value: "caregiver",
-    description: "Support and monitor a family member's diabetes care",
-  },
-  {
-    label: "Doctor",
-    value: "doctor",
-    description: "Clinician review queue, AI insights & treatment plans",
-  },
-] as const;
-
+/**
+ * THALI Mobile Sign-Up Screen
+ * Implements a calm, progressive disclosure registration journey
+ * for Patients, Caregivers, and Doctors.
+ */
 export default function SignupScreen() {
   const router = useRouter();
   const { state, signUp, isBootstrapping, isAuthenticated } = useAuth();
 
+  const [role, setRole] = useState<RoleOption>("patient");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [role, setRole] = useState<string>("patient");
-  const [inviteCode, setInviteCode] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [pendingDoctorNotice, setPendingDoctorNotice] = useState(false);
@@ -94,296 +91,231 @@ export default function SignupScreen() {
 
   if (pendingDoctorNotice) {
     return (
-      <View style={styles.scrollContainer}>
-        <View style={styles.brand}>
-          <Text style={styles.title} allowFontScaling>
-            Verification Pending
-          </Text>
-          <Text style={styles.subtitle} allowFontScaling>
-            Your clinician account has been registered successfully.
-          </Text>
-        </View>
-
-        <AlertBanner
-          tone="info"
-          message="Clinician verification is required before active clinical queue operations are unlocked. A health facility administrator will review your credentials."
+      <AuthScreen>
+        <AuthHeader
+          title="Verification Pending"
+          subtitle="Your account has been registered successfully."
+          badge="CLINICIAN ENROLLMENT"
         />
 
-        <View style={styles.guidanceBox}>
-          <Text style={styles.guidanceTitle} allowFontScaling>
-            What happens next?
-          </Text>
-          <Text style={styles.guidanceText} allowFontScaling>
-            You can sign in and explore the clinician interface. Full clinical review and patient management will activate once your facility administrator verifies your medical license.
-          </Text>
-        </View>
+        <PendingVerificationCard role={role} />
 
-        <Button
+        <AuthButton
           label="Continue to Clinician Portal"
           onPress={() => {
             setPendingDoctorNotice(false);
             router.replace("/(app)/shell");
           }}
-          accessibilityHint="Enters the clinician portal."
+          accessibilityHint="Enters the clinician portal with pending verification status."
         />
-      </View>
+
+        <AuthFooter />
+      </AuthScreen>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
-      <View style={styles.brand}>
-        <Text style={styles.title} allowFontScaling>
-          Create Account
-        </Text>
-        <Text style={styles.subtitle} allowFontScaling>
-          Join THALI × P.L.A.T.E. to access your glycemic health journey.
-        </Text>
-      </View>
+    <AuthScreen>
+      <AuthHeader
+        title="Create your THALI account"
+        subtitle="Join THALI × P.L.A.T.E. to access your glycemic health journey."
+      />
 
       {localError ? <AlertBanner tone="critical" message={localError} /> : null}
 
-      <View style={styles.form}>
-        <TextInput
-          label="Full Name"
-          value={name}
-          onChangeText={setName}
-          placeholder="e.g. Sita Sharma"
+      <View style={styles.formContainer}>
+        {/* STEP 1: Role Selection */}
+        <RoleSelector
+          selectedRole={role}
+          onSelectRole={setRole}
           disabled={busy}
-          accessibilityLabel="Full name input"
         />
 
-        <TextInput
-          label="Email Address"
-          value={email}
-          onChangeText={setEmail}
-          placeholder="e.g. sita@example.com"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          disabled={busy}
-          accessibilityLabel="Email address input"
-        />
-
-        <TextInput
-          label="Phone Number (Optional)"
-          value={phone}
-          onChangeText={setPhone}
-          placeholder="+91 98765 43210"
-          keyboardType="phone-pad"
-          disabled={busy}
-          accessibilityLabel="Phone number input"
-        />
-
-        <View style={styles.roleSection}>
-          <Text style={styles.roleLabel} allowFontScaling>
-            Select Your Role
-          </Text>
-          <View style={styles.roleGrid}>
-            {ROLES.map((r) => {
-              const selected = role === r.value;
-              return (
-                <TouchableOpacity
-                  key={r.value}
-                  style={[styles.roleCard, selected && styles.roleCardSelected]}
-                  onPress={() => setRole(r.value)}
-                  disabled={busy}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={`${r.label}: ${r.description}`}
-                >
-                  <View style={styles.roleHeaderRow}>
-                    <Text
-                      style={[styles.roleTitle, selected && styles.roleTitleSelected]}
-                      allowFontScaling
-                    >
-                      {r.label}
-                    </Text>
-                    {selected ? (
-                      <View style={styles.radioActiveDot} />
-                    ) : (
-                      <View style={styles.radioInactiveDot} />
-                    )}
-                  </View>
-                  <Text
-                    style={[styles.roleDescription, selected && styles.roleDescriptionSelected]}
-                    allowFontScaling
-                  >
-                    {r.description}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+        {/* Role-Specific Guidance */}
+        {role === "caregiver" ? (
+          <View style={styles.roleNoticeBox}>
+            <Text style={styles.roleNoticeTitle} allowFontScaling>
+              Caregiver Connection
+            </Text>
+            <Text style={styles.roleNoticeText} allowFontScaling>
+              After creating your account, you&apos;ll need to be connected to a patient before you can access their care information.
+            </Text>
           </View>
-        </View>
+        ) : null}
 
         {role === "doctor" ? (
-          <View style={styles.inviteContainer}>
-            <TextInput
-              label="Clinician Invite / Facility Code (Optional)"
+          <View style={styles.doctorInviteBox}>
+            <View style={styles.doctorNoticeHeader}>
+              <Text style={styles.doctorNoticeTitle} allowFontScaling>
+                Clinical verification
+              </Text>
+              <Text style={styles.doctorNoticeText} allowFontScaling>
+                Doctor accounts require authorization before clinical access is enabled. If you have an authorized facility code, enter it below.
+              </Text>
+            </View>
+            <AuthInput
+              label="Clinical invite code (Optional)"
               value={inviteCode}
               onChangeText={setInviteCode}
               placeholder="e.g. CLINIC-VERIFIED-2026"
               autoCapitalize="characters"
               disabled={busy}
               accessibilityLabel="Clinician invite code input"
+              hint="Without an approved code, your account will be registered in pending verification status."
             />
-            <Text style={styles.inviteHelperText} allowFontScaling>
-              Doctors with an approved clinic invite code are immediately verified. Without a code, your account will be registered in pending verification status until administrator approval.
-            </Text>
           </View>
         ) : null}
 
-        <TextInput
-          label="Password (min 8 chars)"
-          value={password}
-          onChangeText={setPassword}
-          placeholder="••••••••"
-          secureTextEntry
-          disabled={busy}
-          accessibilityLabel="Password input"
-        />
+        {/* STEP 2: Personal Details */}
+        <View style={styles.stepSection}>
+          <Text style={styles.stepTitle} allowFontScaling>
+            Your details
+          </Text>
 
-        <TextInput
-          label="Confirm Password"
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          placeholder="••••••••"
-          secureTextEntry
-          disabled={busy}
-          accessibilityLabel="Confirm password input"
-        />
+          <AuthInput
+            label="Full name"
+            value={name}
+            onChangeText={setName}
+            placeholder="e.g. Sita Sharma"
+            autoCapitalize="words"
+            textContentType="name"
+            disabled={busy}
+            accessibilityLabel="Full name input"
+          />
 
-        <Button
-          label={busy ? "Creating Account…" : "Register & Sign In"}
+          <AuthInput
+            label="Email address"
+            value={email}
+            onChangeText={setEmail}
+            placeholder="you@example.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            textContentType="emailAddress"
+            disabled={busy}
+            accessibilityLabel="Email address input"
+          />
+
+          <AuthInput
+            label="Phone number (Optional)"
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="+91 98765 43210"
+            keyboardType="phone-pad"
+            textContentType="telephoneNumber"
+            disabled={busy}
+            accessibilityLabel="Phone number input"
+          />
+        </View>
+
+        {/* STEP 3: Password */}
+        <View style={styles.stepSection}>
+          <Text style={styles.stepTitle} allowFontScaling>
+            Secure your account
+          </Text>
+
+          <PasswordInput
+            label="Password"
+            value={password}
+            onChangeText={setPassword}
+            placeholder="At least 8 characters"
+            disabled={busy}
+            accessibilityLabel="Password input"
+          />
+
+          <PasswordInput
+            label="Confirm password"
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            placeholder="Re-enter password"
+            disabled={busy}
+            accessibilityLabel="Confirm password input"
+          />
+
+          <PasswordRequirements
+            password={password}
+            confirmPassword={confirmPassword}
+          />
+        </View>
+
+        {/* Submit Button */}
+        <AuthButton
+          label="Create account"
+          loadingLabel="Creating account..."
           onPress={handleSignup}
           disabled={busy || !email.trim() || !password || !confirmPassword}
-          accessibilityHint="Submits account registration."
+          busy={busy}
+          accessibilityLabel={busy ? "Creating account..." : "Register & Sign In"}
+          accessibilityHint="Submits your account registration to THALI."
         />
       </View>
 
-      <View style={styles.bottomSection}>
-        <Button
-          label="Already have an account? Sign In"
-          variant="ghost"
-          onPress={() => router.push("/(auth)/login")}
-          disabled={busy}
-          accessibilityHint="Navigates back to the sign-in screen."
-        />
-      </View>
-    </ScrollView>
+      {/* Navigation to Sign In */}
+      <AuthButton
+        label="Already have an account? Sign In"
+        variant="ghost"
+        onPress={() => router.push("/(auth)/login")}
+        disabled={busy}
+        accessibilityHint="Navigates back to the sign in screen."
+      />
+
+      <AuthFooter />
+    </AuthScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContainer: {
-    flexGrow: 1,
-    backgroundColor: colors.background,
-    justifyContent: "center",
-    padding: spacing.xl,
+  formContainer: {
+    gap: spacing.lg,
+  },
+  stepSection: {
     gap: spacing.md,
   },
-  brand: {
-    gap: spacing.xs,
-    marginBottom: spacing.xs,
-  },
-  title: {
-    fontSize: typography.fontSize.display,
-    fontWeight: "700",
-    color: colors.primary,
-  },
-  subtitle: {
+  stepTitle: {
     fontSize: typography.fontSize.body,
-    color: colors.textSecondary,
-    lineHeight: 22,
+    fontWeight: "700",
+    color: colors.textPrimary,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingBottom: spacing.xs,
   },
-  form: {
-    gap: spacing.md,
+  roleNoticeBox: {
+    backgroundColor: "#F4F7F8",
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.assistive,
+    gap: 4,
   },
-  roleSection: {
-    gap: spacing.xs,
-  },
-  roleLabel: {
+  roleNoticeTitle: {
     fontSize: typography.fontSize.bodySmall,
     fontWeight: "600",
     color: colors.textPrimary,
   },
-  roleGrid: {
-    gap: spacing.xs,
-  },
-  roleCard: {
-    padding: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    gap: spacing.xxs,
-  },
-  roleCardSelected: {
-    borderColor: colors.primary,
-    backgroundColor: "#F0F7F9",
-  },
-  roleHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  roleTitle: {
-    fontSize: typography.fontSize.body,
-    fontWeight: "600",
-    color: colors.textPrimary,
-  },
-  roleTitleSelected: {
-    color: colors.primary,
-    fontWeight: "700",
-  },
-  roleDescription: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
-    lineHeight: 16,
-  },
-  roleDescriptionSelected: {
-    color: colors.textPrimary,
-  },
-  radioActiveDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: colors.primary,
-  },
-  radioInactiveDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    borderColor: colors.disabled,
-  },
-  inviteContainer: {
-    gap: spacing.xxs,
-  },
-  inviteHelperText: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
-    lineHeight: 16,
-  },
-  guidanceBox: {
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.xs,
-  },
-  guidanceTitle: {
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: "600",
-    color: colors.textPrimary,
-  },
-  guidanceText: {
+  roleNoticeText: {
     fontSize: typography.fontSize.caption,
     color: colors.textSecondary,
     lineHeight: 18,
   },
-  bottomSection: {
-    marginTop: spacing.xs,
+  doctorInviteBox: {
+    backgroundColor: "#F8FBFD",
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+    borderColor: "#BCE0EB",
+    gap: spacing.sm,
+  },
+  doctorNoticeHeader: {
+    gap: 4,
+  },
+  doctorNoticeTitle: {
+    fontSize: typography.fontSize.bodySmall,
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  doctorNoticeText: {
+    fontSize: typography.fontSize.caption,
+    color: colors.textSecondary,
+    lineHeight: 18,
   },
 });

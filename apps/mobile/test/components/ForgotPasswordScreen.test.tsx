@@ -40,7 +40,7 @@ describe("ForgotPasswordScreen (component-level a11y & workflows)", () => {
   it("renders Step 1 with request form elements and step badge", () => {
     render(<ForgotPasswordScreen />);
     expect(screen.getByText(/STEP 1 OF 2/i)).toBeTruthy();
-    expect(screen.getByText(/Password Recovery/i)).toBeTruthy();
+    expect(screen.getByText(/^Reset your password$/i)).toBeTruthy();
     expect(screen.getByLabelText(/Email address for password recovery/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Request Reset Token/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /I already have a reset token/i })).toBeTruthy();

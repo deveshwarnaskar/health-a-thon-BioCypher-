@@ -1,16 +1,22 @@
 import React, { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
-import { Button } from "../../src/components/primitives/Button";
-import { TextInput } from "../../src/components/primitives/TextInput";
 import { AlertBanner } from "../../src/components/primitives/AlertBanner";
 import { useAuth } from "../../src/auth/AuthProvider";
 import { colors, radii, spacing, typography } from "../../src/theming/tokens";
 import type { AuthFlowState } from "../../src/auth/authStateMachine";
+import {
+  AuthButton,
+  AuthFooter,
+  AuthHeader,
+  AuthInput,
+  AuthScreen,
+  PasswordInput,
+} from "../../src/features/auth";
 
 /**
- * Mobile login screen for THALI clinical and patient access.
- * Authenticates directly against backend PostgreSQL-backed JWT endpoints (/api/v2/auth/login).
+ * THALI Mobile Sign-In Screen
+ * Provides professional, clinical-grade authentication directly against backend JWT endpoints.
  */
 export default function LoginScreen() {
   const router = useRouter();
@@ -54,20 +60,16 @@ export default function LoginScreen() {
     try {
       await signIn(cleanEmail.toLowerCase(), password);
     } catch {
-      // Handled by state machine
+      // Errors dispatched to auth state machine
     }
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-      <View style={styles.brand}>
-        <Text style={styles.title} allowFontScaling>
-          THALI × P.L.A.T.E.
-        </Text>
-        <Text style={styles.subtitle} allowFontScaling>
-          Trusted Healthcare Access — sign in with your clinic credentials.
-        </Text>
-      </View>
+    <AuthScreen>
+      <AuthHeader
+        title="Welcome back"
+        subtitle="Sign in to continue to your THALI account."
+      />
 
       {localError ? (
         <AlertBanner tone="critical" message={localError} />
@@ -75,69 +77,85 @@ export default function LoginScreen() {
         <AlertBanner tone="critical" message={messageForState(state)} />
       ) : null}
 
-      <View style={styles.form}>
-        <TextInput
-          label="Email"
+      <View style={styles.formContainer}>
+        <AuthInput
+          label="Email address"
           value={email}
           onChangeText={setEmail}
-          placeholder="patient@thali.dev"
+          placeholder="you@example.com"
           keyboardType="email-address"
           autoCapitalize="none"
+          autoComplete="email"
+          textContentType="emailAddress"
           disabled={busy}
           accessibilityLabel="Email address input"
         />
 
-        <TextInput
-          label="Password"
-          value={password}
-          onChangeText={setPassword}
-          placeholder="••••••••"
-          secureTextEntry
-          disabled={busy}
-          accessibilityLabel="Password input"
-        />
+        <View style={styles.passwordFieldWrapper}>
+          <PasswordInput
+            label="Password"
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Enter your password"
+            disabled={busy}
+            accessibilityLabel="Password input"
+          />
 
-        <Button
-          label={busy ? "Secure sign-in (in progress)…" : "Continue with clinic sign-in"}
+          <View style={styles.forgotPasswordRow}>
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel="Forgot password recovery link"
+              accessibilityHint="Navigates to the password recovery screen"
+              onPress={() => router.push("/(auth)/forgot-password")}
+              disabled={busy}
+              style={styles.forgotButton}
+            >
+              <Text style={styles.forgotText} allowFontScaling>
+                Forgot password?
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <AuthButton
+          label="Sign in"
+          loadingLabel="Signing in..."
           onPress={handleLogin}
           disabled={busy}
+          busy={busy}
+          accessibilityLabel={busy ? "Secure sign-in (in progress)…" : "Continue with clinic sign-in"}
           accessibilityHint="Authenticates your credentials with the THALI service."
         />
       </View>
 
       {recoverPassword ? (
-        <Button
+        <AuthButton
           label="Forgot password / Reset credentials"
-          variant="ghost"
+          variant="outline"
           onPress={async () => {
             await recoverPassword();
           }}
           disabled={busy}
-          accessibilityHint="Opens identity provider self-service credential recovery."
           accessibilityLabel="Forgot password / Reset credentials"
+          accessibilityHint="Opens identity provider self-service credential recovery."
         />
       ) : null}
 
-      <View style={styles.actionsRow}>
-        {!recoverPassword ? (
-          <Pressable
-            accessibilityRole="link"
-            accessibilityLabel="Forgot password recovery link"
-            onPress={() => router.push("/(auth)/forgot-password")}
-            disabled={busy}
-            style={styles.linkButton}
-          >
-            <Text style={styles.linkText}>Forgot password?</Text>
-          </Pressable>
-        ) : null}
+      <View style={styles.signupNavRow}>
+        <Text style={styles.signupPromptText} allowFontScaling>
+          Don&apos;t have an account?{" "}
+        </Text>
         <Pressable
           accessibilityRole="link"
           accessibilityLabel="Create account sign up link"
+          accessibilityHint="Navigates to the account registration screen"
           onPress={() => router.push("/(auth)/signup")}
           disabled={busy}
-          style={styles.linkButton}
+          style={styles.signupLink}
         >
-          <Text style={styles.linkText}>Don&apos;t have an account? Sign Up</Text>
+          <Text style={styles.signupActionText} allowFontScaling>
+            Create account
+          </Text>
         </Pressable>
       </View>
 
@@ -146,16 +164,12 @@ export default function LoginScreen() {
           Clinic Enrollment &amp; Access
         </Text>
         <Text style={styles.guidanceText} allowFontScaling>
-          Patients, caregivers, and doctors access their glycemic health workflows
-          using verified clinic credentials.
+          Patients, caregivers, and doctors access their glycemic health workflows using verified account credentials.
         </Text>
       </View>
 
-      <Text style={styles.footnote} allowFontScaling>
-        Requires an authorized account and clinic relationship to proceed.
-        You will return here automatically if your session expires.
-      </Text>
-    </ScrollView>
+      <AuthFooter />
+    </AuthScreen>
   );
 }
 
@@ -185,38 +199,44 @@ function messageForState(state: AuthFlowState): string {
     return (state.error as any).message;
   }
 
-  return "Sign-in could not be completed. Please check your email and password.";
+  return "Your email or password is incorrect.";
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    backgroundColor: colors.background,
-    justifyContent: "center",
-    padding: spacing.xl,
+  formContainer: {
     gap: spacing.md,
   },
-  brand: {
+  passwordFieldWrapper: {
     gap: spacing.xs,
-    marginBottom: spacing.xs,
   },
-  title: {
-    fontSize: typography.fontSize.display,
-    fontWeight: "700",
+  forgotPasswordRow: {
+    alignItems: "flex-end",
+  },
+  forgotButton: {
+    paddingVertical: spacing.xxs,
+  },
+  forgotText: {
+    fontSize: typography.fontSize.bodySmall,
     color: colors.primary,
+    fontWeight: "600",
   },
-  subtitle: {
-    fontSize: typography.fontSize.body,
-    color: colors.textSecondary,
-    lineHeight: 22,
+  signupNavRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: spacing.xs,
   },
-  form: {
-    gap: spacing.md,
-  },
-  footnote: {
+  signupPromptText: {
     fontSize: typography.fontSize.bodySmall,
     color: colors.textSecondary,
-    textAlign: "center",
+  },
+  signupLink: {
+    paddingVertical: spacing.xxs,
+  },
+  signupActionText: {
+    fontSize: typography.fontSize.bodySmall,
+    color: colors.primary,
+    fontWeight: "700",
   },
   guidanceBox: {
     backgroundColor: colors.surface,
@@ -235,18 +255,5 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.caption,
     color: colors.textSecondary,
     lineHeight: 18,
-  },
-  actionsRow: {
-    gap: spacing.xs,
-    marginTop: spacing.xs,
-  },
-  linkButton: {
-    paddingVertical: spacing.xs,
-    alignItems: "center",
-  },
-  linkText: {
-    fontSize: typography.fontSize.bodySmall,
-    color: colors.primary,
-    fontWeight: typography.weight.medium,
   },
 });
