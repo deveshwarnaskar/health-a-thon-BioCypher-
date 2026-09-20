@@ -20,4 +20,13 @@ export const patientsEndpoints = {
     requiresIdempotencyKey: false,
     responseSchema: patientSummaryResponseSchema,
   } satisfies EndpointDefinition<PatientSummaryResponse, undefined>,
+
+  documents: {
+    method: "GET",
+    path: (patientId: string, kind?: string) =>
+      kind
+        ? `/api/v2/patients/${encodeURIComponent(patientId)}/documents?kind=${encodeURIComponent(kind)}`
+        : `/api/v2/patients/${encodeURIComponent(patientId)}/documents`,
+    requiresIdempotencyKey: false,
+  } satisfies EndpointDefinition<any, undefined>,
 } as const;

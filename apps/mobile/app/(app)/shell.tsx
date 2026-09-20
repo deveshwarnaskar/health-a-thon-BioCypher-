@@ -7,11 +7,11 @@ import { useAuth } from "../../src/auth/AuthProvider";
 import { roleLabel, type Role } from "../../src/authz/roles";
 import { colors, spacing, typography } from "../../src/theming/tokens";
 import { LoadingState } from "../../src/components/primitives/LoadingState";
-import { PatientGlucoseScreen } from "../../src/features/glucose";
 import { CaregiverWorkflow } from "../../src/features/caregiver";
 import { DoctorWorkflow } from "../../src/features/doctor";
-import { PatientMealScreen, DietitianWorkflow } from "../../src/features/meals";
+import { DietitianWorkflow } from "../../src/features/meals";
 import { FHWWorkflow, CoordinatorWorkflow } from "../../src/features/tasks";
+import { PatientExperience } from "../../src/features/patient";
 
 /**
  * Protected, role-aware shell. Role derives exclusively from the verified
@@ -32,18 +32,12 @@ export default function ShellScreen() {
     return <LoadingState label="Preparing your area…" />;
   }
 
-  if (role === "Patient" && selectedDestination === "glucose") {
+  if (role === "Patient") {
     return (
-      <PatientGlucoseScreen
-        onBack={() => setSelectedDestination(null)}
-      />
-    );
-  }
-
-  if (role === "Patient" && selectedDestination === "food") {
-    return (
-      <PatientMealScreen
-        onBack={() => setSelectedDestination(null)}
+      <PatientExperience
+        patientId={state.user.patient_id ?? null}
+        patientName={state.user.actor_id}
+        onSignOut={signOut}
       />
     );
   }

@@ -44,3 +44,26 @@ export const medicationPlanListResponseSchema = z
   .strict();
 
 export type MedicationPlanListResponse = z.infer<typeof medicationPlanListResponseSchema>;
+
+export const recordMedicationAdministrationRequestSchema = z
+  .object({
+    medication_plan_id: z.string().uuid(),
+    administered_at: z.string().optional(),
+  })
+  .strict();
+
+export type RecordMedicationAdministrationRequest = z.infer<
+  typeof recordMedicationAdministrationRequestSchema
+>;
+
+export const recordMedicationAdministrationResponseSchema = z
+  .object({
+    medication_plan_id: z.string(),
+    patient_id: z.string(),
+    administered_at: z.string(),
+  })
+  .strict();
+
+export type RecordMedicationAdministrationResponse = z.infer<
+  typeof recordMedicationAdministrationResponseSchema
+>;

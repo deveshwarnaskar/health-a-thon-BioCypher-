@@ -32,4 +32,10 @@ export const medicationEndpoints = {
     requestSchema: createMedicationPlanRequestSchema,
     responseSchema: createMedicationPlanResponseSchema,
   } satisfies EndpointDefinition<CreateMedicationPlanResponse, CreateMedicationPlanRequest>,
+
+  administer: {
+    method: "POST",
+    path: "/api/v2/clinical/medication-administrations",
+    requiresIdempotencyKey: true,
+  } satisfies EndpointDefinition<any, any>,
 } as const;

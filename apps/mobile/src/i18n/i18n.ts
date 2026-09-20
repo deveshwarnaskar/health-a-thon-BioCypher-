@@ -7,6 +7,8 @@ import { ta } from "./translations/ta";
 import { te } from "./translations/te";
 import { mr } from "./translations/mr";
 
+export type { SupportedLanguage } from "./types";
+
 const translations: Record<SupportedLanguage, TranslationDictionary> = {
   en,
   hi,
