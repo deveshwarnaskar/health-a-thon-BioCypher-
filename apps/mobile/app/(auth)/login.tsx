@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useRef, useState } from "react";
+import { Pressable, StyleSheet, Text, type TextInput as RNTextInputRef, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { AlertBanner } from "../../src/components/primitives/AlertBanner";
 import { useAuth } from "../../src/auth/AuthProvider";
@@ -27,6 +27,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
+  const passwordRef = useRef<RNTextInputRef>(null);
 
   if (isAuthenticated || state.name === "authenticated") {
     return <Redirect href="/(app)/shell" />;
@@ -100,6 +101,9 @@ export default function LoginScreen() {
             autoCapitalize="none"
             autoComplete="email"
             textContentType="emailAddress"
+            returnKeyType="next"
+            onSubmitEditing={() => passwordRef.current?.focus()}
+            blurOnSubmit={false}
             disabled={busy}
             accessibilityLabel="Email address input"
           />
@@ -110,6 +114,9 @@ export default function LoginScreen() {
               value={password}
               onChangeText={setPassword}
               placeholder="Enter your password"
+              inputRef={passwordRef}
+              returnKeyType="done"
+              onSubmitEditing={handleLogin}
               disabled={busy}
               accessibilityLabel="Password input"
             />

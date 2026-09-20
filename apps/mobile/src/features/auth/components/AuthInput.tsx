@@ -21,7 +21,13 @@ export type AuthInputProps = {
   keyboardType?: RNTextInputProps["keyboardType"];
   autoCapitalize?: RNTextInputProps["autoCapitalize"];
   autoComplete?: RNTextInputProps["autoComplete"];
+  autoCorrect?: boolean;
+  spellCheck?: boolean;
   textContentType?: RNTextInputProps["textContentType"];
+  returnKeyType?: RNTextInputProps["returnKeyType"];
+  onSubmitEditing?: RNTextInputProps["onSubmitEditing"];
+  blurOnSubmit?: boolean;
+  inputRef?: React.RefObject<RNTextInputRef | null>;
   accessibilityLabel?: string;
   accessibilityHint?: string;
   testID?: string;
@@ -38,34 +44,49 @@ export function AuthInput({
   keyboardType = "default",
   autoCapitalize = "none",
   autoComplete,
+  autoCorrect = false,
+  spellCheck = false,
   textContentType,
+  returnKeyType,
+  onSubmitEditing,
+  blurOnSubmit,
+  inputRef,
   accessibilityLabel,
   accessibilityHint,
   testID,
 }: AuthInputProps) {
   const [isFocused, setIsFocused] = useState(false);
-  const inputRef = useRef<RNTextInputRef>(null);
+  const internalRef = useRef<RNTextInputRef>(null);
+  const resolvedRef = inputRef ?? internalRef;
+
   const focusInput = () => {
     if (!disabled) {
-      inputRef.current?.focus();
+      resolvedRef.current?.focus();
     }
   };
 
   return (
-    <View style={styles.fieldContainer} onTouchEnd={focusInput}>
-      <Text style={styles.label} allowFontScaling>
+    <View style={styles.fieldContainer}>
+      <Text
+        style={styles.label}
+        onPress={focusInput}
+        allowFontScaling
+        accessibilityRole="text"
+      >
         {label}
       </Text>
-      <View
+      <Pressable
         style={[
           styles.inputContainer,
           isFocused && styles.inputFocused,
           Boolean(error) && styles.inputError,
           disabled && styles.inputDisabled,
         ]}
+        onPress={focusInput}
+        accessible={false}
       >
         <RNTextInput
-          ref={inputRef}
+          ref={resolvedRef}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
@@ -73,8 +94,14 @@ export function AuthInput({
           editable={!disabled}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
+          autoCorrect={autoCorrect}
+          spellCheck={spellCheck}
           autoComplete={autoComplete}
           textContentType={textContentType}
+          returnKeyType={returnKeyType}
+          onSubmitEditing={onSubmitEditing}
+          blurOnSubmit={blurOnSubmit}
+          selectionColor={colors.primary}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           style={styles.textInput}
@@ -84,7 +111,7 @@ export function AuthInput({
           accessibilityState={{ disabled }}
           testID={testID}
         />
-      </View>
+      </Pressable>
       {error ? (
         <Text style={styles.errorText} allowFontScaling accessibilityLiveRegion="polite">
           {error}
@@ -111,34 +138,47 @@ export function PasswordInput({
   hint,
   disabled = false,
   textContentType = "password",
+  returnKeyType,
+  onSubmitEditing,
+  blurOnSubmit,
+  inputRef,
   accessibilityLabel,
   accessibilityHint,
   testID,
 }: PasswordInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [visible, setVisible] = useState(false);
-  const inputRef = useRef<RNTextInputRef>(null);
+  const internalRef = useRef<RNTextInputRef>(null);
+  const resolvedRef = inputRef ?? internalRef;
+
   const focusInput = () => {
     if (!disabled) {
-      inputRef.current?.focus();
+      resolvedRef.current?.focus();
     }
   };
 
   return (
-    <View style={styles.fieldContainer} onTouchEnd={focusInput}>
-      <Text style={styles.label} allowFontScaling>
+    <View style={styles.fieldContainer}>
+      <Text
+        style={styles.label}
+        onPress={focusInput}
+        allowFontScaling
+        accessibilityRole="text"
+      >
         {label}
       </Text>
-      <View
+      <Pressable
         style={[
           styles.inputContainer,
           isFocused && styles.inputFocused,
           Boolean(error) && styles.inputError,
           disabled && styles.inputDisabled,
         ]}
+        onPress={focusInput}
+        accessible={false}
       >
         <RNTextInput
-          ref={inputRef}
+          ref={resolvedRef}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
@@ -146,8 +186,14 @@ export function PasswordInput({
           editable={!disabled}
           secureTextEntry={!visible}
           autoCapitalize="none"
+          autoCorrect={false}
+          spellCheck={false}
           autoComplete="password"
           textContentType={textContentType}
+          returnKeyType={returnKeyType}
+          onSubmitEditing={onSubmitEditing}
+          blurOnSubmit={blurOnSubmit}
+          selectionColor={colors.primary}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           style={[styles.textInput, styles.passwordTextInput]}
@@ -169,7 +215,7 @@ export function PasswordInput({
             {visible ? "Hide" : "Show"}
           </Text>
         </Pressable>
-      </View>
+      </Pressable>
       {error ? (
         <Text style={styles.errorText} allowFontScaling accessibilityLiveRegion="polite">
           {error}
@@ -193,11 +239,11 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   inputContainer: {
-    minHeight: 58,
+    minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
     borderRadius: radii.pill,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: colors.border,
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
@@ -205,11 +251,6 @@ const styles = StyleSheet.create({
   inputFocused: {
     borderColor: colors.primary,
     backgroundColor: colors.surface,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 2,
   },
   inputError: {
     borderColor: colors.critical,
@@ -222,8 +263,10 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: typography.fontSize.body,
     color: colors.textPrimary,
-    minHeight: 54,
-    paddingVertical: 0,
+    minHeight: 50,
+    paddingVertical: 10,
+    paddingHorizontal: 0,
+    textAlignVertical: "center",
   },
   passwordTextInput: {
     paddingRight: spacing.xs,

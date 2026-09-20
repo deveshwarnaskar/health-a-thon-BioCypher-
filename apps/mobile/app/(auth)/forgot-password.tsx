@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import React, { useRef, useState } from "react";
+import { StyleSheet, Text, TextInput as RNTextInputRef, View } from "react-native";
 import { useRouter } from "expo-router";
 import { AlertBanner } from "../../src/components/primitives/AlertBanner";
 import { useAuth } from "../../src/auth/AuthProvider";
@@ -34,6 +34,10 @@ export default function ForgotPasswordScreen() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const resetTokenRef = useRef<RNTextInputRef>(null);
+  const newPasswordRef = useRef<RNTextInputRef>(null);
+  const confirmPasswordRef = useRef<RNTextInputRef>(null);
 
   const busy = isBootstrapping || submitting;
 
@@ -144,6 +148,8 @@ export default function ForgotPasswordScreen() {
                 autoCapitalize="none"
                 autoComplete="email"
                 textContentType="emailAddress"
+                returnKeyType="done"
+                onSubmitEditing={handleRequestReset}
                 disabled={busy}
                 accessibilityLabel="Email address for password recovery"
               />
@@ -184,6 +190,10 @@ export default function ForgotPasswordScreen() {
                 onChangeText={setResetToken}
                 placeholder="Paste your reset token here"
                 autoCapitalize="none"
+                inputRef={resetTokenRef}
+                returnKeyType="next"
+                onSubmitEditing={() => newPasswordRef.current?.focus()}
+                blurOnSubmit={false}
                 disabled={busy}
                 accessibilityLabel="Reset token input"
                 hint="Enter the token received in your password reset email."
@@ -194,6 +204,10 @@ export default function ForgotPasswordScreen() {
                 value={newPassword}
                 onChangeText={setNewPassword}
                 placeholder="At least 8 characters"
+                inputRef={newPasswordRef}
+                returnKeyType="next"
+                onSubmitEditing={() => confirmPasswordRef.current?.focus()}
+                blurOnSubmit={false}
                 disabled={busy}
                 accessibilityLabel="New password input"
               />
@@ -203,6 +217,9 @@ export default function ForgotPasswordScreen() {
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 placeholder="Re-enter new password"
+                inputRef={confirmPasswordRef}
+                returnKeyType="done"
+                onSubmitEditing={handlePerformReset}
                 disabled={busy}
                 accessibilityLabel="Confirm new password input"
               />

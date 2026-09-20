@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import React, { useRef, useState } from "react";
+import { StyleSheet, Text, TextInput as RNTextInputRef, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { AlertBanner } from "../../src/components/primitives/AlertBanner";
 import { useAuth } from "../../src/auth/AuthProvider";
@@ -38,6 +38,13 @@ export default function SignupScreen() {
   const [localError, setLocalError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [pendingDoctorNotice, setPendingDoctorNotice] = useState(false);
+
+  const inviteCodeRef = useRef<RNTextInputRef>(null);
+  const nameRef = useRef<RNTextInputRef>(null);
+  const emailRef = useRef<RNTextInputRef>(null);
+  const phoneRef = useRef<RNTextInputRef>(null);
+  const passwordRef = useRef<RNTextInputRef>(null);
+  const confirmPasswordRef = useRef<RNTextInputRef>(null);
 
   if ((isAuthenticated || state.name === "authenticated") && !pendingDoctorNotice) {
     return <Redirect href="/(app)/shell" />;
@@ -174,6 +181,10 @@ export default function SignupScreen() {
                 onChangeText={setInviteCode}
                 placeholder="e.g. CLINIC-VERIFIED-2026"
                 autoCapitalize="characters"
+                inputRef={inviteCodeRef}
+                returnKeyType="next"
+                onSubmitEditing={() => nameRef.current?.focus()}
+                blurOnSubmit={false}
                 disabled={busy}
                 accessibilityLabel="Clinician invite code input"
                 hint="Without an approved code, your account will be registered in pending verification status."
@@ -194,6 +205,10 @@ export default function SignupScreen() {
               placeholder="e.g. Sita Sharma"
               autoCapitalize="words"
               textContentType="name"
+              inputRef={nameRef}
+              returnKeyType="next"
+              onSubmitEditing={() => emailRef.current?.focus()}
+              blurOnSubmit={false}
               disabled={busy}
               accessibilityLabel="Full name input"
             />
@@ -207,6 +222,10 @@ export default function SignupScreen() {
               autoCapitalize="none"
               autoComplete="email"
               textContentType="emailAddress"
+              inputRef={emailRef}
+              returnKeyType="next"
+              onSubmitEditing={() => phoneRef.current?.focus()}
+              blurOnSubmit={false}
               disabled={busy}
               accessibilityLabel="Email address input"
             />
@@ -218,6 +237,10 @@ export default function SignupScreen() {
               placeholder="+91 98765 43210"
               keyboardType="phone-pad"
               textContentType="telephoneNumber"
+              inputRef={phoneRef}
+              returnKeyType="next"
+              onSubmitEditing={() => passwordRef.current?.focus()}
+              blurOnSubmit={false}
               disabled={busy}
               accessibilityLabel="Phone number input"
             />
@@ -234,6 +257,10 @@ export default function SignupScreen() {
               value={password}
               onChangeText={setPassword}
               placeholder="At least 8 characters"
+              inputRef={passwordRef}
+              returnKeyType="next"
+              onSubmitEditing={() => confirmPasswordRef.current?.focus()}
+              blurOnSubmit={false}
               disabled={busy}
               accessibilityLabel="Password input"
             />
@@ -243,6 +270,9 @@ export default function SignupScreen() {
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               placeholder="Re-enter password"
+              inputRef={confirmPasswordRef}
+              returnKeyType="done"
+              onSubmitEditing={handleSignup}
               disabled={busy}
               accessibilityLabel="Confirm password input"
             />

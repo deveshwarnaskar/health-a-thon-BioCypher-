@@ -29,7 +29,7 @@ export function AuthScreen({ children, contentContainerStyle, testID }: AuthScre
     <KeyboardAvoidingView
       style={styles.keyboardAvoiding}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 40 : 0}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0}
       testID={testID}
     >
       <StatusBar style="light" />
@@ -38,7 +38,8 @@ export function AuthScreen({ children, contentContainerStyle, testID }: AuthScre
         contentContainerStyle={[styles.scrollContent, contentContainerStyle]}
         bounces={false}
         contentInsetAdjustmentBehavior="never"
-        keyboardShouldPersistTaps="always"
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         overScrollMode="never"
         showsVerticalScrollIndicator={false}
       >
