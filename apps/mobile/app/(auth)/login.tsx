@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { Button } from "../../src/components/primitives/Button";
 import { TextInput } from "../../src/components/primitives/TextInput";
@@ -32,12 +32,18 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     setLocalError(null);
-    if (!email.trim() && !password) {
+    const cleanEmail = email.trim();
+
+    if (!cleanEmail && !password) {
       await signIn();
       return;
     }
-    if (!email.trim()) {
+    if (!cleanEmail) {
       setLocalError("Please enter your email address.");
+      return;
+    }
+    if (!cleanEmail.includes("@")) {
+      setLocalError("Please enter a valid email address.");
       return;
     }
     if (!password) {
@@ -46,17 +52,17 @@ export default function LoginScreen() {
     }
 
     try {
-      await signIn(email.trim(), password);
+      await signIn(cleanEmail.toLowerCase(), password);
     } catch {
-      // Errors dispatched to state machine or caught here
+      // Handled by state machine
     }
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <View style={styles.brand}>
         <Text style={styles.title} allowFontScaling>
-          THALI
+          THALI × P.L.A.T.E.
         </Text>
         <Text style={styles.subtitle} allowFontScaling>
           Trusted Healthcare Access — sign in with your clinic credentials.
@@ -108,9 +114,12 @@ export default function LoginScreen() {
           }}
           disabled={busy}
           accessibilityHint="Opens identity provider self-service credential recovery."
+          accessibilityLabel="Forgot password / Reset credentials"
         />
-      ) : (
-        <View style={styles.actionsRow}>
+      ) : null}
+
+      <View style={styles.actionsRow}>
+        {!recoverPassword ? (
           <Pressable
             accessibilityRole="link"
             accessibilityLabel="Forgot password recovery link"
@@ -120,25 +129,25 @@ export default function LoginScreen() {
           >
             <Text style={styles.linkText}>Forgot password?</Text>
           </Pressable>
-          <Pressable
-            accessibilityRole="link"
-            accessibilityLabel="Create account sign up link"
-            onPress={() => router.push("/(auth)/signup")}
-            disabled={busy}
-            style={styles.linkButton}
-          >
-            <Text style={styles.linkText}>Don&apos;t have an account? Sign Up</Text>
-          </Pressable>
-        </View>
-      )}
+        ) : null}
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel="Create account sign up link"
+          onPress={() => router.push("/(auth)/signup")}
+          disabled={busy}
+          style={styles.linkButton}
+        >
+          <Text style={styles.linkText}>Don&apos;t have an account? Sign Up</Text>
+        </Pressable>
+      </View>
 
       <View style={styles.guidanceBox}>
         <Text style={styles.guidanceTitle} allowFontScaling>
           Clinic Enrollment &amp; Access
         </Text>
         <Text style={styles.guidanceText} allowFontScaling>
-          Patients, caregivers, doctors, and nurses use clinic-issued credentials
-          configured by your health facility administrator.
+          Patients, caregivers, and doctors access their glycemic health workflows
+          using verified clinic credentials.
         </Text>
       </View>
 
@@ -146,7 +155,7 @@ export default function LoginScreen() {
         Requires an authorized account and clinic relationship to proceed.
         You will return here automatically if your session expires.
       </Text>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -167,14 +176,21 @@ function messageForState(state: AuthFlowState): string {
       return "The identity service is temporarily unavailable. Please try again shortly.";
     case "configuration":
       return "Authentication is not configured for this build. Contact your administrator.";
-    default:
-      return "Sign-in could not be completed. Please check your email and password.";
   }
+
+  if (typeof state.error === "string" && state.error.trim().length > 0) {
+    return state.error;
+  }
+  if (state.error && typeof (state.error as any).message === "string") {
+    return (state.error as any).message;
+  }
+
+  return "Sign-in could not be completed. Please check your email and password.";
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    flexGrow: 1,
     backgroundColor: colors.background,
     justifyContent: "center",
     padding: spacing.xl,

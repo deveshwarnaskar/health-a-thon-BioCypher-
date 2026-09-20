@@ -267,6 +267,10 @@ export class OidcSessionManager implements AuthSessionProvider {
     this.dispatch({ type: "LOGOUT" });
   }
 
+  canRecoverPassword(): boolean {
+    return typeof (this.oidcFlow as any)?.recoverPassword === "function";
+  }
+
   async recoverPassword(): Promise<void> {
     if (this.oidcFlow.recoverPassword) {
       await this.oidcFlow.recoverPassword(this.config, this.discovery);
@@ -280,8 +284,8 @@ export class OidcSessionManager implements AuthSessionProvider {
     phone?: string;
     role?: string;
     invite_code?: string;
-  }): Promise<void> {
-    if (this.state.name === "authenticating") return;
+  }): Promise<{ user_status?: string; role?: string }> {
+    if (this.state.name === "authenticating") return {};
 
     this.dispatch({ type: "AUTH_INITIATED" });
     authLog({ event: "auth_initiated" });
@@ -292,6 +296,8 @@ export class OidcSessionManager implements AuthSessionProvider {
         refresh_token: string;
         token_type?: string;
         expires_in?: number;
+        user_status?: string;
+        role?: string;
       }>({
         method: "POST",
         path: "/api/v2/auth/signup",
@@ -304,7 +310,12 @@ export class OidcSessionManager implements AuthSessionProvider {
       });
 
       const user = await this.verifyWithBackend();
-      if (user === null) return;
+      if (user === null) return { user_status: response.user_status, role: response.role };
+
+      if (!user.role) {
+        this.dispatch({ type: "ACCESS_DENIED", reason: "unknown_role", user });
+        return { user_status: response.user_status, role: response.role };
+      }
 
       authLog({ event: "auth_success", status: "ok" });
       this.dispatch({
@@ -312,6 +323,7 @@ export class OidcSessionManager implements AuthSessionProvider {
         user,
         accessToken: response.access_token,
       });
+      return { user_status: response.user_status, role: response.role };
     } catch (cause: any) {
       const category =
         cause instanceof AuthTransientError

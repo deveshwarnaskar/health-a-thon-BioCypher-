@@ -8,9 +8,21 @@ import { useAuth } from "../../src/auth/AuthProvider";
 import { colors, radii, spacing, typography } from "../../src/theming/tokens";
 
 const ROLES = [
-  { label: "Patient", value: "patient" },
-  { label: "Caregiver", value: "caregiver" },
-  { label: "Doctor", value: "doctor" },
+  {
+    label: "Patient",
+    value: "patient",
+    description: "Track glycemic health, log meals & manage medications",
+  },
+  {
+    label: "Caregiver",
+    value: "caregiver",
+    description: "Support and monitor a family member's diabetes care",
+  },
+  {
+    label: "Doctor",
+    value: "doctor",
+    description: "Clinician review queue, AI insights & treatment plans",
+  },
 ] as const;
 
 export default function SignupScreen() {
@@ -26,8 +38,9 @@ export default function SignupScreen() {
   const [inviteCode, setInviteCode] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [pendingDoctorNotice, setPendingDoctorNotice] = useState(false);
 
-  if (isAuthenticated || state.name === "authenticated") {
+  if ((isAuthenticated || state.name === "authenticated") && !pendingDoctorNotice) {
     return <Redirect href="/(app)/shell" />;
   }
 
@@ -36,6 +49,7 @@ export default function SignupScreen() {
   const handleSignup = async () => {
     setLocalError(null);
     const cleanEmail = email.trim().toLowerCase();
+
     if (!cleanEmail || !cleanEmail.includes("@")) {
       setLocalError("Please enter a valid email address.");
       return;
@@ -56,7 +70,7 @@ export default function SignupScreen() {
 
     setSubmitting(true);
     try {
-      await signUp({
+      const res = await signUp({
         email: cleanEmail,
         password,
         name: name.trim() || undefined,
@@ -64,6 +78,10 @@ export default function SignupScreen() {
         role,
         invite_code: role === "doctor" && inviteCode.trim() ? inviteCode.trim() : undefined,
       });
+
+      if (role === "doctor" && res && res.user_status === "pending_verification") {
+        setPendingDoctorNotice(true);
+      }
     } catch (err: any) {
       setLocalError(
         err?.message ||
@@ -73,6 +91,44 @@ export default function SignupScreen() {
       setSubmitting(false);
     }
   };
+
+  if (pendingDoctorNotice) {
+    return (
+      <View style={styles.scrollContainer}>
+        <View style={styles.brand}>
+          <Text style={styles.title} allowFontScaling>
+            Verification Pending
+          </Text>
+          <Text style={styles.subtitle} allowFontScaling>
+            Your clinician account has been registered successfully.
+          </Text>
+        </View>
+
+        <AlertBanner
+          tone="info"
+          message="Clinician verification is required before active clinical queue operations are unlocked. A health facility administrator will review your credentials."
+        />
+
+        <View style={styles.guidanceBox}>
+          <Text style={styles.guidanceTitle} allowFontScaling>
+            What happens next?
+          </Text>
+          <Text style={styles.guidanceText} allowFontScaling>
+            You can sign in and explore the clinician interface. Full clinical review and patient management will activate once your facility administrator verifies your medical license.
+          </Text>
+        </View>
+
+        <Button
+          label="Continue to Clinician Portal"
+          onPress={() => {
+            setPendingDoctorNotice(false);
+            router.replace("/(app)/shell");
+          }}
+          accessibilityHint="Enters the clinician portal."
+        />
+      </View>
+    );
+  }
 
   return (
     <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
@@ -128,17 +184,31 @@ export default function SignupScreen() {
               return (
                 <TouchableOpacity
                   key={r.value}
-                  style={[styles.roleChip, selected && styles.roleChipSelected]}
+                  style={[styles.roleCard, selected && styles.roleCardSelected]}
                   onPress={() => setRole(r.value)}
                   disabled={busy}
-                  accessibilityRole="button"
+                  accessibilityRole="radio"
                   accessibilityState={{ selected }}
+                  accessibilityLabel={`${r.label}: ${r.description}`}
                 >
+                  <View style={styles.roleHeaderRow}>
+                    <Text
+                      style={[styles.roleTitle, selected && styles.roleTitleSelected]}
+                      allowFontScaling
+                    >
+                      {r.label}
+                    </Text>
+                    {selected ? (
+                      <View style={styles.radioActiveDot} />
+                    ) : (
+                      <View style={styles.radioInactiveDot} />
+                    )}
+                  </View>
                   <Text
-                    style={[styles.roleChipText, selected && styles.roleChipTextSelected]}
+                    style={[styles.roleDescription, selected && styles.roleDescriptionSelected]}
                     allowFontScaling
                   >
-                    {r.label}
+                    {r.description}
                   </Text>
                 </TouchableOpacity>
               );
@@ -147,15 +217,20 @@ export default function SignupScreen() {
         </View>
 
         {role === "doctor" ? (
-          <TextInput
-            label="Clinician Invite / Facility Code (Optional)"
-            value={inviteCode}
-            onChangeText={setInviteCode}
-            placeholder="e.g. CLINIC-VERIFIED-2026"
-            autoCapitalize="characters"
-            disabled={busy}
-            accessibilityLabel="Clinician invite code input"
-          />
+          <View style={styles.inviteContainer}>
+            <TextInput
+              label="Clinician Invite / Facility Code (Optional)"
+              value={inviteCode}
+              onChangeText={setInviteCode}
+              placeholder="e.g. CLINIC-VERIFIED-2026"
+              autoCapitalize="characters"
+              disabled={busy}
+              accessibilityLabel="Clinician invite code input"
+            />
+            <Text style={styles.inviteHelperText} allowFontScaling>
+              Doctors with an approved clinic invite code are immediately verified. Without a code, your account will be registered in pending verification status until administrator approval.
+            </Text>
+          </View>
         ) : null}
 
         <TextInput
@@ -233,30 +308,80 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   roleGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
     gap: spacing.xs,
   },
-  roleChip: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.md,
-    borderRadius: radii.pill,
-    borderWidth: 1,
+  roleCard: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
     borderColor: colors.border,
     backgroundColor: colors.surface,
+    gap: spacing.xxs,
   },
-  roleChipSelected: {
-    backgroundColor: colors.primary,
+  roleCardSelected: {
     borderColor: colors.primary,
+    backgroundColor: "#F0F7F9",
   },
-  roleChipText: {
-    fontSize: typography.fontSize.caption,
-    fontWeight: "500",
-    color: colors.textSecondary,
+  roleHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
-  roleChipTextSelected: {
-    color: "#ffffff",
+  roleTitle: {
+    fontSize: typography.fontSize.body,
     fontWeight: "600",
+    color: colors.textPrimary,
+  },
+  roleTitleSelected: {
+    color: colors.primary,
+    fontWeight: "700",
+  },
+  roleDescription: {
+    fontSize: typography.fontSize.caption,
+    color: colors.textSecondary,
+    lineHeight: 16,
+  },
+  roleDescriptionSelected: {
+    color: colors.textPrimary,
+  },
+  radioActiveDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.primary,
+  },
+  radioInactiveDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: colors.disabled,
+  },
+  inviteContainer: {
+    gap: spacing.xxs,
+  },
+  inviteHelperText: {
+    fontSize: typography.fontSize.caption,
+    color: colors.textSecondary,
+    lineHeight: 16,
+  },
+  guidanceBox: {
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.xs,
+  },
+  guidanceTitle: {
+    fontSize: typography.fontSize.bodySmall,
+    fontWeight: "600",
+    color: colors.textPrimary,
+  },
+  guidanceText: {
+    fontSize: typography.fontSize.caption,
+    color: colors.textSecondary,
+    lineHeight: 18,
   },
   bottomSection: {
     marginTop: spacing.xs,

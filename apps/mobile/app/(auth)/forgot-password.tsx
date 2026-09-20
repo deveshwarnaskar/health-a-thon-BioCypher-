@@ -5,7 +5,7 @@ import { Button } from "../../src/components/primitives/Button";
 import { TextInput } from "../../src/components/primitives/TextInput";
 import { AlertBanner } from "../../src/components/primitives/AlertBanner";
 import { useAuth } from "../../src/auth/AuthProvider";
-import { colors, spacing, typography } from "../../src/theming/tokens";
+import { colors, radii, spacing, typography } from "../../src/theming/tokens";
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
@@ -77,7 +77,7 @@ export default function ForgotPasswordScreen() {
       setSuccessMsg(res.message);
       setStep("complete");
     } catch (err: any) {
-      setErrorMsg(err?.message || "Password reset failed. Token may be expired.");
+      setErrorMsg(err?.message || "Password reset failed. Token may be expired or invalid.");
     } finally {
       setLoading(false);
     }
@@ -86,15 +86,20 @@ export default function ForgotPasswordScreen() {
   return (
     <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
       <View style={styles.brand}>
+        <View style={styles.badgeRow}>
+          <Text style={styles.stepBadge} allowFontScaling>
+            {step === "complete" ? "SUCCESS" : step === "reset" ? "STEP 2 OF 2" : "STEP 1 OF 2"}
+          </Text>
+        </View>
         <Text style={styles.title} allowFontScaling>
           Password Recovery
         </Text>
         <Text style={styles.subtitle} allowFontScaling>
           {step === "complete"
-            ? "Your account password has been updated."
+            ? "Your account password has been updated successfully."
             : step === "reset"
-            ? "Enter your reset token and chosen new password."
-            : "Enter your registered email address to receive reset instructions."}
+            ? "Enter your reset token and your chosen new password."
+            : "Enter your registered email address to receive secure reset instructions."}
         </Text>
       </View>
 
@@ -124,8 +129,12 @@ export default function ForgotPasswordScreen() {
           <Button
             label="I already have a reset token"
             variant="ghost"
-            onPress={() => setStep("reset")}
+            onPress={() => {
+              setErrorMsg(null);
+              setStep("reset");
+            }}
             disabled={busy}
+            accessibilityHint="Proceeds directly to the token entry step."
           />
         </View>
       )}
@@ -172,8 +181,12 @@ export default function ForgotPasswordScreen() {
           <Button
             label="Back to Email Request"
             variant="ghost"
-            onPress={() => setStep("request")}
+            onPress={() => {
+              setErrorMsg(null);
+              setStep("request");
+            }}
             disabled={busy}
+            accessibilityHint="Returns to the email request step."
           />
         </View>
       )}
@@ -212,6 +225,19 @@ const styles = StyleSheet.create({
   brand: {
     gap: spacing.xs,
     marginBottom: spacing.xs,
+  },
+  badgeRow: {
+    flexDirection: "row",
+  },
+  stepBadge: {
+    fontSize: typography.fontSize.caption,
+    fontWeight: "700",
+    color: colors.primary,
+    backgroundColor: "#E0F2F7",
+    paddingVertical: 2,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radii.sm,
+    letterSpacing: 0.5,
   },
   title: {
     fontSize: typography.fontSize.display,

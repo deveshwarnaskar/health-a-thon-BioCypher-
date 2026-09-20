@@ -22,7 +22,7 @@ export type AuthController = {
     phone?: string;
     role?: string;
     invite_code?: string;
-  }) => Promise<void>;
+  }) => Promise<{ user_status?: string; role?: string } | void>;
   signOut: () => Promise<void>;
   recoverPassword?: () => Promise<void>;
   forgotPassword?: (email: string) => Promise<{ status: string; message: string; reset_token?: string | null }>;
@@ -66,7 +66,9 @@ export function AuthProvider({ sessionManager, children }: AuthProviderProps) {
       signIn: (email?: string, password?: string) => sessionManager.signIn(email, password),
       signUp: (data) => sessionManager.signUp(data),
       signOut: () => sessionManager.signOut(),
-      recoverPassword: () => sessionManager.recoverPassword(),
+      recoverPassword: sessionManager.canRecoverPassword()
+        ? () => sessionManager.recoverPassword()
+        : undefined,
       forgotPassword: (email: string) => sessionManager.forgotPassword(email),
       resetPassword: (token: string, newPassword: string) => sessionManager.resetPassword(token, newPassword),
       sessionProvider: sessionManager,

@@ -106,4 +106,67 @@ describe("LoginScreen (component-level a11y)", () => {
     render(<LoginScreen />);
     expect(redirectHrefs).toContain("/(app)/shell");
   });
+
+  it("submits direct credentials when email and password are provided", () => {
+    render(<LoginScreen />);
+    const emailInput = screen.getByLabelText(/Email address input/i);
+    const passwordInput = screen.getByLabelText(/Password input/i);
+    const button = screen.getByRole("button");
+
+    fireEvent.changeText(emailInput, "patient@thali.dev");
+    fireEvent.changeText(passwordInput, "SecretPass123!");
+    fireEvent.press(button);
+
+    expect(mockSignIn).toHaveBeenCalledWith("patient@thali.dev", "SecretPass123!");
+  });
+
+  it("shows validation error when email is missing but password is provided", () => {
+    render(<LoginScreen />);
+    const passwordInput = screen.getByLabelText(/Password input/i);
+    const button = screen.getByRole("button");
+
+    fireEvent.changeText(passwordInput, "SecretPass123!");
+    fireEvent.press(button);
+
+    expect(screen.getByText(/Please enter your email address/i)).toBeTruthy();
+    expect(mockSignIn).not.toHaveBeenCalled();
+  });
+
+  it("shows validation error when email is invalid", () => {
+    render(<LoginScreen />);
+    const emailInput = screen.getByLabelText(/Email address input/i);
+    const passwordInput = screen.getByLabelText(/Password input/i);
+    const button = screen.getByRole("button");
+
+    fireEvent.changeText(emailInput, "invalid-email-no-at");
+    fireEvent.changeText(passwordInput, "SecretPass123!");
+    fireEvent.press(button);
+
+    expect(screen.getByText(/Please enter a valid email address/i)).toBeTruthy();
+    expect(mockSignIn).not.toHaveBeenCalled();
+  });
+
+  it("navigates to forgot-password screen when forgot link is tapped", () => {
+    render(<LoginScreen />);
+    const forgotLink = screen.getByLabelText(/Forgot password recovery link/i);
+    fireEvent.press(forgotLink);
+    expect(mockRouterPush).toHaveBeenCalledWith("/(auth)/forgot-password");
+  });
+
+  it("navigates to signup screen when signup link is tapped", () => {
+    render(<LoginScreen />);
+    const signupLink = screen.getByLabelText(/Create account sign up link/i);
+    fireEvent.press(signupLink);
+    expect(mockRouterPush).toHaveBeenCalledWith("/(auth)/signup");
+  });
+
+  it("displays backend error details like account locked", () => {
+    mockAuthState = {
+      name: "failed",
+      category: "unknown",
+      error: "Account is locked due to too many failed attempts. Try again later.",
+    } as any;
+    render(<LoginScreen />);
+    expect(screen.getByText(/Account is locked due to too many failed attempts/i)).toBeTruthy();
+  });
 });
