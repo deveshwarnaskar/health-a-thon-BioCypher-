@@ -1,7 +1,6 @@
 import React, { useContext } from "react";
 import { StatusBar } from "expo-status-bar";
 import {
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -26,12 +25,7 @@ export type AuthPanelProps = {
 
 export function AuthScreen({ children, contentContainerStyle, testID }: AuthScreenProps) {
   return (
-    <KeyboardAvoidingView
-      style={styles.keyboardAvoiding}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0}
-      testID={testID}
-    >
+    <View style={styles.container} testID={testID}>
       <StatusBar style="light" />
       <ScrollView
         style={styles.scrollView}
@@ -39,13 +33,14 @@ export function AuthScreen({ children, contentContainerStyle, testID }: AuthScre
         bounces={false}
         contentInsetAdjustmentBehavior="never"
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
+        keyboardDismissMode="none"
+        automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
         overScrollMode="never"
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.centerContainer}>{children}</View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -72,7 +67,7 @@ export function AuthPanel({ children, overlapHeader = true, style }: AuthPanelPr
 }
 
 const styles = StyleSheet.create({
-  keyboardAvoiding: {
+  container: {
     flex: 1,
     backgroundColor: colors.surface,
   },
