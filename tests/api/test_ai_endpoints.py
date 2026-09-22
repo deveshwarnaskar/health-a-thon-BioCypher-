@@ -109,11 +109,12 @@ def test_calculate_glycemic_endpoint(client, patient_auth):
     assert data["variability_category"] == "STABLE"
 
 
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 
+@patch("backend.infrastructure.ai.sarvam_client.SarvamClient.is_configured", new_callable=PropertyMock, return_value=True)
 @patch("backend.infrastructure.ai.sarvam_client.SarvamClient.transcribe_audio")
-def test_transcribe_base64_endpoint(mock_transcribe, client, patient_auth):
+def test_transcribe_base64_endpoint(mock_transcribe, mock_is_configured, client, patient_auth):
     mock_transcribe.return_value = {
         "transcript": "Maine 2 roti aur dal khaya",
         "language_code": "hi-IN",

@@ -16,7 +16,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:component": "jest",
+    "test:component": "jest --forceExit",
     "export": "expo export --platform android",
     "doctor": "expo-doctor"
   },
