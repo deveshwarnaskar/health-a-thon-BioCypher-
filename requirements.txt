@@ -16,3 +16,4 @@ PyJWT>=2.9
 cryptography>=43.0
 passlib[bcrypt]>=1.7
 bcrypt>=4.0
+python-multipart>=0.0.18
