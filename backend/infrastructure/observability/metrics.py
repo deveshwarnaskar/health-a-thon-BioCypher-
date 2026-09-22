@@ -362,6 +362,97 @@ class PrometheusMetricsRegistry:
             label_names=["outcome"],
         )
 
+        # 6. Multimodal AI Metrics (voice/image WhatsApp ingestion)
+        self.register_counter(
+            "sarvam_requests_total",
+            "Sarvam provider request outcomes by operation and result",
+            label_names=["operation", "result"],
+        )
+        self.register_histogram(
+            "sarvam_request_latency_seconds",
+            "Sarvam provider request latency by operation",
+            label_names=["operation"],
+        )
+        self.register_counter(
+            "sarvam_errors_total",
+            "Sarvam provider failures by error class",
+            label_names=["error_class"],
+        )
+        self.register_counter(
+            "sarvam_timeouts_total",
+            "Sarvam provider timeout events by operation",
+            label_names=["operation"],
+        )
+        self.register_counter(
+            "sarvam_rate_limits_total",
+            "Sarvam provider HTTP 429 rate-limit events",
+        )
+        self.register_counter(
+            "sarvam_stt_success_total",
+            "Saaras speech-to-text successes",
+        )
+        self.register_counter(
+            "sarvam_stt_failure_total",
+            "Saaras speech-to-text failures",
+        )
+        self.register_counter(
+            "sarvam_translation_success_total",
+            "Sarvam translation successes",
+        )
+        self.register_counter(
+            "sarvam_translation_failure_total",
+            "Sarvam translation failures",
+        )
+        self.register_counter(
+            "sarvam_tts_success_total",
+            "Sarvam text-to-speech successes",
+        )
+        self.register_counter(
+            "sarvam_tts_failure_total",
+            "Sarvam text-to-speech failures",
+        )
+        self.register_counter(
+            "image_analysis_success_total",
+            "Image meal analysis successes (provider-neutral)",
+        )
+        self.register_counter(
+            "image_analysis_failure_total",
+            "Image meal analysis failures (provider-neutral)",
+        )
+        self.register_counter(
+            "voice_pipeline_success_total",
+            "WhatsApp voice pipeline outcomes by stage",
+            label_names=["kind"],
+        )
+        self.register_counter(
+            "voice_pipeline_failure_total",
+            "WhatsApp voice pipeline failures by reason",
+            label_names=["kind"],
+        )
+        self.register_counter(
+            "image_pipeline_success_total",
+            "WhatsApp image pipeline outcomes by stage",
+            label_names=["kind"],
+        )
+        self.register_counter(
+            "image_pipeline_failure_total",
+            "WhatsApp image pipeline failures by reason",
+            label_names=["kind"],
+        )
+        self.register_counter(
+            "multimodal_pipeline_failures_total",
+            "Multimodal pipeline safe-fallback failures by reason",
+            label_names=["kind"],
+        )
+        self.register_counter(
+            "multimodal_confirmation_success_total",
+            "Multimodal meal drafts confirmed by patient",
+        )
+        self.register_counter(
+            "multimodal_confirmation_cancel_total",
+            "Multimodal meal drafts cancelled/rejected by patient",
+        )
+
     def register_counter(self, name: str, help_text: str, label_names: Sequence[str] = ()) -> CounterMetric:
         with self._lock:
             if name in self._counters:

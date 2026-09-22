@@ -91,6 +91,21 @@ class AIConfig(BaseModel):
     sarvam_base_url: str = Field(default="https://api.sarvam.ai")
     sarvam_asr_model: str = Field(default="saaras:v3")
     sarvam_tts_model: str = Field(default="bulbul:v3")
+    # ---- Additive multimodal layer (existing riles untouched when disabled) ---
+    # Master switch for the WhatsApp voice/image multimodal pipeline. When false
+    # (default), the ingestion worker keeps today's behavior exactly.
+    sarvam_enabled: bool = Field(default=False)
+    sarvam_stt_mode: str = Field(default="codemix")
+    sarvam_translation_model: str = Field(default="sarvam-translate")
+    sarvam_tts_voice: str = Field(default="priya")
+    # Provider-neutral image analysis selector. Gemini is retained as the capable
+    # vision provider through the ImageAnalysisProvider port.
+    image_analysis_provider: str = Field(default="gemini")
+    # Temporary encrypted media lifecycle (MediaVault)
+    media_encryption_key: str = Field(default="")
+    media_retention_seconds: int = Field(default=86400, ge=60)
+    max_voice_media_bytes: int = Field(default=15_000_000, ge=1)
+    max_image_media_bytes: int = Field(default=10_000_000, ge=1)
 
 
 class ObservabilityConfig(BaseModel):
@@ -158,6 +173,22 @@ class Settings(BaseSettings):
             self.ai.sarvam_api_key = self.ai.api_key
         if os.getenv("SARVAM_MODEL"):
             self.ai.sarvam_model = os.getenv("SARVAM_MODEL", "sarvam-m")
+        if os.getenv("SARVAM_ENABLED", "").strip().lower() in ("1", "true", "yes", "on"):
+            self.ai.sarvam_enabled = True
+        if os.getenv("SARVAM_STT_MODE"):
+            self.ai.sarvam_stt_mode = os.getenv("SARVAM_STT_MODE", "codemix")
+        if os.getenv("SARVAM_TRANSLATION_MODEL"):
+            self.ai.sarvam_translation_model = os.getenv("SARVAM_TRANSLATION_MODEL", "sarvam-translate")
+        if os.getenv("SARVAM_TTS_VOICE"):
+            self.ai.sarvam_tts_voice = os.getenv("SARVAM_TTS_VOICE", "priya")
+        if os.getenv("IMAGE_ANALYSIS_PROVIDER"):
+            self.ai.image_analysis_provider = os.getenv("IMAGE_ANALYSIS_PROVIDER", "gemini")
+        if not self.ai.api_key and os.getenv("GEMINI_API_KEY"):
+            self.ai.api_key = os.getenv("GEMINI_API_KEY", "")
+        if not self.ai.api_key and os.getenv("GOOGLE_API_KEY"):
+            self.ai.api_key = os.getenv("GOOGLE_API_KEY", "")
+        if not self.ai.media_encryption_key and os.getenv("THALI_MEDIA_ENCRYPTION_KEY"):
+            self.ai.media_encryption_key = os.getenv("THALI_MEDIA_ENCRYPTION_KEY", "")
         return self
 
 

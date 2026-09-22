@@ -1,5 +1,6 @@
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, typography } from "../../../theming/tokens";
 import type { CareTaskResponse } from "../../../services/schemas/tasks";
 
@@ -47,15 +48,9 @@ export function PatientTaskCard({
           accessibilityState={{ checked: isCompleted }}
           accessibilityLabel={isCompleted ? "Completed" : "Tap to complete task"}
         >
-          <Text
-            style={[
-              styles.checkIcon,
-              isCompleted ? styles.checkIconCompleted : styles.checkIconPending,
-            ]}
-            allowFontScaling
-          >
-            {isCompleted ? "✓" : ""}
-          </Text>
+          {isCompleted ? (
+            <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+          ) : null}
         </TouchableOpacity>
 
         <View style={styles.contentColumn}>
@@ -68,15 +63,12 @@ export function PatientTaskCard({
           </Text>
 
           <View style={styles.metaRow}>
-            {formattedTime ? (
+            <View style={styles.timeRow}>
+              <Ionicons name="time-outline" size={12} color="#64748B" style={{ marginRight: 3 }} />
               <Text style={styles.timeText} allowFontScaling>
-                {isCompleted ? "Completed" : `Due ${formattedTime}`}
+                {isCompleted ? "Completed" : formattedTime ? `Due ${formattedTime}` : "Scheduled"}
               </Text>
-            ) : (
-              <Text style={styles.timeText} allowFontScaling>
-                Scheduled
-              </Text>
-            )}
+            </View>
 
             <View
               style={[
@@ -91,7 +83,7 @@ export function PatientTaskCard({
                 ]}
                 allowFontScaling
               >
-                {task.status.replace("_", " ")}
+                {task.status.replace("_", " ").toUpperCase()}
               </Text>
             </View>
           </View>
@@ -104,28 +96,29 @@ export function PatientTaskCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: radii.lg,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#FFFFFF",
+    borderColor: "#E2E8F0",
     padding: spacing.md,
     marginBottom: spacing.sm,
-    shadowColor: colors.primaryInk,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.07,
-    shadowRadius: 16,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
     elevation: 2,
   },
   cardCompleted: {
-    backgroundColor: colors.backgroundRaised,
-    borderColor: "#FFFFFF",
+    backgroundColor: "#F8FAFC",
+    borderColor: "#E2E8F0",
+    opacity: 0.85,
   },
   leftColumn: {
     flexDirection: "row",
     alignItems: "flex-start",
   },
   checkCircle: {
-    width: 28,
-    height: 28,
+    width: 26,
+    height: 26,
     borderRadius: radii.pill,
     alignItems: "center",
     justifyContent: "center",
@@ -134,36 +127,27 @@ const styles = StyleSheet.create({
   },
   checkCirclePending: {
     borderWidth: 2,
-    borderColor: colors.primary,
+    borderColor: "#0D9488",
     backgroundColor: "transparent",
   },
   checkCircleCompleted: {
-    backgroundColor: colors.leafGreen,
+    backgroundColor: "#10B981",
+    borderWidth: 0,
   },
   checkCircleBusy: {
     opacity: 0.5,
-  },
-  checkIcon: {
-    fontSize: 14,
-    fontWeight: "bold",
-  },
-  checkIconPending: {
-    color: "transparent",
-  },
-  checkIconCompleted: {
-    color: colors.textOnPrimary,
   },
   contentColumn: {
     flex: 1,
   },
   description: {
-    fontSize: typography.fontSize.body,
-    fontWeight: typography.weight.medium,
-    color: colors.textPrimary,
-    lineHeight: typography.lineHeight.body,
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#0F172A",
+    lineHeight: 20,
   },
   descriptionCompleted: {
-    color: colors.textSecondary,
+    color: "#94A3B8",
     textDecorationLine: "line-through",
   },
   metaRow: {
@@ -172,29 +156,34 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginTop: spacing.xs,
   },
+  timeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   timeText: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+    fontSize: 12,
+    color: "#64748B",
+    fontWeight: "500",
   },
   badge: {
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: radii.sm,
+    borderRadius: radii.pill,
   },
   badgePending: {
-    backgroundColor: colors.tileCream,
+    backgroundColor: "#FEF3C7",
   },
   badgeCompleted: {
-    backgroundColor: colors.tileGreen,
+    backgroundColor: "#ECFDF5",
   },
   badgeText: {
     fontSize: 10,
-    fontWeight: typography.weight.bold,
+    fontWeight: "700",
   },
   badgeTextPending: {
-    color: colors.assistive,
+    color: "#D97706",
   },
   badgeTextCompleted: {
-    color: colors.leafGreen,
+    color: "#059669",
   },
 });

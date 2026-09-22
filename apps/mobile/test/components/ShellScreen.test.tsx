@@ -36,6 +36,33 @@ jest.mock("../../src/features/tasks", () => {
   };
 });
 
+jest.mock("../../src/features/patient", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Text, TouchableOpacity, View } = require("react-native");
+  return {
+    PatientExperience: ({ onSignOut }: { onSignOut?: () => void }) => (
+      <View>
+        <Text>Patient</Text>
+        <TouchableOpacity
+          onPress={onSignOut}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+        >
+          <Text>Sign out</Text>
+        </TouchableOpacity>
+      </View>
+    ),
+  };
+});
+
+jest.mock("../../src/features/doctor", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Text } = require("react-native");
+  return {
+    DoctorWorkstation: () => <Text>Doctor</Text>,
+  };
+});
+
 const ALL_ROLES: Role[] = [
   "Patient",
   "Caregiver",
@@ -104,15 +131,13 @@ describe("ShellScreen (per-role × 7)", () => {
     expect(screen.getByText(/restoring session/i)).toBeTruthy();
   });
 
-  it("mounts PatientMealScreen when Patient selects Food destination", () => {
+  it("mounts PatientExperience when Patient is authenticated", () => {
     mockAuthState = {
       name: "authenticated",
       user: { role: "Patient", actor_id: "a-1", capabilities: ["view_own_records"] },
     };
     renderShell();
-    const foodCard = screen.getByLabelText("Food (placeholder)");
-    fireEvent.press(foodCard);
-    expect(screen.getByText("Mocked PatientMealScreen")).toBeTruthy();
+    expect(screen.getByText("Patient")).toBeTruthy();
   });
 
   it("mounts DietitianWorkflow when Dietitian selects Food destination", () => {

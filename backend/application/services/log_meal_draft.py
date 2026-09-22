@@ -64,6 +64,7 @@ class LogMealDraftHandler:
                 patient_id=cmd.patient_id,
                 correlation_id=cmd.correlation_id,
                 observation_id=observation.id,
+                source_metadata=dict(cmd.source_metadata) if cmd.source_metadata else None,
             )
         )
         return MealDraftAccepted(

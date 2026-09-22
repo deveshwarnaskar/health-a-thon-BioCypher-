@@ -19,7 +19,7 @@ export function WhatsAppHomeCard({ onConnect }: WhatsAppHomeCardProps) {
             <Text style={styles.badgePillText}>WHATSAPP</Text>
           </View>
           <Text style={styles.kickerText} allowFontScaling>
-            DIRECT CHAT LOGGING
+            DIRECT CHAT TELEMETRY
           </Text>
         </View>
         <Ionicons name="logo-whatsapp" size={24} color="#25D366" />
@@ -39,6 +39,7 @@ export function WhatsAppHomeCard({ onConnect }: WhatsAppHomeCardProps) {
         accessibilityLabel={t("whatsapp.homeConnectAction")}
         activeOpacity={0.8}
       >
+        <Ionicons name="logo-whatsapp" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
         <Text style={styles.actionButtonText} allowFontScaling>
           {t("whatsapp.homeConnectAction")}
         </Text>
@@ -49,16 +50,17 @@ export function WhatsAppHomeCard({ onConnect }: WhatsAppHomeCardProps) {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.tileCream,
-    borderRadius: radii.lg,
+    backgroundColor: "#F0FDF4",
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#FFFFFF",
+    borderColor: "#DCFCE7",
     padding: spacing.md,
-    shadowColor: colors.primaryInk,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.05,
-    shadowRadius: 14,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
     elevation: 2,
+    gap: 4,
   },
   headerRow: {
     flexDirection: "row",
@@ -73,49 +75,47 @@ const styles = StyleSheet.create({
   },
   badgePill: {
     backgroundColor: "#DCF8C6",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
     borderRadius: radii.pill,
   },
   badgePillText: {
     color: "#075E54",
     fontSize: 9,
-    fontWeight: typography.weight.bold,
+    fontWeight: "700",
     letterSpacing: 0.5,
   },
   kickerText: {
     fontSize: 10,
-    fontWeight: typography.weight.bold,
-    color: colors.textSecondary,
-    letterSpacing: 1,
-  },
-  icon: {
-    fontSize: 20,
+    fontWeight: "700",
+    color: "#065F46",
+    letterSpacing: 0.8,
   },
   title: {
-    fontSize: typography.fontSize.body,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
-    marginBottom: 4,
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0F172A",
   },
   subtitle: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+    fontSize: 13,
+    color: "#64748B",
     lineHeight: 18,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   actionButton: {
+    flexDirection: "row",
+    alignItems: "center",
     alignSelf: "flex-start",
     backgroundColor: "#128C7E",
     paddingHorizontal: spacing.md,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: radii.pill,
     minHeight: touchTarget.min,
     justifyContent: "center",
   },
   actionButtonText: {
     color: "#FFFFFF",
-    fontSize: typography.fontSize.caption,
-    fontWeight: typography.weight.bold,
+    fontSize: 13,
+    fontWeight: "700",
   },
 });

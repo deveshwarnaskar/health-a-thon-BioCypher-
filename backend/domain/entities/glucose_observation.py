@@ -37,6 +37,24 @@ class GlucoseObservation:
         self.confirmation = PatientConfirmationState.CONFIRMED
         self.confirmed_by = by
 
+    def correct(
+        self,
+        by: PhoneNumber,
+        value: GlucoseValue,
+        tag: ReadingTag | None = None,
+        taken_at: datetime | None = None,
+    ) -> None:
+        if self.confirmation is not PatientConfirmationState.PENDING:
+            raise InvalidStateTransition(
+                f"observation cannot move {self.confirmation.value} -> corrected"
+            )
+        self.value = value
+        self.tag = tag
+        if taken_at is not None:
+            self.taken_at = taken_at
+        self.confirmation = PatientConfirmationState.CORRECTED
+        self.confirmed_by = by
+
     def reject(self, by: PhoneNumber) -> None:
         if self.confirmation is not PatientConfirmationState.PENDING:
             raise InvalidStateTransition(

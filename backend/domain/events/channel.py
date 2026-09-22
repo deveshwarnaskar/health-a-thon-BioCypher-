@@ -33,6 +33,10 @@ class WhatsAppMessageReceived(DomainEvent):
     Written to the transactional outbox with a NULL tenant binding; the worker
     resolves the sender phone to a (tenant, patient) anchor inside the
     privileged routing function before any domain work happens.
+
+    Media metadata fields (added by the multimodal layer) are optional and
+    additive: older producers that only send ``media_id``/``media_type`` remain
+    valid and the worker treats missing metadata as ``None``.
     """
 
     event_type: str = WEBHOOK_MESSAGE_RECEIVED_EVENT_TYPE
@@ -47,3 +51,9 @@ class WhatsAppMessageReceived(DomainEvent):
     media_type: str | None = None
     media_id: str | None = None
     caption: str | None = None
+    # Media metadata surfaced by the Meta Graph API payload (multimodal layer)
+    mime_type: str | None = None
+    file_size_bytes: int | None = None
+    media_sha256: str | None = None
+    is_voice: bool | None = None
+    media_filename: str | None = None

@@ -7,6 +7,7 @@ required fields).
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Mapping
 from uuid import UUID
 
 from ...domain.value_objects import GlucoseValue, ReadingTag
@@ -19,3 +20,5 @@ class IngestGlucoseReading:
     taken_at: datetime
     tag: ReadingTag | None = None
     correlation_id: UUID | None = None
+    # Provenance of how the reading was produced (voice/text provider metadata)
+    source_metadata: Mapping[str, object] | None = None

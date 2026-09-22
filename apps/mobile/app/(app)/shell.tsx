@@ -8,7 +8,7 @@ import { roleLabel, type Role } from "../../src/authz/roles";
 import { colors, spacing, typography } from "../../src/theming/tokens";
 import { LoadingState } from "../../src/components/primitives/LoadingState";
 import { CaregiverWorkflow, CaregiverReconciliationScreen } from "../../src/features/caregiver";
-import { DoctorWorkflow } from "../../src/features/doctor";
+import { DoctorWorkstation } from "../../src/features/doctor";
 import { DietitianWorkflow } from "../../src/features/meals";
 import { FHWWorkflow, CoordinatorWorkflow } from "../../src/features/tasks";
 import { PatientExperience } from "../../src/features/patient";
@@ -54,18 +54,15 @@ export default function ShellScreen() {
     return <CaregiverReconciliationScreen onBack={() => setSelectedDestination(null)} />;
   }
 
-  // Gate 10F-M: the Doctor vertical slice owns Review and Patients today;
-  // medication plans are reached inside the patient record (Create Plan) or directly.
-  if (role === "Doctor" && selectedDestination === "review") {
-    return <DoctorWorkflow flow="review" onHome={() => setSelectedDestination(null)} />;
-  }
-
-  if (role === "Doctor" && selectedDestination === "patients") {
-    return <DoctorWorkflow flow="patients" onHome={() => setSelectedDestination(null)} />;
-  }
-
-  if (role === "Doctor" && selectedDestination === "plans") {
-    return <DoctorWorkflow flow="plans" onHome={() => setSelectedDestination(null)} />;
+  // Doctor / Clinician Workstation (Gate 10F-M / P.L.A.T.E. Clinical Workspace)
+  if (role === "Doctor") {
+    return (
+      <DoctorWorkstation
+        initialFlow={selectedDestination as any}
+        onSignOut={signOut}
+        onExit={() => setSelectedDestination(null)}
+      />
+    );
   }
 
   // Gate 10H-M: Dietitian meal & nutrition vertical slice

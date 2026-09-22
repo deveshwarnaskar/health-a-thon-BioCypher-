@@ -223,6 +223,15 @@ def test_signup_creates_patient_and_issues_jwt(client: TestClient):
     verify_data = verify_resp.json()
     assert "patient" in verify_data["roles"]
 
+    # The number provided at signup must NOT be stored or connected to
+    # WhatsApp: connection happens only through the explicit OTP flow, so the
+    # in-app connect popup keeps appearing until the patient verifies.
+    identity_resp = client.get("/api/v2/whatsapp/identity", headers=bearer(data["access_token"]))
+    assert identity_resp.status_code == 200
+    identity_data = identity_resp.json()
+    assert identity_data["status"] == "not_connected"
+    assert identity_data["phone_number"] is None
+
 
 def test_signup_duplicate_email_returns_409(client: TestClient, auth_test_user):
     resp = client.post(

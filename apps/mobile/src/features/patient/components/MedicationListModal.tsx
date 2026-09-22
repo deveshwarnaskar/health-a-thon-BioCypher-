@@ -15,6 +15,7 @@ import {
   type MedicationAdherenceAction,
 } from "../components/PatientMedicationCard";
 import { usePatientMedications, useAdministerMedication } from "../api";
+
 export type MedicationListModalProps = {
   visible: boolean;
   onClose: () => void;
@@ -70,13 +71,17 @@ export function MedicationListModal({
       onRequestClose={onClose}
     >
       <SafeAreaView style={styles.container}>
+        {/* Header */}
         <View style={styles.header}>
           <View>
+            <View style={styles.kickerRow}>
+              <View style={styles.kickerDot} />
+              <Text style={styles.kicker} allowFontScaling>
+                CLINICAL PHARMACOTHERAPY
+              </Text>
+            </View>
             <Text style={styles.title} allowFontScaling>
               Prescribed Medications
-            </Text>
-            <Text style={styles.subtitle} allowFontScaling>
-              Clinician-authored treatment plans
             </Text>
           </View>
           <TouchableOpacity
@@ -84,23 +89,31 @@ export function MedicationListModal({
             onPress={onClose}
             accessibilityRole="button"
             accessibilityLabel="Close medications modal"
+            activeOpacity={0.7}
           >
-            <Ionicons name="close" size={22} color={colors.textPrimary} />
+            <Ionicons name="close" size={20} color="#0F172A" />
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          {/* Disclaimer Box */}
           <View style={styles.disclaimerBox} accessibilityRole="summary">
-            <Text style={styles.disclaimerTitle} allowFontScaling>
-              Clinician-Authored Treatment
-            </Text>
-            <Text style={styles.disclaimerText} allowFontScaling>
-              Medications are prescribed and titrated by your doctor. Contact your clinic if you need dosage or prescription changes.
-            </Text>
+            <View style={styles.disclaimerIconBox}>
+              <Ionicons name="shield-checkmark" size={18} color="#0D9488" />
+            </View>
+            <View style={styles.disclaimerTextCol}>
+              <Text style={styles.disclaimerTitle} allowFontScaling>
+                Clinician-Authored Treatment
+              </Text>
+              <Text style={styles.disclaimerText} allowFontScaling>
+                Medications are prescribed and titrated by your doctor. Contact your clinic if you need dosage adjustments or prescription renewals.
+              </Text>
+            </View>
           </View>
 
           {feedbackMessage && (
             <View style={styles.feedbackBanner}>
+              <Ionicons name="checkmark-circle" size={16} color="#059669" style={{ marginRight: 6 }} />
               <Text style={styles.feedbackBannerText} allowFontScaling>
                 {feedbackMessage}
               </Text>
@@ -109,9 +122,9 @@ export function MedicationListModal({
 
           {plans.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyIcon} allowFontScaling>
-                💊
-              </Text>
+              <View style={styles.emptyIconCircle}>
+                <Ionicons name="medkit-outline" size={34} color="#0D9488" />
+              </View>
               <Text style={styles.emptyTitle} allowFontScaling>
                 No active medication plans
               </Text>
@@ -146,65 +159,101 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: "#E2E8F0",
     backgroundColor: colors.surface,
   },
-  title: {
-    fontSize: typography.fontSize.title,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
+  kickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 2,
   },
-  subtitle: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+  kickerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#0D9488",
+    marginRight: 6,
+  },
+  kicker: {
+    fontSize: 10,
+    color: "#64748B",
+    fontWeight: "700",
+    letterSpacing: 1.1,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#0F172A",
+    letterSpacing: -0.3,
   },
   closeButton: {
-    minWidth: touchTarget.min,
-    minHeight: touchTarget.min,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     alignItems: "center",
     justifyContent: "center",
   },
-  closeText: {
-    fontSize: 18,
-    color: colors.textSecondary,
-    fontWeight: "bold",
-  },
   content: {
     padding: spacing.md,
+    gap: spacing.sm + 2,
   },
   disclaimerBox: {
-    backgroundColor: "#FDF9F5",
-    borderRadius: radii.md,
-    borderLeftWidth: 3,
-    borderLeftColor: colors.assistive,
+    flexDirection: "row",
+    backgroundColor: "#F0FDFA",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#CCFBF1",
     padding: spacing.md,
-    marginBottom: spacing.md,
+    gap: spacing.sm,
+    alignItems: "flex-start",
+  },
+  disclaimerIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#CCFBF1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  disclaimerTextCol: {
+    flex: 1,
   },
   disclaimerTitle: {
-    fontSize: typography.fontSize.caption,
-    fontWeight: typography.weight.bold,
-    color: colors.assistive,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#0F766E",
     marginBottom: 2,
   },
   disclaimerText: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
-    lineHeight: 18,
+    fontSize: 11,
+    color: "#0D9488",
+    lineHeight: 16,
   },
   emptyContainer: {
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: spacing.xxl,
   },
-  emptyIcon: {
-    fontSize: 48,
+  emptyIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#F0FDFA",
+    borderWidth: 1,
+    borderColor: "#CCFBF1",
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: spacing.md,
   },
   emptyTitle: {
     fontSize: typography.fontSize.headline,
-    fontWeight: typography.weight.bold,
+    fontWeight: "800",
     color: colors.textPrimary,
   },
   emptySubtitle: {
@@ -213,16 +262,20 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     textAlign: "center",
     maxWidth: 280,
+    lineHeight: 18,
   },
   feedbackBanner: {
-    backgroundColor: colors.tileGreen,
-    padding: spacing.sm,
-    borderRadius: radii.md,
-    marginBottom: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    padding: spacing.sm + 2,
+    borderRadius: 14,
   },
   feedbackBannerText: {
-    fontSize: typography.fontSize.bodySmall,
-    color: colors.leafGreen,
-    fontWeight: typography.weight.medium,
+    fontSize: 13,
+    color: "#059669",
+    fontWeight: "600",
   },
 });

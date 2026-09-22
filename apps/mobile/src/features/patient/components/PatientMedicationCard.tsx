@@ -1,5 +1,6 @@
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, touchTarget, typography } from "../../../theming/tokens";
 import type { MedicationPlanResponse } from "../../../services/schemas/medication";
 
@@ -28,8 +29,9 @@ export function PatientMedicationCard({
     if (currentStatus === "TAKEN") {
       return (
         <View style={[styles.statusBadge, styles.statusBadgeTaken]}>
+          <Ionicons name="checkmark-circle" size={12} color="#059669" style={{ marginRight: 3 }} />
           <Text style={[styles.statusText, styles.statusTextTaken]} allowFontScaling>
-            ✓ Taken
+            Taken
           </Text>
         </View>
       );
@@ -37,6 +39,7 @@ export function PatientMedicationCard({
     if (currentStatus === "SKIPPED") {
       return (
         <View style={[styles.statusBadge, styles.statusBadgeSkipped]}>
+          <Ionicons name="close-circle" size={12} color="#64748B" style={{ marginRight: 3 }} />
           <Text style={[styles.statusText, styles.statusTextSkipped]} allowFontScaling>
             Skipped
           </Text>
@@ -46,6 +49,7 @@ export function PatientMedicationCard({
     if (currentStatus === "SNOOZED") {
       return (
         <View style={[styles.statusBadge, styles.statusBadgeSnoozed]}>
+          <Ionicons name="alarm-outline" size={12} color="#D97706" style={{ marginRight: 3 }} />
           <Text style={[styles.statusText, styles.statusTextSnoozed]} allowFontScaling>
             Snoozed (15m)
           </Text>
@@ -54,6 +58,7 @@ export function PatientMedicationCard({
     }
     return (
       <View style={[styles.statusBadge, styles.statusBadgeDue]}>
+        <Ionicons name="time-outline" size={12} color="#D97706" style={{ marginRight: 3 }} />
         <Text style={[styles.statusText, styles.statusTextDue]} allowFontScaling>
           Scheduled
         </Text>
@@ -71,9 +76,7 @@ export function PatientMedicationCard({
       >
         <View style={styles.topRow}>
           <View style={styles.iconTag}>
-            <Text style={styles.pillIcon} allowFontScaling>
-              💊
-            </Text>
+            <Ionicons name="medkit" size={17} color="#2563EB" />
           </View>
           {renderBadge()}
         </View>
@@ -87,6 +90,7 @@ export function PatientMedicationCard({
         </Text>
 
         <View style={styles.metaRow}>
+          <Ionicons name="medical-outline" size={12} color="#64748B" style={{ marginRight: 4 }} />
           <Text style={styles.prescriberTag} allowFontScaling>
             Prescribed by {plan.prescribed_by_role || "Clinician"}
           </Text>
@@ -104,6 +108,7 @@ export function PatientMedicationCard({
             accessibilityHint="Records medication dose as taken now"
             activeOpacity={0.8}
           >
+            <Ionicons name="checkmark" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
             <Text style={styles.takenButtonText} allowFontScaling>
               {isMarking ? "Recording…" : "Took just now"}
             </Text>
@@ -113,16 +118,17 @@ export function PatientMedicationCard({
             <TouchableOpacity
               style={styles.secondaryActionBtn}
               onPress={() => {
-                // Scheduled dose 1 hour ago
                 const onTimeIso = new Date(Date.now() - 3600000).toISOString();
                 onMarkTaken(plan.medication_plan_id, "ON_TIME", onTimeIso);
               }}
               disabled={isMarking}
               accessibilityRole="button"
               accessibilityLabel={`Took ${plan.medication} on time`}
+              activeOpacity={0.7}
             >
+              <Ionicons name="time-outline" size={13} color="#475569" style={{ marginRight: 3 }} />
               <Text style={styles.secondaryActionText} allowFontScaling>
-                Took on time
+                On time
               </Text>
             </TouchableOpacity>
 
@@ -132,9 +138,11 @@ export function PatientMedicationCard({
               disabled={isMarking}
               accessibilityRole="button"
               accessibilityLabel={`Skip dose for ${plan.medication}`}
+              activeOpacity={0.7}
             >
+              <Ionicons name="close-outline" size={13} color="#475569" style={{ marginRight: 3 }} />
               <Text style={styles.secondaryActionText} allowFontScaling>
-                Skip dose
+                Skip
               </Text>
             </TouchableOpacity>
 
@@ -144,7 +152,9 @@ export function PatientMedicationCard({
               disabled={isMarking}
               accessibilityRole="button"
               accessibilityLabel={`Snooze reminder for ${plan.medication}`}
+              activeOpacity={0.7}
             >
+              <Ionicons name="alarm-outline" size={13} color="#475569" style={{ marginRight: 3 }} />
               <Text style={styles.secondaryActionText} allowFontScaling>
                 Snooze 15m
               </Text>
@@ -159,15 +169,15 @@ export function PatientMedicationCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: radii.lg,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#FFFFFF",
+    borderColor: "#E2E8F0",
     padding: spacing.md,
     marginBottom: spacing.sm,
-    shadowColor: colors.primaryInk,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.07,
-    shadowRadius: 16,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
     elevation: 2,
   },
   topRow: {
@@ -177,78 +187,78 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   iconTag: {
-    width: 32,
-    height: 32,
-    borderRadius: radii.pill,
-    backgroundColor: colors.tileAqua,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#EFF6FF",
     alignItems: "center",
     justifyContent: "center",
   },
-  pillIcon: {
-    fontSize: 16,
-  },
   statusBadge: {
-    paddingHorizontal: spacing.xs,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: radii.pill,
   },
   statusBadgeTaken: {
-    backgroundColor: colors.tileGreen,
+    backgroundColor: "#ECFDF5",
   },
   statusBadgeDue: {
-    backgroundColor: colors.tileCream,
+    backgroundColor: "#FEF3C7",
   },
   statusBadgeSkipped: {
-    backgroundColor: colors.backgroundRaised,
+    backgroundColor: "#F1F5F9",
   },
   statusBadgeSnoozed: {
-    backgroundColor: colors.tileYellow,
+    backgroundColor: "#FEF3C7",
   },
   statusText: {
-    fontSize: typography.fontSize.caption,
-    fontWeight: typography.weight.bold,
+    fontSize: 11,
+    fontWeight: "700",
   },
   statusTextTaken: {
-    color: colors.leafGreen,
+    color: "#059669",
   },
   statusTextDue: {
-    color: colors.assistive,
+    color: "#D97706",
   },
   statusTextSkipped: {
-    color: colors.textSecondary,
+    color: "#64748B",
   },
   statusTextSnoozed: {
-    color: colors.assistive,
+    color: "#D97706",
   },
   medicationName: {
-    fontSize: typography.fontSize.body,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0F172A",
   },
   instructions: {
-    fontSize: typography.fontSize.bodySmall,
-    color: colors.textSecondary,
+    fontSize: 13,
+    color: "#64748B",
     marginTop: 4,
-    lineHeight: typography.lineHeight.bodySmall,
+    lineHeight: 18,
   },
   metaRow: {
-    marginTop: spacing.xs,
+    marginTop: spacing.xs + 2,
     flexDirection: "row",
     alignItems: "center",
   },
   prescriberTag: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+    fontSize: 12,
+    color: "#64748B",
     fontStyle: "italic",
   },
   actionContainer: {
-    marginTop: spacing.sm,
-    paddingTop: spacing.xs,
+    marginTop: spacing.sm + 2,
+    paddingTop: spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
+    borderTopColor: "#EEF2F6",
   },
   takenButton: {
-    backgroundColor: colors.primary,
+    flexDirection: "row",
+    backgroundColor: "#0D9488",
     borderRadius: radii.pill,
     minHeight: touchTarget.min,
     alignItems: "center",
@@ -259,9 +269,9 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   takenButtonText: {
-    color: colors.textOnPrimary,
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: typography.weight.semibold,
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
   },
   secondaryActionsRow: {
     flexDirection: "row",
@@ -270,17 +280,19 @@ const styles = StyleSheet.create({
   },
   secondaryActionBtn: {
     flex: 1,
-    paddingVertical: spacing.xs,
+    flexDirection: "row",
+    paddingVertical: 9,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#F8FAFC",
+    minHeight: 38,
   },
   secondaryActionText: {
-    fontSize: typography.fontSize.caption,
-    fontWeight: typography.weight.medium,
-    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#475569",
   },
 });

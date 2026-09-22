@@ -1,5 +1,6 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, typography } from "../../../theming/tokens";
 
 export type TodayItemStatus = "completed" | "pending" | "due";
@@ -22,14 +23,14 @@ export function TodaySummaryCard({ items }: TodaySummaryCardProps) {
   return (
     <View style={styles.container} accessibilityRole="summary">
       <View style={styles.headerRow}>
-        <View>
+        <View style={styles.headerLeft}>
           <Text style={styles.kicker} allowFontScaling>
-            TODAY
+            TODAY&apos;S CARE
           </Text>
           <Text style={styles.title} allowFontScaling>
             {pendingCount === 0
               ? "All caught up for today"
-              : `${pendingCount} ${pendingCount === 1 ? "item needs" : "things need"} your attention`}
+              : `${pendingCount} ${pendingCount === 1 ? "item needs" : "things need"} attention`}
           </Text>
         </View>
         <View
@@ -38,6 +39,11 @@ export function TodaySummaryCard({ items }: TodaySummaryCardProps) {
             pendingCount === 0 ? styles.countPillComplete : styles.countPillAttention,
           ]}
         >
+          {pendingCount === 0 ? (
+            <Ionicons name="checkmark-circle" size={13} color="#065F46" style={{ marginRight: 3 }} />
+          ) : (
+            <Ionicons name="time-outline" size={13} color="#78350F" style={{ marginRight: 3 }} />
+          )}
           <Text
             style={[
               styles.countPillText,
@@ -45,7 +51,7 @@ export function TodaySummaryCard({ items }: TodaySummaryCardProps) {
             ]}
             allowFontScaling
           >
-            {pendingCount === 0 ? "✓ Done" : `${pendingCount} pending`}
+            {pendingCount === 0 ? "Complete" : `${pendingCount} pending`}
           </Text>
         </View>
       </View>
@@ -77,15 +83,11 @@ export function TodaySummaryCard({ items }: TodaySummaryCardProps) {
                     isDone ? styles.statusIndicatorDone : styles.statusIndicatorPending,
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.indicatorIcon,
-                      isDone ? styles.indicatorIconDone : styles.indicatorIconPending,
-                    ]}
-                    allowFontScaling
-                  >
-                    {isDone ? "✓" : "○"}
-                  </Text>
+                  <Ionicons
+                    name={isDone ? "checkmark" : "ellipse-outline"}
+                    size={13}
+                    color={isDone ? "#FFFFFF" : "#F59E0B"}
+                  />
                 </View>
               </View>
             </View>
@@ -98,108 +100,115 @@ export function TodaySummaryCard({ items }: TodaySummaryCardProps) {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.tileBlue,
-    borderRadius: radii.lg,
-    borderWidth: 0,
-    padding: spacing.lg,
-    shadowColor: colors.primaryInk,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.16,
-    shadowRadius: 22,
-    elevation: 6,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: spacing.md,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
   },
+  headerLeft: {
+    flex: 1,
+    paddingRight: spacing.xs,
+  },
   kicker: {
-    fontSize: typography.fontSize.caption,
-    fontWeight: typography.weight.bold,
-    letterSpacing: 1.2,
-    color: "#DFF7FF",
-    marginBottom: 2,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.1,
+    color: "#0D9488",
+    marginBottom: 3,
   },
   title: {
-    fontSize: typography.fontSize.body,
-    fontWeight: typography.weight.bold,
-    color: colors.textOnPrimary,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "800",
+    color: "#0F172A",
+    letterSpacing: -0.2,
   },
   countPill: {
-    paddingHorizontal: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: radii.pill,
+    borderWidth: 1,
   },
   countPillAttention: {
-    backgroundColor: colors.assistive,
+    backgroundColor: "#FFFBEB",
+    borderColor: "#FEF3C7",
   },
   countPillComplete: {
-    backgroundColor: colors.tileGreen,
+    backgroundColor: "#ECFDF5",
+    borderColor: "#D1FAE5",
   },
   countPillText: {
-    fontSize: typography.fontSize.caption,
-    fontWeight: typography.weight.semibold,
+    fontSize: 11,
+    fontWeight: "700",
   },
   countPillTextAttention: {
-    color: colors.primaryInk,
+    color: "#B45309",
   },
   countPillTextComplete: {
-    color: colors.leafGreen,
+    color: "#059669",
   },
   divider: {
     height: 1,
-    backgroundColor: "#FFFFFF55",
+    backgroundColor: "#F1F5F9",
     marginVertical: spacing.sm,
   },
   list: {
-    gap: spacing.sm,
+    gap: 8,
   },
   itemRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    paddingVertical: 3,
   },
   itemLabel: {
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: typography.weight.medium,
-    color: colors.textOnPrimary,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1E293B",
+    paddingRight: spacing.xs,
   },
   itemLabelDone: {
-    color: "#DCEBFF",
+    color: "#94A3B8",
     textDecorationLine: "line-through",
   },
   itemStatusContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
+    gap: 6,
   },
   itemTime: {
-    fontSize: typography.fontSize.caption,
-    color: "#DCEBFF",
+    fontSize: 11,
+    color: "#64748B",
+    fontWeight: "500",
   },
   statusIndicator: {
-    width: 24,
-    height: 24,
-    borderRadius: radii.pill,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
-  },
-  statusIndicatorPending: {
-    borderWidth: 1.5,
-    borderColor: colors.assistive,
-    backgroundColor: colors.assistive,
+    borderWidth: 1,
   },
   statusIndicatorDone: {
-    backgroundColor: colors.leafGreen,
+    backgroundColor: "#10B981",
+    borderColor: "#10B981",
   },
-  indicatorIcon: {
-    fontSize: 12,
-    fontWeight: "bold",
-  },
-  indicatorIconPending: {
-    color: colors.primaryInk,
-  },
-  indicatorIconDone: {
-    color: colors.textOnPrimary,
+  statusIndicatorPending: {
+    backgroundColor: "#FFFBEB",
+    borderColor: "#FCD34D",
   },
 });

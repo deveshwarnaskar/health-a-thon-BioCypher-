@@ -15,6 +15,7 @@ from .outbox_models import DomainEventOutboxModel
 from .ops_models import AuditEventModel, IdempotencyRecordModel, WebhookReceiptModel
 from .notification_models import NotificationModel
 from .document_models import DocumentReferenceModel
+from .conversation_models import ConversationSessionModel, PatientChannelPrefModel
 from .user_models import (
     EmailVerificationTokenModel,
     PasswordResetTokenModel,
@@ -44,6 +45,8 @@ __all__ = [
     "AuditEventModel",
     "NotificationModel",
     "DocumentReferenceModel",
+    "ConversationSessionModel",
+    "PatientChannelPrefModel",
     "UserModel",
     "UserSessionModel",
     "RefreshTokenFamilyModel",

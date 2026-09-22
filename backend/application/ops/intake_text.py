@@ -70,6 +70,7 @@ def parse_intake_text(
     patient_id: UUID,
     correlation_id: UUID | None,
     recorded_at: datetime,
+    source_metadata: dict | None = None,
 ) -> IngestGlucoseReading | LogMealDraft:
     """Parse one verified WhatsApp message body into an application command.
 
@@ -88,6 +89,7 @@ def parse_intake_text(
             description=stripped,
             recorded_at=recorded_at,
             correlation_id=correlation_id,
+            source_metadata=source_metadata,
             is_ambiguous=True,
             ambiguous_candidates=ambiguous,
         )
@@ -104,6 +106,7 @@ def parse_intake_text(
             taken_at=effective_occurred_at,
             tag=tag,
             correlation_id=correlation_id,
+            source_metadata=source_metadata,
         )
 
     # 3. Meal — pre-compute nutrition
@@ -122,6 +125,7 @@ def parse_intake_text(
         classified_items=items,
         recorded_at=effective_occurred_at,
         correlation_id=correlation_id,
+        source_metadata=source_metadata,
         is_ambiguous=False,
         ambiguous_candidates=[],
     )

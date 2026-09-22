@@ -19,20 +19,27 @@ export type NotificationDrawerProps = {
   onSelectNotification?: (notification: NotificationResponse) => void;
 };
 
-function getNotificationTypeLabel(type: string): string {
+type NotificationMeta = {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  bg: string;
+};
+
+function getNotificationMeta(type: string): NotificationMeta {
   switch (type) {
     case "reminder":
-      return "Reminder";
+      return { label: "Reminder", icon: "time-outline", color: "#0D9488", bg: "#F0FDFA" };
     case "alert":
-      return "Health Alert";
+      return { label: "Health Alert", icon: "warning-outline", color: "#DC2626", bg: "#FEF2F2" };
     case "task_assigned":
-      return "Task Update";
+      return { label: "Task Update", icon: "checkbox-outline", color: "#2563EB", bg: "#EFF6FF" };
     case "care_update":
-      return "Care Summary";
+      return { label: "Care Summary", icon: "document-text-outline", color: "#7C3AED", bg: "#F5F3FF" };
     case "clinical_communication":
-      return "Clinic Message";
+      return { label: "Clinic Message", icon: "chatbubble-ellipses-outline", color: "#0284C7", bg: "#F0F9FF" };
     default:
-      return "Update";
+      return { label: "Update", icon: "notifications-outline", color: "#64748B", bg: "#F1F5F9" };
   }
 }
 
@@ -50,34 +57,46 @@ export function NotificationDrawer({
       onRequestClose={onClose}
     >
       <SafeAreaView style={styles.container}>
+        {/* Modern Header */}
         <View style={styles.header}>
-          <Text style={styles.title} allowFontScaling>
-            Notifications
-          </Text>
+          <View>
+            <View style={styles.kickerRow}>
+              <View style={styles.kickerDot} />
+              <Text style={styles.kicker} allowFontScaling>
+                CLINICAL ALERTS & REMINDERS
+              </Text>
+            </View>
+            <Text style={styles.title} allowFontScaling>
+              Notifications
+            </Text>
+          </View>
           <TouchableOpacity
             style={styles.closeButton}
             onPress={onClose}
             accessibilityRole="button"
             accessibilityLabel="Close notifications"
+            activeOpacity={0.7}
           >
-            <Ionicons name="close" size={22} color={colors.textPrimary} />
+            <Ionicons name="close" size={20} color="#0F172A" />
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           {notifications.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Ionicons name="notifications-outline" size={40} color={colors.disabled} style={{ marginBottom: 12 }} />
+              <View style={styles.emptyIconCircle}>
+                <Ionicons name="notifications-off-outline" size={34} color="#0D9488" />
+              </View>
               <Text style={styles.emptyTitle} allowFontScaling>
                 {"You're all caught up"}
               </Text>
               <Text style={styles.emptySubtitle} allowFontScaling>
-                New reminders and clinic updates will appear here.
+                New medication reminders, task schedules, and clinic updates will appear here.
               </Text>
             </View>
           ) : (
             notifications.map((n) => {
-              const typeLabel = getNotificationTypeLabel(n.notification_type);
+              const meta = getNotificationMeta(n.notification_type);
               const message =
                 n.template_params?.message ||
                 n.template_params?.reminder ||
@@ -94,17 +113,25 @@ export function NotificationDrawer({
                   onPress={() => onSelectNotification?.(n)}
                   activeOpacity={0.7}
                   accessibilityRole="button"
-                  accessibilityLabel={`${typeLabel}: ${message}`}
+                  accessibilityLabel={`${meta.label}: ${message}`}
                 >
                   <View style={styles.itemTopRow}>
-                    <View style={styles.typeBadge}>
-                      <Text style={styles.typeBadgeText} allowFontScaling>
-                        {typeLabel}
+                    <View style={styles.typeRow}>
+                      <View style={[styles.typeIconBox, { backgroundColor: meta.bg }]}>
+                        <Ionicons name={meta.icon} size={15} color={meta.color} />
+                      </View>
+                      <View style={[styles.typeBadge, { backgroundColor: meta.bg }]}>
+                        <Text style={[styles.typeBadgeText, { color: meta.color }]} allowFontScaling>
+                          {meta.label}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.timeRow}>
+                      <Ionicons name="time-outline" size={12} color="#94A3B8" style={{ marginRight: 3 }} />
+                      <Text style={styles.timestamp} allowFontScaling>
+                        {timeStr}
                       </Text>
                     </View>
-                    <Text style={styles.timestamp} allowFontScaling>
-                      {timeStr}
-                    </Text>
                   </View>
                   <Text style={styles.itemMessage} allowFontScaling>
                     {message}
@@ -129,43 +156,69 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: "#E2E8F0",
     backgroundColor: colors.surface,
   },
+  kickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 2,
+  },
+  kickerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#0D9488",
+    marginRight: 6,
+  },
+  kicker: {
+    fontSize: 10,
+    color: "#64748B",
+    fontWeight: "700",
+    letterSpacing: 1.1,
+  },
   title: {
-    fontSize: typography.fontSize.title,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#0F172A",
+    letterSpacing: -0.3,
   },
   closeButton: {
-    minWidth: touchTarget.min,
-    minHeight: touchTarget.min,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     alignItems: "center",
     justifyContent: "center",
   },
-  closeText: {
-    fontSize: 18,
-    color: colors.textSecondary,
-    fontWeight: "bold",
-  },
   content: {
     padding: spacing.md,
-    gap: spacing.sm,
+    gap: spacing.sm + 2,
   },
   emptyContainer: {
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: spacing.xxl,
   },
-  emptyIcon: {
-    fontSize: 48,
+  emptyIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#F0FDFA",
+    borderWidth: 1,
+    borderColor: "#CCFBF1",
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: spacing.md,
   },
   emptyTitle: {
     fontSize: typography.fontSize.headline,
-    fontWeight: typography.weight.bold,
+    fontWeight: "800",
     color: colors.textPrimary,
   },
   emptySubtitle: {
@@ -173,38 +226,62 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.xs,
     textAlign: "center",
+    maxWidth: 280,
+    lineHeight: 18,
   },
   itemCard: {
     backgroundColor: colors.surface,
-    borderRadius: radii.md,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#E2E8F0",
     padding: spacing.md,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 1,
   },
   itemTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: spacing.xs,
+    marginBottom: spacing.xs + 2,
+  },
+  typeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  typeIconBox: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
   },
   typeBadge: {
-    backgroundColor: "#F0F7F9",
-    paddingHorizontal: spacing.xs,
+    paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: radii.sm,
+    borderRadius: radii.pill,
   },
   typeBadgeText: {
-    fontSize: 11,
-    fontWeight: typography.weight.bold,
-    color: colors.primary,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+  },
+  timeRow: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   timestamp: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+    fontSize: 11,
+    color: "#64748B",
+    fontWeight: "500",
   },
   itemMessage: {
-    fontSize: typography.fontSize.body,
-    color: colors.textPrimary,
-    lineHeight: typography.lineHeight.body,
+    fontSize: 13,
+    color: "#0F172A",
+    lineHeight: 19,
+    fontWeight: "500",
   },
 });

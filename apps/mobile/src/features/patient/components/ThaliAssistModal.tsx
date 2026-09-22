@@ -25,10 +25,11 @@ export type ThaliAssistModalProps = {
   onClose: () => void;
   onNavigateToRecords?: () => void;
   onNavigateToMeal?: () => void;
+  onNavigateToReports?: () => void;
   patientId?: string | null;
 };
 
-type AssistTopic = "today" | "meal" | "appointment" | "voice" | "ai_chat" | null;
+type AssistTopic = "today" | "meal" | "appointment" | "voice" | "ai_chat" | "summarize_week" | null;
 
 type AiChatMessage = {
   id: string;
@@ -60,6 +61,7 @@ export function ThaliAssistModal({
   onClose,
   onNavigateToRecords,
   onNavigateToMeal,
+  onNavigateToReports,
   patientId,
 }: ThaliAssistModalProps) {
   const { isOffline } = useConnectivity();
@@ -264,9 +266,9 @@ export function ThaliAssistModal({
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <View style={styles.headerTitleRow}>
-            <Text style={styles.assistIcon} allowFontScaling>
-              ✦
-            </Text>
+            <View style={styles.headerIconBadge}>
+              <Ionicons name="sparkles" size={18} color="#0D9488" />
+            </View>
             <View>
               <Text style={styles.title} allowFontScaling>
                 THALI Assist
@@ -281,8 +283,9 @@ export function ThaliAssistModal({
             onPress={onClose}
             accessibilityRole="button"
             accessibilityLabel="Close THALI Assist"
+            activeOpacity={0.7}
           >
-            <Ionicons name="close" size={22} color={colors.textPrimary} />
+            <Ionicons name="close" size={20} color="#0F172A" />
           </TouchableOpacity>
         </View>
 
@@ -381,6 +384,27 @@ export function ThaliAssistModal({
 
               <TouchableOpacity
                 style={styles.optionCard}
+                onPress={() => handleSelectTopic("summarize_week")}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Summarize My Week"
+              >
+                <View style={[styles.optionIconContainer, { backgroundColor: "rgba(13, 92, 117, 0.12)" }]}>
+                  <Ionicons name="bar-chart-outline" size={20} color={colors.primary} />
+                </View>
+                <View style={styles.optionTextColumn}>
+                  <Text style={styles.optionTitle} allowFontScaling>
+                    Summarize My Week
+                  </Text>
+                  <Text style={styles.optionSubtitle} allowFontScaling>
+                    Deterministic 7-day patient summary, coverage, and timeline patterns.
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.optionCard}
                 onPress={() => handleSelectTopic("meal")}
                 activeOpacity={0.7}
                 accessibilityRole="button"
@@ -449,8 +473,9 @@ export function ThaliAssistModal({
 
               {voiceSaveSuccess ? (
                 <View style={styles.voiceSuccessBanner}>
+                  <Ionicons name="checkmark-circle" size={16} color="#065F46" style={{ marginRight: 6 }} />
                   <Text style={styles.voiceSuccessText} allowFontScaling>
-                    ✓ {voiceSaveSuccess}
+                    {voiceSaveSuccess}
                   </Text>
                 </View>
               ) : null}
@@ -471,9 +496,14 @@ export function ThaliAssistModal({
                     }}
                   >
                     {msg.isEmergency ? (
-                      <View style={{ backgroundColor: "#FEE2E2", padding: 8, borderRadius: 8, marginBottom: 8, flexDirection: "row", gap: 6, alignItems: "center" }}>
-                        <Ionicons name="warning" size={18} color="#DC2626" />
-                        <Text style={{ color: "#991B1B", fontWeight: "700", fontSize: 13 }}>EMERGENCY HYPOGLYCEMIA ALERT</Text>
+                      <View style={{ backgroundColor: "#FEE2E2", padding: 10, borderRadius: 8, marginBottom: 8, borderWidth: 1, borderColor: "#FECACA" }}>
+                        <View style={{ flexDirection: "row", gap: 6, alignItems: "center", marginBottom: 2 }}>
+                          <Ionicons name="warning" size={18} color="#DC2626" />
+                          <Text style={{ color: "#991B1B", fontWeight: "700", fontSize: 13 }}>SAFETY ALERT: REPORTED LOW BLOOD GLUCOSE SYMPTOMS</Text>
+                        </View>
+                        <Text style={{ color: "#7F1D1D", fontSize: 12, lineHeight: 16 }}>
+                          You reported symptoms that can occur with low blood glucose. Follow the safety guidance below or contact your doctor immediately.
+                        </Text>
                       </View>
                     ) : null}
 
@@ -624,9 +654,12 @@ export function ThaliAssistModal({
 
               {voiceSaveSuccess ? (
                 <View style={styles.voiceSuccessBanner}>
-                  <Text style={styles.voiceSuccessText} allowFontScaling>
-                    ✓ {voiceSaveSuccess}
-                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
+                    <Ionicons name="checkmark-circle" size={16} color="#065F46" style={{ marginRight: 6 }} />
+                    <Text style={styles.voiceSuccessText} allowFontScaling>
+                      {voiceSaveSuccess}
+                    </Text>
+                  </View>
                   <TouchableOpacity
                     style={styles.viewRecordsBtn}
                     onPress={() => {
@@ -645,8 +678,9 @@ export function ThaliAssistModal({
 
               {voiceError ? (
                 <View style={styles.voiceErrorBanner}>
+                  <Ionicons name="alert-circle" size={16} color="#991B1B" style={{ marginRight: 6 }} />
                   <Text style={styles.voiceErrorText} allowFontScaling>
-                    ✕ {voiceError}
+                    {voiceError}
                   </Text>
                 </View>
               ) : null}
@@ -867,8 +901,9 @@ export function ThaliAssistModal({
                 accessibilityRole="button"
                 accessibilityLabel="Choose another question"
               >
+                <Ionicons name="arrow-back" size={14} color={colors.primary} style={{ marginRight: 6 }} />
                 <Text style={styles.backLinkText} allowFontScaling>
-                  ← Choose another topic
+                  Choose another topic
                 </Text>
               </TouchableOpacity>
             </View>
@@ -912,8 +947,9 @@ export function ThaliAssistModal({
                 accessibilityRole="button"
                 accessibilityLabel="Choose another question"
               >
+                <Ionicons name="arrow-back" size={14} color={colors.primary} style={{ marginRight: 6 }} />
                 <Text style={styles.backLinkText} allowFontScaling>
-                  ← Choose another topic
+                  Choose another topic
                 </Text>
               </TouchableOpacity>
             </View>
@@ -955,8 +991,9 @@ export function ThaliAssistModal({
                 accessibilityRole="button"
                 accessibilityLabel="Choose another question"
               >
+                <Ionicons name="arrow-back" size={14} color={colors.primary} style={{ marginRight: 6 }} />
                 <Text style={styles.backLinkText} allowFontScaling>
-                  ← Choose another topic
+                  Choose another topic
                 </Text>
               </TouchableOpacity>
             </View>
@@ -986,8 +1023,58 @@ export function ThaliAssistModal({
                 accessibilityRole="button"
                 accessibilityLabel="Choose another question"
               >
+                <Ionicons name="arrow-back" size={14} color={colors.primary} style={{ marginRight: 6 }} />
                 <Text style={styles.backLinkText} allowFontScaling>
-                  ← Choose another topic
+                  Choose another topic
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
+          {selectedTopic === "summarize_week" ? (
+            <View style={styles.topicDetail}>
+              <View style={[styles.provenanceTag, { backgroundColor: colors.tileAqua }]}>
+                <Text style={[styles.provenanceText, { color: colors.primary }]} allowFontScaling>
+                  DETERMINISTIC 7-DAY PATIENT HEALTH SUMMARY
+                </Text>
+              </View>
+              <Text style={styles.topicTitle} allowFontScaling>
+                Weekly Health Summary
+              </Text>
+              <Text style={styles.topicBody} allowFontScaling>
+                • ADA/EASD Glycemic Metrics: Calculations evaluate Time-in-Range (70–180 mg/dL), Mean glucose, and variability over a rolling 7-day window.
+                {"\n\n"}
+                • Temporal Associations: Meals and physical activities are aligned with adjacent glucose readings to observe non-causal contextual relationships.
+                {"\n\n"}
+                • Auditable Evidence: Every insight is backed by exact timestamped observations that you confirmed.
+                {"\n\n"}
+                • Clinician Shared Review: This summary helps prepare discussion topics for your treating doctor without autonomous AI diagnoses.
+              </Text>
+
+              <TouchableOpacity
+                style={[styles.actionButton, { flexDirection: "row" }]}
+                onPress={() => {
+                  onClose();
+                  onNavigateToReports?.();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Open Weekly Health Summary"
+              >
+                <Text style={styles.actionButtonText} allowFontScaling>
+                  View Weekly Health Summary
+                </Text>
+                <Ionicons name="arrow-forward" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.backLink}
+                onPress={() => setSelectedTopic(null)}
+                accessibilityRole="button"
+                accessibilityLabel="Choose another question"
+              >
+                <Ionicons name="arrow-back" size={14} color={colors.primary} style={{ marginRight: 6 }} />
+                <Text style={styles.backLinkText} allowFontScaling>
+                  Choose another topic
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1018,30 +1105,41 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
   },
-  assistIcon: {
-    fontSize: 24,
-    color: colors.primary,
-    fontWeight: "bold",
-  },
-  title: {
-    fontSize: typography.fontSize.title,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
-  },
-  subtitle: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
-  },
-  closeButton: {
-    minWidth: touchTarget.min,
-    minHeight: touchTarget.min,
+  headerIconBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#F0FDFA",
+    borderWidth: 1,
+    borderColor: "rgba(13, 148, 136, 0.15)",
     alignItems: "center",
     justifyContent: "center",
   },
-  closeText: {
+  title: {
     fontSize: 18,
-    color: colors.textSecondary,
-    fontWeight: "bold",
+    fontWeight: "800",
+    color: "#0F172A",
+    letterSpacing: -0.2,
+  },
+  subtitle: {
+    fontSize: 12,
+    color: "#64748B",
+    fontWeight: "500",
+  },
+  closeButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   content: {
     padding: spacing.md,
@@ -1161,25 +1259,33 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     backgroundColor: colors.primary,
-    borderRadius: radii.md,
-    minHeight: touchTarget.min,
+    borderRadius: radii.pill,
+    minHeight: 46,
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
+    marginTop: spacing.sm,
   },
   actionButtonText: {
-    color: colors.textOnPrimary,
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: typography.weight.semibold,
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
   },
   backLink: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    minHeight: touchTarget.min,
+    minHeight: 44,
+    marginTop: spacing.xs,
   },
   backLinkText: {
     color: colors.primary,
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: typography.weight.medium,
+    fontSize: 13,
+    fontWeight: "600",
   },
   voiceSuccessBanner: {
     backgroundColor: colors.tileGreen,

@@ -174,6 +174,9 @@ export function WhatsAppConnectionFlowModal({
                       : styles.stepPillCompleted,
                   ]}
                 >
+                  {step !== "phone" ? (
+                    <Ionicons name="checkmark" size={11} color="#059669" style={{ marginRight: 3 }} />
+                  ) : null}
                   <Text
                     style={[
                       styles.stepPillText,
@@ -182,7 +185,7 @@ export function WhatsAppConnectionFlowModal({
                         : styles.stepPillTextCompleted,
                     ]}
                   >
-                    {step !== "phone" ? "✓ " : "1. "}Phone
+                    {step === "phone" ? "1. " : ""}Phone
                   </Text>
                 </View>
 
@@ -203,6 +206,9 @@ export function WhatsAppConnectionFlowModal({
                       : styles.stepPillInactive,
                   ]}
                 >
+                  {step === "success" ? (
+                    <Ionicons name="checkmark" size={11} color="#059669" style={{ marginRight: 3 }} />
+                  ) : null}
                   <Text
                     style={[
                       styles.stepPillText,
@@ -213,7 +219,7 @@ export function WhatsAppConnectionFlowModal({
                         : styles.stepPillTextInactive,
                     ]}
                   >
-                    {step === "success" ? "✓ " : "2. "}Verify
+                    {step !== "success" ? "2. " : ""}Verify
                   </Text>
                 </View>
 
@@ -253,7 +259,7 @@ export function WhatsAppConnectionFlowModal({
                   style={styles.closeButton}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="close" size={20} color={colors.textPrimary} />
+                  <Ionicons name="close" size={18} color="#0F172A" />
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -344,9 +350,12 @@ export function WhatsAppConnectionFlowModal({
                     {requestMutation.isPending ? (
                       <ActivityIndicator color="#FFFFFF" />
                     ) : (
-                      <Text style={styles.primaryButtonText} allowFontScaling>
-                        {t("whatsapp.sendOtpButton")} →
-                      </Text>
+                      <>
+                        <Text style={styles.primaryButtonText} allowFontScaling>
+                          {t("whatsapp.sendOtpButton")}
+                        </Text>
+                        <Ionicons name="arrow-forward" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                      </>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -367,7 +376,10 @@ export function WhatsAppConnectionFlowModal({
                   {devCode ? (
                     <View style={styles.devCodeCard}>
                       <View style={styles.devCodeHeader}>
-                        <Text style={styles.devCodeTitle}>💡 Test Environment Active</Text>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <Ionicons name="flask-outline" size={16} color="#D97706" />
+                          <Text style={styles.devCodeTitle}>Test Environment Active</Text>
+                        </View>
                         <TouchableOpacity
                           style={styles.devCodeFillBtn}
                           onPress={() => {
@@ -400,8 +412,10 @@ export function WhatsAppConnectionFlowModal({
                           setErrorMessage(null);
                         }}
                         activeOpacity={0.7}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
                       >
-                        <Text style={styles.changePhoneText}>← Edit number</Text>
+                        <Ionicons name="arrow-back" size={13} color={colors.primary} />
+                        <Text style={styles.changePhoneText}>Edit number</Text>
                       </TouchableOpacity>
                     </View>
 
@@ -448,9 +462,12 @@ export function WhatsAppConnectionFlowModal({
                     {verifyMutation.isPending ? (
                       <ActivityIndicator color="#FFFFFF" />
                     ) : (
-                      <Text style={styles.primaryButtonText} allowFontScaling>
-                        {t("whatsapp.verifyButton")} ✓
-                      </Text>
+                      <>
+                        <Text style={styles.primaryButtonText} allowFontScaling>
+                          {t("whatsapp.verifyButton")}
+                        </Text>
+                        <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                      </>
                     )}
                   </TouchableOpacity>
 
@@ -604,6 +621,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   stepPill: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: radii.pill,
@@ -820,9 +839,10 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
   primaryButton: {
+    flexDirection: "row",
     backgroundColor: "#25D366",
-    borderRadius: radii.md,
-    minHeight: 46,
+    borderRadius: radii.pill,
+    minHeight: 48,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: spacing.md,

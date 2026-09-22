@@ -16,18 +16,31 @@ from .base import DomainEvent
 class GlucoseObservationRecorded(DomainEvent):
     event_type: str = "glucose_observation.recorded"
     observation_id: UUID = field(default_factory=uuid4)
+    # Provenance of how the reading was produced (e.g. voice transcript metadata)
+    source_metadata: dict | None = field(default=None)
 
 
 @dataclass(frozen=True)
 class MealObservationRecorded(DomainEvent):
     event_type: str = "meal_observation.recorded"
     observation_id: UUID = field(default_factory=uuid4)
+    # Provenance of how the meal draft was produced (voice/image/typed + provider)
+    source_metadata: dict | None = field(default=None)
 
 
 @dataclass(frozen=True)
 class MealObservationConfirmed(DomainEvent):
     event_type: str = "meal_observation.confirmed"
     observation_id: UUID = field(default_factory=uuid4)
+    # Provenance threaded through from the draft + confirm medium (button/text)
+    source_metadata: dict | None = field(default=None)
+
+
+@dataclass(frozen=True)
+class GlucoseObservationConfirmed(DomainEvent):
+    event_type: str = "glucose_observation.confirmed"
+    observation_id: UUID = field(default_factory=uuid4)
+    source_metadata: dict | None = field(default=None)
 
 
 @dataclass(frozen=True)

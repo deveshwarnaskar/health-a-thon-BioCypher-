@@ -9,6 +9,7 @@ from .add_care_team_member import AddCareTeamMember
 from .admin_deactivate_patient import AdminDeactivatePatient
 from .complete_care_task import CompleteCareTask
 from .confirm_meal_observation import ConfirmMealObservation
+from .confirm_glucose_observation import ConfirmGlucoseObservation
 from .create_care_task import CreateCareTask
 from .create_facility import CreateFacility
 from .create_identity_mapping import CreateIdentityMapping
@@ -39,6 +40,7 @@ __all__ = [
     "AdminDeactivatePatient",
     "CompleteCareTask",
     "ConfirmMealObservation",
+    "ConfirmGlucoseObservation",
     "CreateCareTask",
     "CreateFacility",
     "CreateIdentityMapping",

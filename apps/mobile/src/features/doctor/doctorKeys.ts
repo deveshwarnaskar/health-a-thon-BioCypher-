@@ -16,4 +16,14 @@ export const doctorKeys = {
       ? (["doctor", "medication-plans", "patient", patientId] as const)
       : (["doctor", "medication-plans"] as const),
   medicationPlan: (planId: string) => ["doctor", "medication-plans", planId] as const,
+  tasks: (patientId?: string) =>
+    patientId
+      ? (["doctor", "tasks", "patient", patientId] as const)
+      : (["doctor", "tasks"] as const),
+  documents: (patientId: string) => ["doctor", "documents", patientId] as const,
+  insights: (patientId: string) => ["doctor", "insights", patientId] as const,
+  notifications: (patientId?: string) =>
+    patientId
+      ? (["doctor", "notifications", "patient", patientId] as const)
+      : (["doctor", "notifications"] as const),
 } as const;

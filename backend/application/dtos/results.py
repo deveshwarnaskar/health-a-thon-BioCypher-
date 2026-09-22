@@ -36,6 +36,12 @@ class MealObservationConfirmedResult:
 
 
 @dataclass(frozen=True)
+class ObservationConfirmedResult:
+    observation_id: UUID
+    confirmation: str
+
+
+@dataclass(frozen=True)
 class AdministrationRecorded:
     medication_plan_id: UUID
     patient_id: UUID

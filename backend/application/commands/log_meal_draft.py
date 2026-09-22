@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Mapping
 from uuid import UUID
 
 from ...domain.value_objects import MealPortion
@@ -20,6 +20,9 @@ class LogMealDraft:
     recorded_at: datetime
     portion: MealPortion | None = None
     correlation_id: UUID | None = None
+    # Provenance of how the draft was produced (voice/image/typed, provider,
+    # model, language); threaded verbatim onto the canonical events + audit.
+    source_metadata: Mapping[str, Any] | None = None
     # Nutrition pre-computed by the Hinglish parser (doctor-only)
     carbs_grams: float | None = None
     gi_category: str | None = None

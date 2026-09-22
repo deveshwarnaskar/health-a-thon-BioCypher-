@@ -48,6 +48,15 @@ from backend.application.ports.ai import (
     AITaskType,
     DEFAULT_SYSTEM_CONSTRAINTS,
 )
+from backend.application.ports.ai_multimodal import (
+    IMAGE_MEDIA_TYPES,
+    LOW_CONFIDENCE_GUIDANCE,
+    MAX_IMAGE_MEDIA_BYTES,
+    MAX_VOICE_MEDIA_BYTES,
+    UnsupportedMediaError,
+    VOICE_MEDIA_TYPES,
+)
+from backend.application.ports.metrics import ApplicationMetrics, NullApplicationMetrics
 from backend.application.services.evidence_builder import EvidenceBuilder
 
 from .contracts import (
@@ -117,6 +126,15 @@ class WhatsAppIntakeHandler:
         sender: ChannelSender | None = None,
         transcriber: Any = None,
         ai_completer: Any = None,
+        conversation_engine: Any = None,
+        # ---- Additive multimodal layer (all optional; None → current behavior)
+        speech_to_text: Any = None,
+        language_identifier: Any = None,
+        translator: Any = None,
+        image_analyzer: Any = None,
+        media_vault: Any = None,
+        multimodal_enabled: bool = False,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._tenant_resolver = tenant_resolver
         self._uow_factory = uow_factory
@@ -127,6 +145,66 @@ class WhatsAppIntakeHandler:
         self._sender = sender
         self._transcriber = transcriber
         self._ai_completer = ai_completer
+        self._conversation_engine = conversation_engine
+        self._speech_to_text = speech_to_text
+        self._language_identifier = language_identifier
+        self._translator = translator
+        self._image_analyzer = image_analyzer
+        self._media_vault = media_vault
+        self._multimodal_enabled = multimodal_enabled
+        self._metrics = metrics or NullApplicationMetrics()
+
+    def _validate_voice_payload(self, payload: bytes, mime_type: str) -> bool:
+        """Bound voice payloads by MIME prefix and byte cap."""
+        if not payload:
+            return False
+        if len(payload) > MAX_VOICE_MEDIA_BYTES:
+            logger.warning("voice media over size cap; dropped")
+            return False
+        mime = (mime_type or "").lower()
+        if mime and not (mime.startswith("audio/") or mime.startswith("video/")):
+            logger.warning("voice media mime rejected: %s", mime)
+            return False
+        return True
+
+    def _validate_image_payload(self, payload: bytes, mime_type: str) -> bool:
+        """Bound meal-photo payloads by MIME allowlist and byte cap."""
+        if not payload:
+            return False
+        if len(payload) > MAX_IMAGE_MEDIA_BYTES:
+            logger.warning("image media over size cap; dropped")
+            return False
+        mime = (mime_type or "").lower()
+        if mime and mime not in {
+            "image/jpeg",
+            "image/jpg",
+            "image/png",
+            "image/webp",
+        }:
+            logger.warning("image media mime rejected: %s", mime)
+            return False
+        return True
+
+    def _safe_media_guidance(
+        self, uow: UnitOfWork, job: OutboxJob, phone: str, tenant_id: UUID,
+        *, message_id: str, media_type: str, reason: str,
+    ) -> DeliveryOutcome:
+        """Respond with the canonical safe copy and audit — never a draft."""
+        if self._sender is not None:
+            self._send_reply(phone, LOW_CONFIDENCE_GUIDANCE, tenant_id, job.correlation_id)
+        self._audit_factory(uow).record(
+            _audit_for_worker(
+                tenant_id=tenant_id,
+                action=AuditAction.CREATE.value,
+                resource_type="MULTIMODAL_SAFE_FALLBACK",
+                resource_id=str(job.patient_id) if job.patient_id else "",
+                job=job,
+                outcome="SUCCESS",
+                provenance={"channel": "whatsapp", "media_type": media_type, "reason": reason},
+            )
+        )
+        uow.commit()
+        return DeliveryOutcome.SUCCESS
 
     def _deliver_deferred_welcome(
         self,
@@ -212,20 +290,26 @@ class WhatsAppIntakeHandler:
         interactive_reply_id = str(payload.get("interactive_reply_id") or "").strip() or None
         media_type = str(payload.get("media_type") or payload.get("message_type") or "")
         media_id = str(payload.get("media_id") or "")
+        media_mime_type = str(payload.get("mime_type") or "")
+        media_file_size = payload.get("file_size_bytes")
+        media_sha256 = str(payload.get("media_sha256") or "")
+        media_is_voice = payload.get("is_voice")
 
-        # Transcribe audio voice note if media present and transcriber injected
-        if (media_type == "audio" or not text.strip() or text.strip() == "[audio]") and media_id:
-            if self._sender is not None and hasattr(self._sender, "download_media") and self._transcriber is not None:
-                media_res = self._sender.download_media(media_id)
-                if media_res:
-                    audio_bytes, mime_type = media_res
-                    try:
-                        transcribed = self._transcriber(audio_bytes, mime_type)
-                        if transcribed:
-                            logger.info("Voice note transcribed: %s", transcribed)
-                            text = str(transcribed).strip()
-                    except Exception as exc:
-                        logger.warning("Voice transcription failed: %s", exc)
+        # Media envelope provenance (PHI-free); enriched per pipeline below.
+        source_metadata: dict = {
+            "channel": "whatsapp",
+            "provider_message_id": message_id,
+            "media_type": media_type or "",
+            "media_id": media_id or "",
+        }
+        if media_mime_type:
+            source_metadata["mime_type"] = media_mime_type
+        if media_file_size not in (None, ""):
+            source_metadata["file_size_bytes"] = int(media_file_size) if str(media_file_size).isdigit() else media_file_size
+        if media_sha256:
+            source_metadata["media_sha256"] = media_sha256
+        if media_is_voice is not None:
+            source_metadata["is_voice"] = bool(media_is_voice)
 
         if not phone.strip():
             raise PermanentWorkerFailure("channel delivery has no sender phone")
@@ -258,6 +342,191 @@ class WhatsAppIntakeHandler:
             # Deliver any deferred WELCOME greeting now that the 24h window is open
             # (the customer just messaged the business, so free-form text is allowed).
             self._deliver_deferred_welcome(uow, patient, phone, tenant_id, job)
+
+            # ---- Multimodal ingestion layer (voice + image; additive) ---------
+            # When disabled, behavior is byte-for-byte the legacy path: media with
+            # no text falls into the legacy audio transcription branch, and images
+            # surface as the literal "[image]" text handled by DOCUMENT_UPLOAD.
+            vault_disposals: list[str] = []
+            conv_media_type = media_type
+
+            try:
+                # --- Voice: STT (multimodal) or legacy transcriber callable ----
+                voice_pipeline_armed = (
+                    self._transcriber is not None
+                    or (self._multimodal_enabled and self._speech_to_text is not None)
+                )
+                if (
+                    voice_pipeline_armed
+                    and (media_type in VOICE_MEDIA_TYPES or not text.strip() or text.strip() == "[audio]")
+                    and media_id
+                ):
+                    if self._sender is not None and hasattr(self._sender, "download_media"):
+                        media_res = self._sender.download_media(media_id)
+                        if media_res:
+                            audio_bytes, mime_type = media_res
+                            if self._multimodal_enabled and self._speech_to_text is not None:
+                                if not self._validate_voice_payload(audio_bytes, mime_type):
+                                    return self._safe_media_guidance(
+                                        uow, job, phone, tenant_id,
+                                        message_id=message_id, media_type="voice",
+                                        reason="voice_media_rejected",
+                                    )
+                                media_ref = None
+                                if self._media_vault is not None:
+                                    media_ref = self._media_vault.store(
+                                        tenant_id, patient_id, media_type="voice",
+                                        message_id=message_id, payload_bytes=audio_bytes,
+                                        mime_type=mime_type or "audio/ogg",
+                                    )
+                                    vault_disposals.append(media_ref.storage_key)
+                                try:
+                                    stt = self._speech_to_text.transcribe(audio_bytes, mime_type or "audio/ogg")
+                                except UnsupportedMediaError:
+                                    return self._safe_media_guidance(
+                                        uow, job, phone, tenant_id,
+                                        message_id=message_id, media_type="voice",
+                                        reason="voice_media_rejected",
+                                    )
+                                transcript = (stt.transcript or "").strip()
+                                if not transcript:
+                                    self._metrics.increment_counter("voice_pipeline_failure_total", {"kind": "stt_empty"})
+                                    self._metrics.increment_counter("sarvam_stt_failure_total")
+                                    return self._safe_media_guidance(
+                                        uow, job, phone, tenant_id,
+                                        message_id=message_id, media_type="voice",
+                                        reason="empty_transcript",
+                                    )
+                                text = transcript
+                                source_metadata.update(
+                                    {
+                                        "source_type": "voice",
+                                        "transcript_provider": stt.provenance.provider,
+                                        "transcript_model": stt.provenance.model,
+                                        "language_code": stt.provenance.language_code or (self._language_identifier.identify(text) if self._language_identifier else ""),
+                                        "stt_quality": stt.quality or stt.provenance.quality,
+                                        "latency_ms": stt.provenance.latency_ms,
+                                    }
+                                )
+                                self._metrics.increment_counter("voice_pipeline_success_total", {"kind": "transcribed"})
+                                self._metrics.increment_counter("sarvam_stt_success_total")
+                                self._metrics.increment_counter("sarvam_requests_total", {"operation": "speech-to-text", "result": "success"})
+                            elif self._transcriber is not None:
+                                # Legacy path preserved bit-for-bit
+                                try:
+                                    transcribed = self._transcriber(audio_bytes, mime_type)
+                                    if transcribed:
+                                        text = str(transcribed).strip()
+                                        source_metadata["source_type"] = "voice"
+                                except Exception as exc:
+                                    logger.warning("Voice transcription failed: %s", exc)
+
+                # --- Image: provider-neutral ImageAnalysisProvider ------------
+                if media_type in IMAGE_MEDIA_TYPES and media_id:
+                    if (
+                        self._multimodal_enabled
+                        and self._image_analyzer is not None
+                        and self._sender is not None
+                        and hasattr(self._sender, "download_media")
+                    ):
+                        media_res = self._sender.download_media(media_id)
+                        if media_res:
+                            image_bytes, mime_type = media_res
+                            if not self._validate_image_payload(image_bytes, mime_type):
+                                return self._safe_media_guidance(
+                                    uow, job, phone, tenant_id,
+                                    message_id=message_id, media_type="image",
+                                    reason="image_media_rejected",
+                                )
+                            media_ref = None
+                            if self._media_vault is not None:
+                                media_ref = self._media_vault.store(
+                                    tenant_id, patient_id, media_type="image",
+                                    message_id=message_id, payload_bytes=image_bytes,
+                                    mime_type=mime_type or "image/jpeg",
+                                )
+                                vault_disposals.append(media_ref.storage_key)
+                            analysis = self._image_analyzer.analyze_meal(image_bytes, mime_type or "image/jpeg")
+                            if analysis is None or analysis.unidentifiable or not analysis.description.strip():
+                                self._metrics.increment_counter("image_pipeline_failure_total", {"kind": "unidentifiable"})
+                                self._metrics.increment_counter("image_analysis_failure_total")
+                                return self._safe_media_guidance(
+                                    uow, job, phone, tenant_id,
+                                    message_id=message_id, media_type="image",
+                                    reason="unidentifiable",
+                                )
+                            # Image becomes a Hinglish meal description that STILL
+                            # round-trips through classify_text/estimate_nutrition
+                            # and the patient confirmation loop. Never nutrition.
+                            text = analysis.description.strip()
+                            conv_media_type = ""  # treated as plain text meal draft
+                            source_metadata.update(
+                                {
+                                    "source_type": "image",
+                                    "image_analysis_provider": analysis.provenance.provider,
+                                    "image_analysis_model": analysis.provenance.model,
+                                    "image_confidence": analysis.confidence,
+                                    "latency_ms": analysis.provenance.latency_ms,
+                                }
+                            )
+                            self._metrics.increment_counter("image_pipeline_success_total", {"kind": "analyzed"})
+                            self._metrics.increment_counter("image_analysis_success_total")
+            except Exception as exc:
+                reason = f"provider_error_{getattr(exc, 'provider', 'unknown')}"
+                if isinstance(exc, UnsupportedMediaError):
+                    reason = "media_rejected"
+                self._metrics.increment_counter("multimodal_pipeline_failures_total", {"kind": "provider_error"})
+                logger.warning("multimodal pipeline failed safely: %s", exc)
+                return self._safe_media_guidance(
+                    uow, job, phone, tenant_id,
+                    message_id=message_id, media_type=media_type or "media",
+                    reason=reason,
+                )
+
+            # Conversational AI/ML layer (op-in; None disables it entirely).
+            if self._conversation_engine is not None:
+                conv_outcome = self._conversation_engine.handle(
+                    text=text,
+                    patient=patient,
+                    patient_id=patient_id,
+                    tenant_id=tenant_id,
+                    phone=phone,
+                    interactive_reply_id=interactive_reply_id,
+                    media_type=conv_media_type,
+                    uow=uow,
+                    events_factory=self._events_factory,
+                    job_ctx={
+                        "correlation_id": job.correlation_id,
+                        "event_id": job.event_id,
+                        "message_id": message_id,
+                    },
+                )
+                if conv_outcome is not None and conv_outcome.handled:
+                    self._send_reply(
+                        phone,
+                        conv_outcome.reply,
+                        tenant_id,
+                        job.correlation_id,
+                        interactive=conv_outcome.interactive,
+                    )
+                    self._audit_factory(uow).record(
+                        _audit_for_worker(
+                            tenant_id=tenant_id,
+                            action=conv_outcome.action,
+                            resource_type=conv_outcome.resource_type,
+                            resource_id=conv_outcome.resource_id or str(patient_id),
+                            job=job,
+                            outcome="SUCCESS",
+                            provenance={
+                                "channel": "whatsapp",
+                                "provider_message_id": message_id,
+                                "conversation_layer": True,
+                                "emergency": conv_outcome.emergency,
+                            },
+                        )
+                    )
+                    uow.commit()
+                    return DeliveryOutcome.SUCCESS
 
             # Evaluate Intent Firewall
             verdict = IntentFirewall.evaluate(text, interactive_reply_id=interactive_reply_id)
@@ -337,6 +606,8 @@ class WhatsAppIntakeHandler:
                     latest = pending_meals[0]
                     latest.confirmation = PatientConfirmationState.REJECTED
                     uow.meal_observations.save(latest)
+                    if source_metadata.get("source_type") in ("voice", "image"):
+                        self._metrics.increment_counter("multimodal_confirmation_cancel_total")
                     self._audit_factory(uow).record(
                         _audit_for_worker(
                             tenant_id=tenant_id,
@@ -448,8 +719,12 @@ class WhatsAppIntakeHandler:
                         corrected_description=corrected_desc,
                         corrected_portion=corrected_portion,
                         correlation_id=job.correlation_id,
+                        source_metadata=dict(source_metadata) if source_metadata else None,
                     )
                     ConfirmMealObservationHandler(uow, self._events_factory(uow), self._clock, self._id_gen).handle(confirm_cmd)
+
+                    if source_metadata.get("source_type") in ("voice", "image"):
+                        self._metrics.increment_counter("multimodal_confirmation_success_total")
 
                     self._audit_factory(uow).record(
                         _audit_for_worker(
@@ -458,7 +733,7 @@ class WhatsAppIntakeHandler:
                             resource_type="MEAL",
                             resource_id=str(latest.id),
                             job=job,
-                            provenance={"channel": "whatsapp", "provider_message_id": message_id, "kind": parsed.kind},
+                            provenance={"channel": "whatsapp", "provider_message_id": message_id, "kind": parsed.kind, "source": source_metadata},
                         )
                     )
                     meal_desc = corrected_desc or latest.description
@@ -487,6 +762,7 @@ class WhatsAppIntakeHandler:
                 patient_id=patient_id,
                 correlation_id=job.correlation_id,
                 recorded_at=self._clock.now(),
+                source_metadata=dict(source_metadata) if source_metadata else None,
             )
 
             self._audit_factory(uow).record(
@@ -496,7 +772,7 @@ class WhatsAppIntakeHandler:
                     resource_type=dispatch_hint(cmd),
                     resource_id=str(patient_id),
                     job=job,
-                    provenance={"channel": "whatsapp", "provider_message_id": message_id, "command": dispatch_hint(cmd)},
+                    provenance={"channel": "whatsapp", "provider_message_id": message_id, "command": dispatch_hint(cmd), "source": source_metadata},
                 )
             )
 
@@ -534,6 +810,13 @@ class WhatsAppIntakeHandler:
             )
             raise PermanentWorkerFailure(f"channel payload rejected by domain: {exc}") from exc
         finally:
+            vault_keys = locals().get("vault_disposals") or []
+            if vault_keys and self._media_vault is not None:
+                for key in vault_keys:
+                    try:
+                        self._media_vault.dispose(key)
+                    except Exception:  # noqa: BLE001 - best-effort cleanup
+                        pass
             uow.close()
         return DeliveryOutcome.SUCCESS
 

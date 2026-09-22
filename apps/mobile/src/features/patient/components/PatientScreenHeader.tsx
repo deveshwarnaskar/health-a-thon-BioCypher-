@@ -65,9 +65,12 @@ export function PatientScreenHeader({
         <View style={styles.textContainer}>
           {showGreeting ? (
             <>
-              <Text style={styles.appLabel} allowFontScaling numberOfLines={1}>
-                THALI in
-              </Text>
+              <View style={styles.brandBadgeRow}>
+                <View style={styles.brandDot} />
+                <Text style={styles.appLabel} allowFontScaling numberOfLines={1}>
+                  THALI CARE
+                </Text>
+              </View>
               <Text style={styles.greeting} allowFontScaling numberOfLines={1}>
                 {greeting}, {patientName || "Friend"}
               </Text>
@@ -81,7 +84,7 @@ export function PatientScreenHeader({
                 {title}
               </Text>
               {subtitle ? (
-                <Text style={styles.subtitle} allowFontScaling>
+                <Text style={styles.subtitle} allowFontScaling numberOfLines={1}>
                   {subtitle}
                 </Text>
               ) : null}
@@ -93,7 +96,7 @@ export function PatientScreenHeader({
           {role ? (
             <View style={styles.roleTag}>
               <Text style={styles.roleTagText} allowFontScaling>
-                {role}
+                {role.toUpperCase()}
               </Text>
             </View>
           ) : null}
@@ -107,6 +110,7 @@ export function PatientScreenHeader({
               accessibilityHint="Signs out of THALI"
               activeOpacity={0.7}
             >
+              <Ionicons name="log-out-outline" size={15} color="#DC2626" style={{ marginRight: 4 }} />
               <Text style={styles.signOutIconText} allowFontScaling>
                 Sign out
               </Text>
@@ -115,14 +119,14 @@ export function PatientScreenHeader({
 
           {onPressAssist ? (
             <TouchableOpacity
-              style={styles.actionButton}
+              style={[styles.actionButton, styles.assistButton]}
               onPress={onPressAssist}
               accessibilityRole="button"
               accessibilityLabel="THALI Assist AI care guide"
               accessibilityHint="Opens THALI Assist for help with your care information"
               activeOpacity={0.7}
             >
-              <Ionicons name="sparkles" size={18} color={colors.primary} />
+              <Ionicons name="sparkles" size={18} color="#0D9488" />
             </TouchableOpacity>
           ) : null}
 
@@ -154,76 +158,89 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.background,
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.md,
+    paddingTop: spacing.md + 4,
+    paddingBottom: spacing.sm + 2,
   },
   contentRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: spacing.sm,
   },
   backButton: {
+    width: 44,
+    height: 44,
     minWidth: touchTarget.min,
     minHeight: touchTarget.min,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: spacing.xs,
     borderRadius: radii.pill,
     backgroundColor: colors.surface,
-    shadowColor: colors.primaryInk,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
     elevation: 2,
-  },
-  backIcon: {
-    fontSize: 24,
-    color: colors.primary,
-    fontWeight: "bold",
   },
   textContainer: {
     flex: 1,
     justifyContent: "center",
   },
+  brandBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 2,
+  },
+  brandDot: {
+    width: 6,
+    height: 6,
+    borderRadius: radii.pill,
+    backgroundColor: "#0D9488",
+  },
   appLabel: {
-    fontSize: typography.fontSize.bodySmall,
-    lineHeight: typography.lineHeight.bodySmall,
+    fontSize: 11,
     fontWeight: typography.weight.bold,
-    color: colors.textSecondary,
+    color: "#0D9488",
+    letterSpacing: 1,
   },
   greeting: {
-    fontSize: typography.fontSize.headline,
-    lineHeight: typography.lineHeight.headline,
+    fontSize: 22,
+    lineHeight: 28,
     fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
+    color: "#0F172A",
+    letterSpacing: -0.3,
   },
   dateText: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+    fontSize: 12,
+    color: "#64748B",
     marginTop: 2,
     fontWeight: typography.weight.medium,
   },
   title: {
-    fontSize: typography.fontSize.headline,
-    lineHeight: typography.lineHeight.headline,
+    fontSize: 22,
+    lineHeight: 28,
     fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
+    color: "#0F172A",
+    letterSpacing: -0.3,
   },
   subtitle: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+    fontSize: 13,
+    color: "#64748B",
     marginTop: 2,
+    fontWeight: typography.weight.regular,
   },
   actionRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
-    flexWrap: "wrap",
+    gap: 8,
     justifyContent: "flex-end",
-    maxWidth: 184,
   },
   actionButton: {
+    width: 44,
+    height: 44,
     minWidth: touchTarget.min,
     minHeight: touchTarget.min,
     alignItems: "center",
@@ -231,65 +248,63 @@ const styles = StyleSheet.create({
     position: "relative",
     borderRadius: radii.pill,
     backgroundColor: colors.surface,
-    shadowColor: colors.primaryInk,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
     elevation: 2,
   },
+  assistButton: {
+    backgroundColor: "#F0FDFA",
+    borderColor: "#CCFBF1",
+  },
   signOutButton: {
-    paddingHorizontal: spacing.sm,
-    minWidth: 74,
-  },
-  bellIcon: {
-    fontSize: 20,
-    color: colors.textPrimary,
-  },
-  assistIcon: {
-    fontSize: 20,
-    color: colors.primary,
-    fontWeight: "bold",
+    width: "auto",
+    paddingHorizontal: 12,
+    minWidth: 84,
+    flexDirection: "row",
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
   },
   unreadBadge: {
     position: "absolute",
-    top: 6,
-    right: 6,
-    backgroundColor: colors.critical,
+    top: 4,
+    right: 4,
+    backgroundColor: "#EF4444",
     borderRadius: radii.pill,
-    minWidth: 16,
-    height: 16,
+    minWidth: 18,
+    height: 18,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 3,
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
   },
   unreadBadgeText: {
-    color: colors.textOnPrimary,
+    color: "#FFFFFF",
     fontSize: 10,
     fontWeight: typography.weight.bold,
     lineHeight: 12,
   },
   roleTag: {
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
+    backgroundColor: "#F0FDFA",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: radii.pill,
-    marginRight: 2,
     borderWidth: 1,
-    borderColor: "#FFFFFF",
-    shadowColor: colors.primaryInk,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 2,
+    borderColor: "#CCFBF1",
   },
   roleTagText: {
-    fontSize: typography.fontSize.caption,
+    fontSize: 10,
     fontWeight: typography.weight.bold,
-    color: colors.primary,
+    color: "#0D9488",
+    letterSpacing: 0.5,
   },
   signOutIconText: {
-    fontSize: typography.fontSize.caption,
+    fontSize: 12,
     fontWeight: typography.weight.semibold,
-    color: colors.textSecondary,
+    color: "#DC2626",
   },
 });

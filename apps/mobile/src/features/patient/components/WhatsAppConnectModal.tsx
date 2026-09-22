@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, touchTarget, typography } from "../../../theming/tokens";
 import { useTranslation } from "../../../i18n/i18n";
 
@@ -35,16 +36,19 @@ export function WhatsAppConnectModal({
           accessibilityRole="alert"
           accessibilityLabel={t("whatsapp.modalTitle")}
         >
-          {/* Header Icon with Glowing Concentric Rings */}
+          {/* Header Icon with Concentric Rings */}
           <View style={styles.heroSection}>
             <View style={styles.iconRingOuter}>
               <View style={styles.iconRingInner}>
-                <Text style={styles.iconText}>💬</Text>
+                <Ionicons name="logo-whatsapp" size={32} color="#25D366" />
               </View>
             </View>
 
             <View style={styles.categoryPill}>
-              <Text style={styles.categoryPillText}>CONNECTED CARE • WHATSAPP SYNC</Text>
+              <View style={styles.pulseDot} />
+              <Text style={styles.categoryPillText} allowFontScaling>
+                CONNECTED CARE · WHATSAPP SYNC
+              </Text>
             </View>
 
             <Text style={styles.title} allowFontScaling>
@@ -58,8 +62,8 @@ export function WhatsAppConnectModal({
           {/* Benefits Feature Cards */}
           <View style={styles.benefitsList}>
             <View style={styles.benefitCard}>
-              <View style={[styles.benefitIconBox, { backgroundColor: "#E0F2FE" }]}>
-                <Text style={styles.benefitIcon}>🩸</Text>
+              <View style={[styles.benefitIconBox, { backgroundColor: "#F0FDFA" }]}>
+                <Ionicons name="water-outline" size={18} color="#0D9488" />
               </View>
               <View style={styles.benefitTextBox}>
                 <Text style={styles.benefitHeadline} allowFontScaling>
@@ -72,8 +76,8 @@ export function WhatsAppConnectModal({
             </View>
 
             <View style={styles.benefitCard}>
-              <View style={[styles.benefitIconBox, { backgroundColor: "#DCFCE7" }]}>
-                <Text style={styles.benefitIcon}>📸</Text>
+              <View style={[styles.benefitIconBox, { backgroundColor: "#EFF6FF" }]}>
+                <Ionicons name="camera-outline" size={18} color="#2563EB" />
               </View>
               <View style={styles.benefitTextBox}>
                 <Text style={styles.benefitHeadline} allowFontScaling>
@@ -86,8 +90,8 @@ export function WhatsAppConnectModal({
             </View>
 
             <View style={styles.benefitCard}>
-              <View style={[styles.benefitIconBox, { backgroundColor: "#FEF3C7" }]}>
-                <Text style={styles.benefitIcon}>🔔</Text>
+              <View style={[styles.benefitIconBox, { backgroundColor: "#FFFBEB" }]}>
+                <Ionicons name="notifications-outline" size={18} color="#D97706" />
               </View>
               <View style={styles.benefitTextBox}>
                 <Text style={styles.benefitHeadline} allowFontScaling>
@@ -102,8 +106,9 @@ export function WhatsAppConnectModal({
 
           {/* Privacy & Trust Reassurance */}
           <View style={styles.privacyBox}>
-            <Text style={styles.privacyText}>
-              🔒 End-to-end encrypted • ABDM & HIPAA aligned • Clinical care team access only
+            <Ionicons name="lock-closed" size={12} color="#0D9488" style={{ marginRight: 6 }} />
+            <Text style={styles.privacyText} allowFontScaling>
+              End-to-end encrypted · ABDM & HIPAA aligned · Care team access only
             </Text>
           </View>
 
@@ -116,9 +121,11 @@ export function WhatsAppConnectModal({
               accessibilityLabel={t("whatsapp.connectButton")}
               activeOpacity={0.85}
             >
+              <Ionicons name="logo-whatsapp" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
               <Text style={styles.connectButtonText} allowFontScaling>
-                {t("whatsapp.connectButton")} →
+                {t("whatsapp.connectButton")}
               </Text>
+              <Ionicons name="arrow-forward" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -142,162 +149,167 @@ export function WhatsAppConnectModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(10, 22, 18, 0.72)",
+    backgroundColor: "rgba(15, 23, 42, 0.7)",
     justifyContent: "center",
     alignItems: "center",
     padding: spacing.md,
   },
   dialog: {
     width: "100%",
-    maxWidth: 390,
+    maxWidth: 380,
     backgroundColor: colors.surface,
     borderRadius: 24,
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    shadowColor: colors.primaryInk,
+    shadowColor: "#0F172A",
     shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.2,
-    shadowRadius: 32,
-    elevation: 12,
+    shadowOpacity: 0.18,
+    shadowRadius: 28,
+    elevation: 10,
   },
   heroSection: {
     alignItems: "center",
     marginBottom: spacing.md,
   },
   iconRingOuter: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    backgroundColor: "#E7F9EE",
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "#DCFCE7",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
   },
   iconRingInner: {
     width: 54,
     height: 54,
     borderRadius: 27,
-    backgroundColor: "#25D366",
+    backgroundColor: "#F0FDF4",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#25D366",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  iconText: {
-    fontSize: 26,
   },
   categoryPill: {
-    backgroundColor: "#E6F4F8",
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F0FDFA",
+    borderWidth: 1,
+    borderColor: "#CCFBF1",
     paddingHorizontal: 10,
     paddingVertical: 3,
     borderRadius: radii.pill,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.xs + 2,
+  },
+  pulseDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: "#0D9488",
+    marginRight: 6,
   },
   categoryPillText: {
-    fontSize: 10,
-    fontWeight: typography.weight.bold,
-    color: colors.primary,
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#0D9488",
     letterSpacing: 0.8,
   },
   title: {
-    fontSize: typography.fontSize.headline,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0F172A",
     textAlign: "center",
+    letterSpacing: -0.3,
     marginBottom: 4,
   },
   subtitle: {
-    fontSize: typography.fontSize.bodySmall,
-    color: colors.textSecondary,
+    fontSize: 12,
+    color: "#64748B",
     textAlign: "center",
-    lineHeight: 20,
-    paddingHorizontal: spacing.xs,
+    lineHeight: 18,
+    paddingHorizontal: spacing.sm,
   },
   benefitsList: {
     gap: spacing.xs + 2,
-    marginBottom: spacing.md,
+    marginVertical: spacing.sm,
   },
   benefitCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
     backgroundColor: "#F8FAFC",
+    borderRadius: 16,
+    padding: spacing.sm + 2,
     borderWidth: 1,
     borderColor: "#EEF2F6",
-    borderRadius: radii.md,
-    padding: spacing.sm,
   },
   benefitIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-  },
-  benefitIcon: {
-    fontSize: 18,
+    marginRight: spacing.sm + 2,
   },
   benefitTextBox: {
     flex: 1,
   },
   benefitHeadline: {
     fontSize: 13,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
-    marginBottom: 1,
+    fontWeight: "700",
+    color: "#0F172A",
   },
   benefitSubtext: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    lineHeight: 16,
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 1,
   },
   privacyBox: {
-    backgroundColor: "#F1F5F9",
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F0FDFA",
+    borderRadius: 12,
     paddingVertical: 6,
-    marginBottom: spacing.md,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: "#CCFBF1",
+    marginVertical: spacing.sm,
   },
   privacyText: {
-    fontSize: 11,
-    color: colors.textSecondary,
+    fontSize: 10,
+    color: "#0D9488",
+    fontWeight: "600",
     textAlign: "center",
-    lineHeight: 15,
   },
   actions: {
     gap: spacing.xs,
+    marginTop: spacing.xs,
   },
   connectButton: {
-    backgroundColor: "#25D366",
-    minHeight: 50,
-    borderRadius: radii.md,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: spacing.lg,
-    shadowColor: "#25D366",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    backgroundColor: "#128C7E",
+    borderRadius: radii.pill,
+    minHeight: 48,
+    shadowColor: "#128C7E",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 2,
   },
   connectButtonText: {
     color: "#FFFFFF",
-    fontSize: typography.fontSize.body,
-    fontWeight: typography.weight.bold,
+    fontSize: 14,
+    fontWeight: "700",
   },
   dismissButton: {
-    minHeight: touchTarget.min,
+    minHeight: 40,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: spacing.lg,
   },
   dismissButtonText: {
-    color: colors.textSecondary,
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: typography.weight.semibold,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#64748B",
   },
 });

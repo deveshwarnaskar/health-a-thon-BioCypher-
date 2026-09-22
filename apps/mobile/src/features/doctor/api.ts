@@ -23,6 +23,57 @@ import type {
   PatientListResponse,
   PatientSummaryResponse,
 } from "../../services/schemas/patients";
+import type {
+  CareTaskListResponse,
+  CareTaskResponse,
+  CreateCareTaskRequest,
+  StartCareTaskResponse,
+  CompleteCareTaskResponse,
+} from "../../services/schemas/tasks";
+import { tasksEndpoints, buildCareTasksPath } from "../../services/api/endpoints/tasks";
+import type { NotificationListResponse } from "../../services/schemas/notifications";
+import { notificationsEndpoints, buildNotificationsPath } from "../../services/api/endpoints/notifications";
+
+export type ClinicalDocumentItem = {
+  id: string;
+  patient_id: string;
+  kind: string;
+  filename: string;
+  mime_type: string;
+  file_size_bytes: number;
+  created_at: string;
+  download_url?: string | null;
+};
+
+export type ClinicalInsightsResponse = {
+  patient_id: string;
+  patient_name: string;
+  provider: string;
+  metrics: {
+    total_readings: number;
+    mean_glucose_mg_dl: number | null;
+    standard_deviation_mg_dl: number | null;
+    coefficient_of_variation_pct: number | null;
+    time_in_range_pct: number | null;
+    time_below_range_pct: number | null;
+    time_above_range_pct: number | null;
+    estimated_hba1c_pct: number | null;
+    glucose_management_indicator_pct: number | null;
+    dawn_phenomenon_suspected: boolean;
+    variability_category: string;
+    clinical_summary_note: string;
+  };
+  recent_meals: Array<{
+    description: string;
+    recorded_at: string | null;
+    analysis: number;
+  }>;
+  active_medications: Array<{
+    medication: string;
+    instruction: string | null;
+    active: boolean;
+  }>;
+};
 
 /**
  * Doctor / P.L.A.T.E. reads and mutations (Gate 10F-B contracts → Gate 10F-M).
@@ -179,4 +230,143 @@ export function assertClinicianSafeFeed(
     throw new Error("Clinician feed contained non-clinician observation items.");
   }
   return response;
+}
+
+export async function generateClinicalReport(
+  request: { patient_id: string; report_type?: string; format?: string },
+  idempotencyKey: string,
+  client: ApiClient = apiClient,
+  token?: string
+): Promise<ClinicalDocumentItem> {
+  return client.request<ClinicalDocumentItem>({
+    method: "POST",
+    path: "/api/v2/clinical/reports/generate",
+    body: {
+      patient_id: request.patient_id,
+      report_type: request.report_type ?? "clinical_summary",
+      format: request.format ?? "pdf",
+    },
+    idempotencyKey,
+    token,
+  });
+}
+
+export async function fetchPatientDocuments(
+  patientId: string,
+  client: ApiClient = apiClient,
+  token?: string
+): Promise<ClinicalDocumentItem[]> {
+  const res = await client.request<{ total?: number; count?: number; items: ClinicalDocumentItem[] }>({
+    method: "GET",
+    path: `/api/v2/clinical/patients/${encodeURIComponent(patientId)}/documents`,
+    token,
+  });
+  return res.items || [];
+}
+
+export async function uploadPatientDocument(
+  patientId: string,
+  request: { filename: string; mime_type: string; content_base64: string; kind?: string },
+  idempotencyKey: string,
+  client: ApiClient = apiClient,
+  token?: string
+): Promise<ClinicalDocumentItem> {
+  return client.request<ClinicalDocumentItem>({
+    method: "POST",
+    path: `/api/v2/clinical/patients/${encodeURIComponent(patientId)}/documents/upload`,
+    body: {
+      filename: request.filename,
+      mime_type: request.mime_type,
+      content_base64: request.content_base64,
+      kind: request.kind ?? "chart_image",
+    },
+    idempotencyKey,
+    token,
+  });
+}
+
+export async function fetchClinicalInsights(
+  patientId: string,
+  client: ApiClient = apiClient,
+  token?: string
+): Promise<ClinicalInsightsResponse> {
+  return client.request<ClinicalInsightsResponse>({
+    method: "GET",
+    path: `/api/v2/ai/clinical-insights/${encodeURIComponent(patientId)}`,
+    token,
+  });
+}
+
+export async function fetchCareTasks(
+  patientId?: string,
+  client: ApiClient = apiClient,
+  token?: string
+): Promise<CareTaskListResponse> {
+  const path = buildCareTasksPath(patientId ? { patient_id: patientId } : undefined);
+  return client.request<CareTaskListResponse>({
+    method: tasksEndpoints.list.method,
+    path,
+    schema: tasksEndpoints.list.responseSchema,
+    token,
+  });
+}
+
+export async function createCareTask(
+  request: CreateCareTaskRequest,
+  idempotencyKey: string,
+  client: ApiClient = apiClient,
+  token?: string
+): Promise<CareTaskResponse> {
+  return client.request<CareTaskResponse>({
+    method: tasksEndpoints.create.method,
+    path: tasksEndpoints.create.path,
+    body: request,
+    idempotencyKey,
+    schema: tasksEndpoints.create.responseSchema,
+    token,
+  });
+}
+
+export async function startCareTask(
+  taskId: string,
+  idempotencyKey: string,
+  client: ApiClient = apiClient,
+  token?: string
+): Promise<StartCareTaskResponse> {
+  return client.request<StartCareTaskResponse>({
+    method: tasksEndpoints.start.method,
+    path: tasksEndpoints.start.path(taskId),
+    idempotencyKey,
+    schema: tasksEndpoints.start.responseSchema,
+    token,
+  });
+}
+
+export async function completeCareTask(
+  taskId: string,
+  idempotencyKey: string,
+  client: ApiClient = apiClient,
+  token?: string
+): Promise<CompleteCareTaskResponse> {
+  return client.request<CompleteCareTaskResponse>({
+    method: tasksEndpoints.complete.method,
+    path: tasksEndpoints.complete.path(taskId),
+    idempotencyKey,
+    schema: tasksEndpoints.complete.responseSchema,
+    token,
+  });
+}
+
+export async function fetchDoctorNotifications(
+  patientId?: string,
+  client: ApiClient = apiClient,
+  token?: string
+): Promise<NotificationListResponse> {
+  const path = buildNotificationsPath(patientId ? { patient_id: patientId } : undefined);
+  return client.request<NotificationListResponse>({
+    method: notificationsEndpoints.list.method,
+    path,
+    schema: notificationsEndpoints.list.responseSchema,
+    token,
+  });
 }

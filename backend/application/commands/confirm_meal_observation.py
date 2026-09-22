@@ -6,6 +6,7 @@ description/portion; otherwise the observation is simply confirmed.
 """
 
 from dataclasses import dataclass
+from typing import Mapping
 from uuid import UUID
 
 from ...domain.value_objects import MealPortion, PhoneNumber
@@ -18,3 +19,5 @@ class ConfirmMealObservation:
     corrected_description: str | None = None
     corrected_portion: MealPortion | None = None
     correlation_id: UUID | None = None
+    # Provenance threaded onto MealObservationConfirmed (source + confirm medium)
+    source_metadata: Mapping[str, object] | None = None

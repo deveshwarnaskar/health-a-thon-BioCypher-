@@ -36,6 +36,12 @@ export function DocumentViewerModal({
   const [docKind, setDocKind] = useState<"lab_report" | "prescription" | "chart_image">("lab_report");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
+  // Simulated OCR confirmation state
+  const [extractedHba1c, setExtractedHba1c] = useState("7.2");
+  const [extractedGlucose, setExtractedGlucose] = useState("118");
+  const [ocrConfirmed, setOcrConfirmed] = useState(false);
+  const [isEditingOcr, setIsEditingOcr] = useState(false);
+
   const handleOpenDocument = (doc: PatientDocument) => {
     if (doc.download_url) {
       void Linking.openURL(doc.download_url);
@@ -82,11 +88,14 @@ export function DocumentViewerModal({
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <View>
+            <View style={styles.kickerRow}>
+              <View style={styles.kickerDot} />
+              <Text style={styles.kicker} allowFontScaling>
+                CLINICAL ATTACHMENTS
+              </Text>
+            </View>
             <Text style={styles.title} allowFontScaling>
               Documents & Reports
-            </Text>
-            <Text style={styles.subtitle} allowFontScaling>
-              Verified clinical reports and summaries
             </Text>
           </View>
           <TouchableOpacity
@@ -94,23 +103,30 @@ export function DocumentViewerModal({
             onPress={onClose}
             accessibilityRole="button"
             accessibilityLabel="Close documents modal"
+            activeOpacity={0.7}
           >
-            <Ionicons name="close" size={22} color={colors.textPrimary} />
+            <Ionicons name="close" size={20} color="#0F172A" />
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.securityBox} accessibilityRole="summary">
-            <Text style={styles.securityTitle} allowFontScaling>
-              Secure Medical Records
-            </Text>
-            <Text style={styles.securityText} allowFontScaling>
-              Documents are encrypted and authorized via time-limited secure links. No clinical documents are publicly exposed.
-            </Text>
+            <View style={styles.securityIconBox}>
+              <Ionicons name="shield-checkmark" size={18} color="#0D9488" />
+            </View>
+            <View style={styles.securityTextCol}>
+              <Text style={styles.securityTitle} allowFontScaling>
+                Secure Medical Records
+              </Text>
+              <Text style={styles.securityText} allowFontScaling>
+                Documents are encrypted and authorized via time-limited secure links. No clinical documents are publicly exposed.
+              </Text>
+            </View>
           </View>
 
           {statusMessage && (
             <View style={styles.statusBanner}>
+              <Ionicons name="checkmark-circle" size={16} color="#059669" style={{ marginRight: 6 }} />
               <Text style={styles.statusBannerText} allowFontScaling>
                 {statusMessage}
               </Text>
@@ -126,9 +142,16 @@ export function DocumentViewerModal({
               onPress={() => setShowUploadForm(!showUploadForm)}
               accessibilityRole="button"
               accessibilityLabel={showUploadForm ? "Cancel upload" : "Upload new document"}
+              activeOpacity={0.7}
             >
+              <Ionicons
+                name={showUploadForm ? "close-outline" : "cloud-upload-outline"}
+                size={15}
+                color="#0D9488"
+                style={{ marginRight: 4 }}
+              />
               <Text style={styles.uploadToggleBtnText} allowFontScaling>
-                {showUploadForm ? "Cancel" : "+ Upload Document"}
+                {showUploadForm ? "Cancel" : "Upload Document"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -184,6 +207,148 @@ export function DocumentViewerModal({
                 ))}
               </View>
 
+              {/* OCR Lab Value Extraction Preview Card */}
+              {docKind === "lab_report" && (
+                <View style={styles.ocrCard}>
+                  <View style={styles.ocrHeader}>
+                    <View
+                      style={[
+                        styles.ocrBadge,
+                        ocrConfirmed ? styles.ocrBadgeConfirmed : styles.ocrBadgePending,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.ocrBadgeText,
+                          ocrConfirmed
+                            ? styles.ocrBadgeTextConfirmed
+                            : styles.ocrBadgeTextPending,
+                        ]}
+                        allowFontScaling
+                      >
+                        {ocrConfirmed ? "✓ CONFIRMED BY PATIENT" : "DETECTED FROM REPORT"}
+                      </Text>
+                    </View>
+                    <Text style={styles.ocrTimeNote} allowFontScaling>
+                      OCR Scanner
+                    </Text>
+                  </View>
+
+                  <Text style={styles.ocrTitle} allowFontScaling>
+                    Extracted Lab Values
+                  </Text>
+                  <Text style={styles.ocrSubtitle} allowFontScaling>
+                    Detected from test sheet. Machine-extracted values are never saved as clinical truth until you confirm them.
+                  </Text>
+
+                  {isEditingOcr ? (
+                    <View style={styles.ocrEditBox}>
+                      <Text style={styles.ocrInputLabel} allowFontScaling>
+                        HbA1c (%):
+                      </Text>
+                      <TextInput
+                        style={styles.ocrInput}
+                        value={extractedHba1c}
+                        onChangeText={setExtractedHba1c}
+                        keyboardType="decimal-pad"
+                        placeholder="7.2"
+                      />
+                      <Text style={styles.ocrInputLabel} allowFontScaling>
+                        Fasting Glucose (mg/dL):
+                      </Text>
+                      <TextInput
+                        style={styles.ocrInput}
+                        value={extractedGlucose}
+                        onChangeText={setExtractedGlucose}
+                        keyboardType="number-pad"
+                        placeholder="118"
+                      />
+                      <TouchableOpacity
+                        style={styles.ocrSaveEditBtn}
+                        onPress={() => {
+                          setIsEditingOcr(false);
+                          setOcrConfirmed(true);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Save edited lab values"
+                      >
+                        <Text style={styles.ocrSaveEditText} allowFontScaling>
+                          Save & Confirm
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.ocrValuesRow}>
+                      <View style={styles.ocrValueTile}>
+                        <Text style={styles.ocrValueNumber} allowFontScaling>
+                          {extractedHba1c}%
+                        </Text>
+                        <Text style={styles.ocrValueName} allowFontScaling>
+                          HbA1c (Glycated)
+                        </Text>
+                      </View>
+                      <View style={styles.ocrValueTile}>
+                        <Text style={styles.ocrValueNumber} allowFontScaling>
+                          {extractedGlucose} mg/dL
+                        </Text>
+                        <Text style={styles.ocrValueName} allowFontScaling>
+                          Fasting Glucose
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  <View style={styles.ocrActionsRow}>
+                    {!ocrConfirmed ? (
+                      <>
+                        <TouchableOpacity
+                          style={styles.ocrConfirmBtn}
+                          onPress={() => setOcrConfirmed(true)}
+                          accessibilityRole="button"
+                          accessibilityLabel="Confirm detected values"
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="checkmark" size={15} color="#FFFFFF" style={{ marginRight: 4 }} />
+                          <Text style={styles.ocrConfirmBtnText} allowFontScaling>
+                            Confirm Values
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.ocrEditBtn}
+                          onPress={() => setIsEditingOcr(!isEditingOcr)}
+                          accessibilityRole="button"
+                          accessibilityLabel="Edit detected values"
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="create-outline" size={14} color="#0D9488" style={{ marginRight: 4 }} />
+                          <Text style={styles.ocrEditBtnText} allowFontScaling>
+                            Edit
+                          </Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <View style={styles.ocrConfirmedNotice}>
+                        <Ionicons name="checkmark-circle" size={16} color={colors.leafGreen} />
+                        <Text style={styles.ocrConfirmedText} allowFontScaling>
+                          Values confirmed for clinical timeline
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setOcrConfirmed(false);
+                            setIsEditingOcr(true);
+                          }}
+                          style={{ marginLeft: "auto" }}
+                        >
+                          <Text style={styles.ocrUndoText} allowFontScaling>
+                            Change
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              )}
+
               <TouchableOpacity
                 style={[
                   styles.submitUploadBtn,
@@ -193,13 +358,17 @@ export function DocumentViewerModal({
                 disabled={uploadDoc.isPending}
                 accessibilityRole="button"
                 accessibilityLabel="Submit document upload"
+                activeOpacity={0.85}
               >
                 {uploadDoc.isPending ? (
                   <ActivityIndicator color={colors.textOnPrimary} size="small" />
                 ) : (
-                  <Text style={styles.submitUploadBtnText} allowFontScaling>
-                    Submit Document
-                  </Text>
+                  <>
+                    <Ionicons name="cloud-upload" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.submitUploadBtnText} allowFontScaling>
+                      Submit Document
+                    </Text>
+                  </>
                 )}
               </TouchableOpacity>
             </View>
@@ -207,9 +376,9 @@ export function DocumentViewerModal({
 
           {documents.length === 0 && !showUploadForm ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyIcon} allowFontScaling>
-                📄
-              </Text>
+              <View style={styles.emptyIconCircle}>
+                <Ionicons name="document-text-outline" size={34} color="#0D9488" />
+              </View>
               <Text style={styles.emptyTitle} allowFontScaling>
                 No documents available yet
               </Text>
@@ -242,57 +411,97 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: "#E2E8F0",
     backgroundColor: colors.surface,
   },
-  title: {
-    fontSize: typography.fontSize.title,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
+  kickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 2,
   },
-  subtitle: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+  kickerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#0D9488",
+    marginRight: 6,
+  },
+  kicker: {
+    fontSize: 10,
+    color: "#64748B",
+    fontWeight: "700",
+    letterSpacing: 1.1,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#0F172A",
+    letterSpacing: -0.3,
   },
   closeButton: {
-    minWidth: touchTarget.min,
-    minHeight: touchTarget.min,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     alignItems: "center",
     justifyContent: "center",
-  },
-  closeText: {
-    fontSize: 18,
-    color: colors.textSecondary,
-    fontWeight: "bold",
   },
   content: {
     padding: spacing.md,
   },
   securityBox: {
-    backgroundColor: "#F0F7F9",
-    borderRadius: radii.md,
-    borderLeftWidth: 3,
-    borderLeftColor: colors.primary,
+    flexDirection: "row",
+    backgroundColor: "#F0FDFA",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#CCFBF1",
     padding: spacing.md,
+    gap: spacing.sm,
+    alignItems: "flex-start",
     marginBottom: spacing.md,
   },
+  securityIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#CCFBF1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  securityTextCol: {
+    flex: 1,
+  },
   securityTitle: {
-    fontSize: typography.fontSize.caption,
-    fontWeight: typography.weight.bold,
-    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#0F766E",
     marginBottom: 2,
   },
   securityText: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
-    lineHeight: 18,
+    fontSize: 11,
+    color: "#0D9488",
+    lineHeight: 16,
   },
   emptyContainer: {
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: spacing.xxl,
+  },
+  emptyIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#F0FDFA",
+    borderWidth: 1,
+    borderColor: "#CCFBF1",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.md,
   },
   emptyIcon: {
     fontSize: 48,
@@ -419,5 +628,162 @@ const styles = StyleSheet.create({
     color: colors.textOnPrimary,
     fontSize: typography.fontSize.bodySmall,
     fontWeight: typography.weight.bold,
+  },
+  ocrCard: {
+    backgroundColor: "#F8FAFC",
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    gap: spacing.xs,
+  },
+  ocrHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  ocrBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: radii.pill,
+  },
+  ocrBadgePending: {
+    backgroundColor: colors.tileYellow,
+  },
+  ocrBadgeConfirmed: {
+    backgroundColor: colors.tileGreen,
+  },
+  ocrBadgeText: {
+    fontSize: 9,
+    fontWeight: typography.weight.bold,
+    letterSpacing: 0.5,
+  },
+  ocrBadgeTextPending: {
+    color: "#B45309",
+  },
+  ocrBadgeTextConfirmed: {
+    color: colors.leafGreen,
+  },
+  ocrTimeNote: {
+    fontSize: 10,
+    color: colors.textSecondary,
+    fontWeight: typography.weight.medium,
+  },
+  ocrTitle: {
+    fontSize: typography.fontSize.bodySmall,
+    fontWeight: typography.weight.bold,
+    color: colors.textPrimary,
+    marginTop: 2,
+  },
+  ocrSubtitle: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    lineHeight: 16,
+  },
+  ocrValuesRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  ocrValueTile: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
+    padding: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+  },
+  ocrValueNumber: {
+    fontSize: typography.fontSize.title,
+    fontWeight: typography.weight.bold,
+    color: colors.primary,
+  },
+  ocrValueName: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 2,
+    textAlign: "center",
+  },
+  ocrEditBox: {
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  ocrInputLabel: {
+    fontSize: 11,
+    fontWeight: typography.weight.bold,
+    color: colors.textSecondary,
+  },
+  ocrInput: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    fontSize: typography.fontSize.bodySmall,
+    color: colors.textPrimary,
+  },
+  ocrSaveEditBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: radii.pill,
+    paddingVertical: 8,
+    alignItems: "center",
+    marginTop: 4,
+  },
+  ocrSaveEditText: {
+    color: colors.textOnPrimary,
+    fontSize: typography.fontSize.caption,
+    fontWeight: typography.weight.bold,
+  },
+  ocrActionsRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+    alignItems: "center",
+  },
+  ocrConfirmBtn: {
+    flex: 1,
+    backgroundColor: colors.leafGreen,
+    borderRadius: radii.pill,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  ocrConfirmBtnText: {
+    color: colors.textOnPrimary,
+    fontSize: typography.fontSize.caption,
+    fontWeight: typography.weight.bold,
+  },
+  ocrEditBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+  },
+  ocrEditBtnText: {
+    fontSize: typography.fontSize.caption,
+    color: colors.textPrimary,
+    fontWeight: typography.weight.medium,
+  },
+  ocrConfirmedNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    flex: 1,
+  },
+  ocrConfirmedText: {
+    fontSize: 11,
+    fontWeight: typography.weight.bold,
+    color: colors.leafGreen,
+  },
+  ocrUndoText: {
+    fontSize: 11,
+    fontWeight: typography.weight.bold,
+    color: colors.primary,
+    textDecorationLine: "underline",
   },
 });

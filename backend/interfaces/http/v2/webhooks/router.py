@@ -124,6 +124,12 @@ class ParsedDelivery:
     media_type: str | None = None
     media_id: str | None = None
     caption: str | None = None
+    # Media metadata surfaced by the Meta Graph payload (multimodal layer)
+    mime_type: str | None = None
+    file_size_bytes: int | None = None
+    media_sha256: str | None = None
+    is_voice: bool | None = None
+    media_filename: str | None = None
 
     def __iter__(self):
         yield self.provider_message_id
@@ -171,6 +177,11 @@ def _parse_delivery(raw_body: bytes, app_secret: str) -> ParsedDelivery:
         media_type = None
         media_id = None
         caption = None
+        mime_type = None
+        file_size_bytes = None
+        media_sha256 = None
+        is_voice = None
+        media_filename = None
 
         if msg_type == "text":
             text = (message.get("text") or {}).get("body", "")
@@ -195,6 +206,16 @@ def _parse_delivery(raw_body: bytes, app_secret: str) -> ParsedDelivery:
             media_id = media.get("id")
             caption = media.get("caption", "")
             text = caption or f"[{msg_type}]"
+            mime_type = media.get("mime_type") or None
+            try:
+                size_val = media.get("file_size")
+                file_size_bytes = int(size_val) if size_val not in (None, "") else None
+            except (ValueError, TypeError):
+                file_size_bytes = None
+            media_sha256 = media.get("sha256") or None
+            media_filename = media.get("filename") or None
+            if msg_type == "audio":
+                is_voice = bool(media.get("voice") or media.get("ptt") or False)
         else:
             text = (message.get("text") or {}).get("body", "")
 
@@ -210,6 +231,11 @@ def _parse_delivery(raw_body: bytes, app_secret: str) -> ParsedDelivery:
             media_type=media_type,
             media_id=media_id,
             caption=caption,
+            mime_type=mime_type,
+            file_size_bytes=file_size_bytes,
+            media_sha256=media_sha256,
+            is_voice=is_voice,
+            media_filename=media_filename,
         )
 
     if statuses:
@@ -331,6 +357,11 @@ async def whatsapp_webhook(
                 media_type=delivery.media_type,
                 media_id=delivery.media_id,
                 caption=delivery.caption,
+                mime_type=delivery.mime_type,
+                file_size_bytes=delivery.file_size_bytes,
+                media_sha256=delivery.media_sha256,
+                is_voice=delivery.is_voice,
+                media_filename=delivery.media_filename,
             )
             SqlAlchemyOutboxDomainEventPublisher(ops_session, tenant_id=None).publish(event)
         ops_session.commit()

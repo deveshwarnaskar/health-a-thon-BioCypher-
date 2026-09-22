@@ -17,9 +17,31 @@ import { NotificationDrawer } from "./components/NotificationDrawer";
 import { ThaliAssistModal } from "./components/ThaliAssistModal";
 import { WhatsAppConnectModal } from "./components/WhatsAppConnectModal";
 import { WhatsAppConnectionFlowModal } from "./components/WhatsAppConnectionFlowModal";
+import {
+  ActivityEntryModal,
+  WeightEntryModal,
+  BloodPressureEntryModal,
+  SymptomsEntryModal,
+  SleepEntryModal,
+} from "./components/flows";
+import {
+  CareProfileModal,
+  CareTeamModal,
+  ConnectedDevicesModal,
+  PrivacySecurityModal,
+} from "./components/account";
+import { MyReportsModal } from "./components/reports";
+import type { RecordOptionKey } from "./tabs/RecordTab";
 import { useWhatsAppIdentity } from "./useWhatsAppIdentity";
 import { useAuth } from "../../auth/AuthProvider";
-import { usePatientNotifications } from "./api";
+import {
+  usePatientNotifications,
+  useSaveActivity,
+  useSaveWeight,
+  useSaveBloodPressure,
+  useSaveSymptoms,
+  useSaveSleep,
+} from "./api";
 import { useCareTasks } from "../tasks/useCareTasks";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "../../store/query";
@@ -56,6 +78,37 @@ function PatientExperienceContent({
   const [showWhatsAppFlowModal, setShowWhatsAppFlowModal] = useState(false);
   const [hasDismissedOnboardingSession, setHasDismissedOnboardingSession] = useState(false);
 
+  // Secondary observation entry states
+  const [showActivityModal, setShowActivityModal] = useState(false);
+  const [showWeightModal, setShowWeightModal] = useState(false);
+  const [showBloodPressureModal, setShowBloodPressureModal] = useState(false);
+  const [showSymptomsModal, setShowSymptomsModal] = useState(false);
+  const [showSleepModal, setShowSleepModal] = useState(false);
+
+  // Account & reports modal states
+  const [showCareProfileModal, setShowCareProfileModal] = useState(false);
+  const [showReportsModal, setShowReportsModal] = useState(false);
+  const [showCareTeamModal, setShowCareTeamModal] = useState(false);
+  const [showConnectedDevicesModal, setShowConnectedDevicesModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+
+  // Secondary save mutations
+  const saveActivityMutation = useSaveActivity({
+    onSuccess: () => setShowActivityModal(false),
+  });
+  const saveWeightMutation = useSaveWeight({
+    onSuccess: () => setShowWeightModal(false),
+  });
+  const saveBloodPressureMutation = useSaveBloodPressure({
+    onSuccess: () => setShowBloodPressureModal(false),
+  });
+  const saveSymptomsMutation = useSaveSymptoms({
+    onSuccess: () => setShowSymptomsModal(false),
+  });
+  const saveSleepMutation = useSaveSleep({
+    onSuccess: () => setShowSleepModal(false),
+  });
+
   // WhatsApp connection state
   const {
     data: whatsAppIdentity,
@@ -86,7 +139,7 @@ function PatientExperienceContent({
   ).length;
 
   // Record Hub selection handler
-  const handleSelectRecordOption = (type?: "glucose" | "meal" | "medication" | "task") => {
+  const handleSelectRecordOption = (type?: RecordOptionKey) => {
     if (type === "glucose") {
       setActiveWorkflow("glucose");
     } else if (type === "meal") {
@@ -95,6 +148,18 @@ function PatientExperienceContent({
       setShowMedicationsModal(true);
     } else if (type === "task") {
       setCurrentTab("tasks");
+    } else if (type === "activity") {
+      setShowActivityModal(true);
+    } else if (type === "weight") {
+      setShowWeightModal(true);
+    } else if (type === "blood_pressure") {
+      setShowBloodPressureModal(true);
+    } else if (type === "symptoms") {
+      setShowSymptomsModal(true);
+    } else if (type === "sleep") {
+      setShowSleepModal(true);
+    } else if (type === "documents") {
+      setShowDocumentsModal(true);
     }
   };
 
@@ -146,6 +211,7 @@ function PatientExperienceContent({
             onNavigateToTimeline={() => setCurrentTab("timeline")}
             onNavigateToTasks={() => setCurrentTab("tasks")}
             onNavigateToMedications={() => setShowMedicationsModal(true)}
+            onNavigateToReports={() => setShowReportsModal(true)}
             onOpenNotifications={() => setShowNotificationsDrawer(true)}
             onOpenAssist={() => setShowAssistModal(true)}
             onSignOut={onSignOut}
@@ -182,6 +248,11 @@ function PatientExperienceContent({
             onNavigateToMedications={() => setShowMedicationsModal(true)}
             onNavigateToDocuments={() => setShowDocumentsModal(true)}
             onNavigateToNotifications={() => setShowNotificationsDrawer(true)}
+            onNavigateToCareProfile={() => setShowCareProfileModal(true)}
+            onNavigateToReports={() => setShowReportsModal(true)}
+            onNavigateToCareTeam={() => setShowCareTeamModal(true)}
+            onNavigateToConnectedDevices={() => setShowConnectedDevicesModal(true)}
+            onNavigateToPrivacySecurity={() => setShowPrivacyModal(true)}
             onOpenAssist={() => setShowAssistModal(true)}
             onConnectWhatsApp={() => setShowWhatsAppFlowModal(true)}
           />
@@ -223,7 +294,81 @@ function PatientExperienceContent({
         onClose={() => setShowAssistModal(false)}
         onNavigateToRecords={() => setCurrentTab("timeline")}
         onNavigateToMeal={() => setActiveWorkflow("meal")}
+        onNavigateToReports={() => setShowReportsModal(true)}
         patientId={resolvedPatientId}
+      />
+
+      {/* Secondary Observation Entry Modals */}
+      <ActivityEntryModal
+        visible={showActivityModal}
+        onClose={() => setShowActivityModal(false)}
+        onSave={async (data) => {
+          await saveActivityMutation.mutateAsync({ ...data, patientId: resolvedPatientId || "me" });
+        }}
+      />
+
+      <WeightEntryModal
+        visible={showWeightModal}
+        onClose={() => setShowWeightModal(false)}
+        onSave={async (data) => {
+          await saveWeightMutation.mutateAsync({ ...data, patientId: resolvedPatientId || "me" });
+        }}
+      />
+
+      <BloodPressureEntryModal
+        visible={showBloodPressureModal}
+        onClose={() => setShowBloodPressureModal(false)}
+        onSave={async (data) => {
+          await saveBloodPressureMutation.mutateAsync({ ...data, patientId: resolvedPatientId || "me" });
+        }}
+      />
+
+      <SymptomsEntryModal
+        visible={showSymptomsModal}
+        onClose={() => setShowSymptomsModal(false)}
+        onSave={async (data) => {
+          await saveSymptomsMutation.mutateAsync({ ...data, patientId: resolvedPatientId || "me" });
+        }}
+      />
+
+      <SleepEntryModal
+        visible={showSleepModal}
+        onClose={() => setShowSleepModal(false)}
+        onSave={async (data) => {
+          await saveSleepMutation.mutateAsync({ ...data, patientId: resolvedPatientId || "me" });
+        }}
+      />
+
+      {/* Account & Clinical Overview Modals */}
+      <CareProfileModal
+        visible={showCareProfileModal}
+        onClose={() => setShowCareProfileModal(false)}
+        patientName={resolvedName}
+      />
+
+      <MyReportsModal
+        visible={showReportsModal}
+        onClose={() => setShowReportsModal(false)}
+        patientId={resolvedPatientId}
+        patientName={resolvedName}
+      />
+
+      <CareTeamModal
+        visible={showCareTeamModal}
+        onClose={() => setShowCareTeamModal(false)}
+      />
+
+      <ConnectedDevicesModal
+        visible={showConnectedDevicesModal}
+        onClose={() => setShowConnectedDevicesModal(false)}
+      />
+
+      <PrivacySecurityModal
+        visible={showPrivacyModal}
+        onClose={() => setShowPrivacyModal(false)}
+        patientId={resolvedPatientId}
+        uhid={authUser?.actor_id ? `UHID-${authUser.actor_id.slice(0, 8).toUpperCase()}` : undefined}
+        onSignOut={onSignOut}
       />
 
       {/* WhatsApp Connection Onboarding Modal */}

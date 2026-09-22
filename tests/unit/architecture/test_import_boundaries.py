@@ -137,6 +137,11 @@ def test_application_layer_has_zero_infrastructure_imports():
         hits = _imports_forbidden(_imported_abs_names(tree), APPLICATION_FORBIDDEN)
         if hits and py.name == "intake_text.py":
             hits = [h for h in hits if not h.startswith("backend.infrastructure.parsing")]
+        if hits and "ops/conversation" in str(py):
+            # The conversational layer's deterministic parsing lives with the
+            # other parsers in infrastructure.parsing (same carve-out as
+            # intake_text.py above); no other infrastructure access is allowed.
+            hits = [h for h in hits if not h.startswith("backend.infrastructure.parsing")]
         if hits:
             violations.append(f"{py.relative_to(BACKEND_ROOT)}: {hits}")
     assert not violations, violations

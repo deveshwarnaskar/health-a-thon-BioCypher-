@@ -47,7 +47,11 @@ export function WhatsAppManageModal({
   };
 
   const verifiedDateStr = identity?.verified_at
-    ? new Date(identity.verified_at).toLocaleDateString()
+    ? new Date(identity.verified_at).toLocaleDateString([], {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      })
     : "Active";
 
   return (
@@ -62,18 +66,26 @@ export function WhatsAppManageModal({
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerTitleRow}>
-              <Ionicons name="logo-whatsapp" size={22} color="#25D366" style={{ marginRight: 8 }} />
-              <Text style={styles.title} allowFontScaling>
-                {t("whatsapp.manageTitle")}
-              </Text>
+              <View style={styles.waIconCircle}>
+                <Ionicons name="logo-whatsapp" size={22} color="#25D366" />
+              </View>
+              <View>
+                <Text style={styles.title} allowFontScaling>
+                  {t("whatsapp.manageTitle")}
+                </Text>
+                <Text style={styles.subtitle} allowFontScaling>
+                  Direct messaging & telemetry connection
+                </Text>
+              </View>
             </View>
             <TouchableOpacity
               onPress={handleClose}
               accessibilityRole="button"
               accessibilityLabel="Close"
               style={styles.closeButton}
+              activeOpacity={0.7}
             >
-              <Ionicons name="close" size={20} color={colors.textPrimary} />
+              <Ionicons name="close" size={20} color="#0F172A" />
             </TouchableOpacity>
           </View>
 
@@ -84,7 +96,7 @@ export function WhatsAppManageModal({
                 Status
               </Text>
               <View style={styles.statusBadge}>
-                <Ionicons name="checkmark-circle" size={14} color="#059669" style={{ marginRight: 4 }} />
+                <Ionicons name="checkmark-circle" size={13} color="#059669" style={{ marginRight: 4 }} />
                 <Text style={styles.statusBadgeText} allowFontScaling>
                   {t("whatsapp.connectedStatus")}
                 </Text>
@@ -122,7 +134,7 @@ export function WhatsAppManageModal({
             <View style={styles.featuresList}>
               <View style={styles.featureRow}>
                 <View style={styles.featureIconBox}>
-                  <Ionicons name="checkmark" size={14} color={colors.primary} />
+                  <Ionicons name="checkmark" size={13} color="#0D9488" />
                 </View>
                 <Text style={styles.featureLabel} allowFontScaling>
                   {t("whatsapp.featureHealthLogging")}
@@ -131,7 +143,7 @@ export function WhatsAppManageModal({
 
               <View style={styles.featureRow}>
                 <View style={styles.featureIconBox}>
-                  <Ionicons name="checkmark" size={14} color={colors.primary} />
+                  <Ionicons name="checkmark" size={13} color="#0D9488" />
                 </View>
                 <Text style={styles.featureLabel} allowFontScaling>
                   {t("whatsapp.featureFoodLogging")}
@@ -140,7 +152,7 @@ export function WhatsAppManageModal({
 
               <View style={styles.featureRow}>
                 <View style={styles.featureIconBox}>
-                  <Ionicons name="checkmark" size={14} color={colors.primary} />
+                  <Ionicons name="checkmark" size={13} color="#0D9488" />
                 </View>
                 <Text style={styles.featureLabel} allowFontScaling>
                   {t("whatsapp.featureVoiceNotes")}
@@ -157,6 +169,7 @@ export function WhatsAppManageModal({
             accessibilityLabel={t("whatsapp.disconnectButton")}
             activeOpacity={0.8}
           >
+            <Ionicons name="link-outline" size={17} color="#DC2626" style={{ marginRight: 6 }} />
             <Text style={styles.disconnectButtonText} allowFontScaling>
               {t("whatsapp.disconnectButton")}
             </Text>
@@ -167,6 +180,10 @@ export function WhatsAppManageModal({
         {showConfirmDisconnect ? (
           <View style={styles.confirmOverlay}>
             <View style={styles.confirmDialog} accessibilityRole="alert">
+              <View style={styles.confirmIconCircle}>
+                <Ionicons name="alert-circle-outline" size={26} color="#DC2626" />
+              </View>
+
               <Text style={styles.confirmTitle} allowFontScaling>
                 {t("whatsapp.disconnectConfirmTitle")}
               </Text>
@@ -181,6 +198,7 @@ export function WhatsAppManageModal({
                   disabled={disconnectMutation.isPending}
                   accessibilityRole="button"
                   accessibilityLabel={t("whatsapp.cancel")}
+                  activeOpacity={0.7}
                 >
                   <Text style={styles.cancelButtonText} allowFontScaling>
                     {t("whatsapp.cancel")}
@@ -196,6 +214,7 @@ export function WhatsAppManageModal({
                   disabled={disconnectMutation.isPending}
                   accessibilityRole="button"
                   accessibilityLabel={t("whatsapp.confirmDisconnect")}
+                  activeOpacity={0.85}
                 >
                   {disconnectMutation.isPending ? (
                     <ActivityIndicator color="#FFFFFF" size="small" />
@@ -217,62 +236,73 @@ export function WhatsAppManageModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(10, 22, 18, 0.6)",
+    backgroundColor: "rgba(15, 23, 42, 0.65)",
     justifyContent: "flex-end",
   },
   sheet: {
     backgroundColor: colors.surface,
-    borderTopLeftRadius: radii.lg,
-    borderTopRightRadius: radii.lg,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     padding: spacing.lg,
     paddingBottom: spacing.xxl + 10,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    shadowColor: colors.primaryInk,
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
     elevation: 8,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md + 4,
   },
   headerTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
+    gap: spacing.sm + 2,
+    flex: 1,
   },
-  headerIcon: {
-    fontSize: 22,
-  },
-  title: {
-    fontSize: typography.fontSize.headline,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
-  },
-  closeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#F1F5F9",
+  waIconCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: "#F0FDF4",
+    borderWidth: 1,
+    borderColor: "#DCFCE7",
     alignItems: "center",
     justifyContent: "center",
   },
-  closeButtonText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    fontWeight: typography.weight.bold,
+  title: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0F172A",
+    letterSpacing: -0.3,
+  },
+  subtitle: {
+    fontSize: 12,
+    color: "#64748B",
+    marginTop: 1,
+  },
+  closeButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    alignItems: "center",
+    justifyContent: "center",
   },
   detailsCard: {
     backgroundColor: "#F8FAFC",
-    borderRadius: radii.lg,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    padding: spacing.md,
-    marginBottom: spacing.lg,
+    padding: spacing.md + 2,
+    marginBottom: spacing.md + 4,
   },
   detailRow: {
     flexDirection: "row",
@@ -282,38 +312,44 @@ const styles = StyleSheet.create({
   },
   detailDivider: {
     height: 1,
-    backgroundColor: "#E2E8F0",
+    backgroundColor: "#EEF2F6",
     marginVertical: 6,
   },
   detailLabel: {
-    fontSize: typography.fontSize.bodySmall,
-    color: colors.textSecondary,
+    fontSize: 13,
+    color: "#64748B",
+    fontWeight: "500",
   },
   detailValue: {
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#0F172A",
   },
   statusBadge: {
-    backgroundColor: "#DCF8C6",
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#DCFCE7",
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
   },
   statusBadgeText: {
-    color: "#075E54",
-    fontSize: typography.fontSize.caption,
-    fontWeight: typography.weight.bold,
+    color: "#059669",
+    fontSize: 11,
+    fontWeight: "700",
   },
   featuresSection: {
-    marginBottom: spacing.xl,
+    marginBottom: spacing.lg,
   },
   featuresSectionTitle: {
-    fontSize: typography.fontSize.caption,
-    fontWeight: typography.weight.bold,
-    color: colors.textSecondary,
-    letterSpacing: 0.8,
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#64748B",
+    letterSpacing: 1.1,
     marginBottom: spacing.sm,
+    marginLeft: 2,
   },
   featuresList: {
     gap: spacing.sm,
@@ -321,43 +357,42 @@ const styles = StyleSheet.create({
   featureRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
+    gap: 10,
   },
   featureIconBox: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: "#E6F4EA",
+    width: 22,
+    height: 22,
+    borderRadius: 8,
+    backgroundColor: "#F0FDFA",
+    borderWidth: 1,
+    borderColor: "#CCFBF1",
     alignItems: "center",
     justifyContent: "center",
   },
-  featureCheck: {
-    color: "#137333",
-    fontSize: 12,
-    fontWeight: typography.weight.bold,
-  },
   featureLabel: {
-    fontSize: typography.fontSize.bodySmall,
-    color: colors.textPrimary,
+    fontSize: 13,
+    color: "#0F172A",
+    fontWeight: "500",
   },
   disconnectButton: {
+    flexDirection: "row",
     borderWidth: 1,
-    borderColor: "#FCA5A5",
+    borderColor: "#FECACA",
     backgroundColor: "#FEF2F2",
     borderRadius: radii.pill,
-    minHeight: touchTarget.min,
+    minHeight: 48,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: spacing.lg,
   },
   disconnectButtonText: {
-    color: colors.critical,
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: typography.weight.bold,
+    color: "#DC2626",
+    fontSize: 14,
+    fontWeight: "700",
   },
   confirmOverlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(10, 22, 18, 0.7)",
+    backgroundColor: "rgba(15, 23, 42, 0.65)",
     justifyContent: "center",
     alignItems: "center",
     padding: spacing.lg,
@@ -366,56 +401,80 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 340,
     backgroundColor: colors.surface,
-    borderRadius: radii.lg,
-    padding: spacing.xl,
+    borderRadius: 24,
+    padding: spacing.lg,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    shadowColor: colors.primaryInk,
+    alignItems: "center",
+    shadowColor: "#0F172A",
     shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.15,
     shadowRadius: 24,
     elevation: 10,
   },
+  confirmIconCircle: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#FEE2E2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.sm + 2,
+  },
   confirmTitle: {
-    fontSize: typography.fontSize.headline,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0F172A",
     marginBottom: spacing.xs,
+    textAlign: "center",
+    letterSpacing: -0.2,
   },
   confirmMessage: {
-    fontSize: typography.fontSize.bodySmall,
-    color: colors.textSecondary,
-    lineHeight: 20,
-    marginBottom: spacing.lg,
+    fontSize: 13,
+    color: "#64748B",
+    lineHeight: 19,
+    marginBottom: spacing.md + 4,
+    textAlign: "center",
   },
   confirmActionsRow: {
     flexDirection: "row",
-    justifyContent: "flex-end",
     gap: spacing.sm,
+    width: "100%",
   },
   cancelButton: {
-    paddingHorizontal: spacing.md,
-    minHeight: touchTarget.min,
+    flex: 1,
+    minHeight: 46,
+    borderRadius: radii.pill,
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     justifyContent: "center",
     alignItems: "center",
   },
   cancelButtonText: {
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: typography.weight.semibold,
-    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#475569",
   },
   confirmDisconnectButton: {
-    backgroundColor: colors.critical,
+    flex: 1,
+    backgroundColor: "#DC2626",
     borderRadius: radii.pill,
-    paddingHorizontal: spacing.lg,
-    minHeight: touchTarget.min,
+    minHeight: 46,
     justifyContent: "center",
     alignItems: "center",
+    shadowColor: "#DC2626",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 2,
   },
   confirmDisconnectButtonText: {
     color: "#FFFFFF",
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: typography.weight.bold,
+    fontSize: 14,
+    fontWeight: "700",
   },
   buttonDisabled: {
     opacity: 0.6,

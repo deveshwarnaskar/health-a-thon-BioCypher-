@@ -48,6 +48,86 @@ from backend.infrastructure.persistence.uow.sqlalchemy_uow import SqlAlchemyUnit
 logger = logging.getLogger("gate09.worker.runner")
 
 
+def _sarvam_configured(settings) -> bool:
+    return bool(settings.ai.sarvam_api_key or settings.ai.provider == "sarvam")
+
+
+def _build_multimodal_bundle(settings):
+    """Assemble the provider-neutral multimodal bundle behind the settings switch.
+
+    Every component is optional: when ``sarvam_enabled`` is false (the default)
+    the bundle is inert and the ingestion pipeline runs the legacy path exactly
+    as before. Providers are constructed lazily-safe — a missing credential never
+    raises at startup; it fails safe (canonical guidance reply) at ingestion time.
+    """
+    from backend.application.ports.ai_multimodal import MultimodalProviderBundle
+
+    enabled = bool(settings.ai.sarvam_enabled)
+    speech_to_text = None
+    language_identifier = None
+    translation = None
+    text_to_speech = None
+    image_analysis = None
+
+    if enabled:
+        from backend.infrastructure.ai import (
+            GeminiImageAnalysisProvider,
+            SarvamClient,
+            SarvamLanguageIdentifier,
+            SarvamSpeechToTextProvider,
+            SarvamTextToSpeechProvider,
+            SarvamTranslationProvider,
+        )
+
+        client = SarvamClient() if _sarvam_configured(settings) else None
+        if client is not None and client.is_configured:
+            speech_to_text = SarvamSpeechToTextProvider(client)
+            language_identifier = SarvamLanguageIdentifier(client)
+            translation = SarvamTranslationProvider(client)
+            text_to_speech = SarvamTextToSpeechProvider(client)
+        if settings.ai.image_analysis_provider.lower() == "gemini":
+            image_analysis = GeminiImageAnalysisProvider(
+                api_key=settings.ai.api_key,
+                model_name=settings.ai.model or "gemini-flash-lite-latest",
+            )
+
+    return MultimodalProviderBundle(
+        speech_to_text=speech_to_text,
+        language_identifier=language_identifier,
+        translation=translation,
+        text_to_speech=text_to_speech,
+        image_analysis=image_analysis,
+        enabled=enabled,
+    )
+
+
+def _build_media_vault(settings):
+    """Encrypting transient-media store on top of the standard object storage."""
+    from backend.application.services.media_vault import MediaVault
+    from backend.infrastructure.storage.s3_storage import S3ObjectStorage
+
+    return MediaVault(
+        S3ObjectStorage(),
+        retention_seconds=settings.ai.media_retention_seconds,
+        encryption_key=settings.ai.media_encryption_key,
+    )
+
+
+class InfrastructureMetrics:
+    """Bridges the application metrics port to the Prometheus registry."""
+
+    def __init__(self) -> None:
+        from backend.infrastructure.observability.metrics import get_metrics_registry
+
+        self._registry = get_metrics_registry()
+
+    def increment_counter(self, name, labels=None, delta=1.0):
+        self._registry.counter(name).inc(delta, **(labels or {}))
+
+    def observe_histogram(self, name, value, labels=None):
+        self._registry.histogram(name).observe(value, **(labels or {}))
+
+
 def build_worker(*, db_url: str | None, whatsapp_access_token: str | None = None,
                  whatsapp_phone_number_id: str | None = None) -> tuple[OutboxWorker, object]:
     """Wiring assembly: infrastructure factories → application handlers."""
@@ -89,6 +169,8 @@ def build_worker(*, db_url: str | None, whatsapp_access_token: str | None = None
 
     sarvam_transcriber = None
     sarvam_completer = None
+    multimodal = _build_multimodal_bundle(settings)
+    media_vault = _build_media_vault(settings)
     if settings.ai.sarvam_api_key or settings.ai.provider == "sarvam":
         from backend.infrastructure.ai.sarvam_client import SarvamClient
         _sarvam = SarvamClient()
@@ -134,7 +216,40 @@ def build_worker(*, db_url: str | None, whatsapp_access_token: str | None = None
         sender=sender,
         transcriber=sarvam_transcriber,
         ai_completer=sarvam_completer,
+        speech_to_text=multimodal.speech_to_text,
+        language_identifier=multimodal.language_identifier,
+        translator=multimodal.translation,
+        image_analyzer=multimodal.image_analysis,
+        media_vault=media_vault,
+        multimodal_enabled=multimodal.enabled,
+        metrics=InfrastructureMetrics(),
     )
+    from backend.application.ops.conversation.engine import ConversationEngine
+    from backend.application.ops.conversation.providers import (
+        DeterministicConversationProvider,
+        SarvamConversationProvider,
+    )
+
+    from backend.infrastructure.persistence.ops.conversation_session_store import (
+        SqlAlchemyConversationSessionStore,
+    )
+
+    conv_ai = DeterministicConversationProvider()
+    if _sarvam_configured(settings):
+        from backend.infrastructure.ai.sarvam_client import SarvamClient
+
+        try:
+            conv_ai = SarvamConversationProvider(SarvamClient())
+        except Exception:  # noqa: BLE001
+            logger.warning("sarvam conversational provider unavailable; using deterministic")
+
+    conversation_engine = ConversationEngine(
+        clock=clock,
+        id_gen=id_gen,
+        ai_provider=conv_ai,
+        session_store=SqlAlchemyConversationSessionStore(session_factory),
+    )
+    intake._conversation_engine = conversation_engine
     handlers[WEBHOOK_INTAKE_EVENT_TYPE] = intake.handle
 
     delivery = ChannelDeliveryHandler(
@@ -185,6 +300,8 @@ def build_worker(*, db_url: str | None, whatsapp_access_token: str | None = None
     worker = OutboxWorker(store, handlers, worker_id=f"worker-{id(store)}", telemetry=telemetry)
     worker.scheduler = scheduler
     worker.session_factory = session_factory
+    worker.media_vault = media_vault
+    worker.media_sweep_interval = 60.0
     return worker, engine
 
 
@@ -211,9 +328,21 @@ def main() -> None:
 
     last_scheduler_check = 0.0
     scheduler_interval = 30.0  # evaluate chronobiological check-ins every 30 seconds
+    last_media_sweep = 0.0
 
     while True:
         try:
+            # Periodic encrypted-media retention sweep (multimodal layer)
+            now_ts = time.time()
+            if hasattr(worker, "media_vault") and worker.media_vault is not None:
+                sweep_interval = getattr(worker, "media_sweep_interval", 60.0)
+                if now_ts - last_media_sweep >= sweep_interval:
+                    last_media_sweep = now_ts
+                    try:
+                        worker.media_vault.sweep()
+                    except Exception:  # noqa: BLE001 - sweep must never kill the loop
+                        logger.exception("media retention sweep failed; continuing")
+
             # Periodic chronobiological caregiver companion checks
             now_ts = time.time()
             if hasattr(worker, "scheduler") and hasattr(worker, "session_factory") and (now_ts - last_scheduler_check >= scheduler_interval):

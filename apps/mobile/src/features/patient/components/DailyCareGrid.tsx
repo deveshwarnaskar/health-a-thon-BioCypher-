@@ -18,29 +18,32 @@ export type DailyCareGridProps = {
   items: DailyCareItem[];
 };
 
-function cardBackground(category: DailyCareItem["category"]) {
-  switch (category) {
-    case "glucose":
-      return colors.tileYellow;
-    case "meals":
-      return colors.tileGreen;
-    case "medication":
-      return colors.tileLavender;
-    case "tasks":
-      return colors.tilePink;
-  }
-}
-
 function CategoryIcon({ category }: { category: DailyCareItem["category"] }) {
   switch (category) {
     case "glucose":
-      return <Ionicons name="water-outline" size={22} color="#92400E" />;
+      return (
+        <View style={[styles.iconContainer, styles.iconContainerRed]}>
+          <Ionicons name="water" size={18} color="#DC2626" />
+        </View>
+      );
     case "meals":
-      return <Ionicons name="restaurant-outline" size={22} color="#065F46" />;
+      return (
+        <View style={[styles.iconContainer, styles.iconContainerAmber]}>
+          <Ionicons name="restaurant" size={18} color="#D97706" />
+        </View>
+      );
     case "medication":
-      return <Ionicons name="medkit-outline" size={22} color="#3730A3" />;
+      return (
+        <View style={[styles.iconContainer, styles.iconContainerBlue]}>
+          <Ionicons name="medkit" size={18} color="#2563EB" />
+        </View>
+      );
     case "tasks":
-      return <Ionicons name="checkbox-outline" size={22} color="#9D174D" />;
+      return (
+        <View style={[styles.iconContainer, styles.iconContainerPurple]}>
+          <Ionicons name="checkbox" size={18} color="#7C3AED" />
+        </View>
+      );
   }
 }
 
@@ -50,7 +53,7 @@ export function DailyCareGrid({ items }: DailyCareGridProps) {
       {items.map((item) => (
         <TouchableOpacity
           key={item.id}
-          style={[styles.card, { backgroundColor: cardBackground(item.category) }]}
+          style={styles.card}
           onPress={item.onPress}
           activeOpacity={0.7}
           accessibilityRole="button"
@@ -64,24 +67,26 @@ export function DailyCareGrid({ items }: DailyCareGridProps) {
             <CategoryIcon category={item.category} />
             {item.statusBadge ? (
               <View style={styles.badge}>
-                <Text style={styles.badgeText} allowFontScaling>
+                <Text style={styles.badgeText} allowFontScaling numberOfLines={1}>
                   {item.statusBadge}
                 </Text>
               </View>
             ) : null}
           </View>
 
-          <Text style={styles.value} allowFontScaling numberOfLines={1}>
-            {item.value}
-          </Text>
+          <View style={styles.contentCol}>
+            <Text style={styles.value} allowFontScaling numberOfLines={1}>
+              {item.value}
+            </Text>
 
-          <Text style={styles.title} allowFontScaling numberOfLines={1}>
-            {item.title}
-          </Text>
+            <Text style={styles.title} allowFontScaling numberOfLines={1}>
+              {item.title}
+            </Text>
 
-          <Text style={styles.subtext} allowFontScaling numberOfLines={1}>
-            {item.subtext}
-          </Text>
+            <Text style={styles.subtext} allowFontScaling numberOfLines={1}>
+              {item.subtext}
+            </Text>
+          </View>
         </TouchableOpacity>
       ))}
     </View>
@@ -97,55 +102,76 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     minWidth: "46%",
-    borderRadius: radii.md,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#FFFFFF",
+    borderColor: "#E2E8F0",
+    backgroundColor: colors.surface,
     padding: spacing.md,
-    minHeight: 124,
+    minHeight: 136,
     justifyContent: "space-between",
-    shadowColor: colors.primaryInk,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.07,
-    shadowRadius: 16,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
     elevation: 2,
   },
   topRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: spacing.xxs,
+    marginBottom: spacing.xs,
   },
-  icon: {
-    fontSize: 22,
+  iconContainer: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconContainerRed: {
+    backgroundColor: "#FEF2F2",
+  },
+  iconContainerAmber: {
+    backgroundColor: "#FFFBEB",
+  },
+  iconContainerBlue: {
+    backgroundColor: "#EFF6FF",
+  },
+  iconContainerPurple: {
+    backgroundColor: "#F5F3FF",
   },
   badge: {
-    backgroundColor: "#FFFFFFAA",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    backgroundColor: "#F1F5F9",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
     borderRadius: radii.pill,
   },
   badgeText: {
     fontSize: 10,
-    color: colors.primaryInk,
-    fontWeight: typography.weight.bold,
+    color: "#475569",
+    fontWeight: "700",
+  },
+  contentCol: {
+    marginTop: "auto",
   },
   value: {
-    fontSize: typography.fontSize.title,
-    lineHeight: typography.lineHeight.title,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "700",
+    color: "#0F172A",
+    letterSpacing: -0.2,
   },
   title: {
-    fontSize: typography.fontSize.caption,
-    fontWeight: typography.weight.semibold,
-    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#64748B",
     textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginTop: 2,
+    letterSpacing: 0.6,
+    marginTop: 3,
   },
   subtext: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+    fontSize: 12,
+    color: "#94A3B8",
     marginTop: 2,
   },
 });

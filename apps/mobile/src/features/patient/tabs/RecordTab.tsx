@@ -10,13 +10,25 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, typography } from "../../../theming/tokens";
 import { PatientScreenHeader } from "../components/PatientScreenHeader";
 
+export type RecordOptionKey =
+  | "glucose"
+  | "meal"
+  | "medication"
+  | "activity"
+  | "weight"
+  | "blood_pressure"
+  | "symptoms"
+  | "sleep"
+  | "documents"
+  | "task";
+
 export type RecordTabProps = {
-  onSelectOption: (option: "glucose" | "meal" | "medication" | "task") => void;
+  onSelectOption: (option: RecordOptionKey) => void;
   onOpenAssist?: () => void;
 };
 
 type RecordOption = {
-  key: "glucose" | "meal" | "medication" | "task";
+  key: RecordOptionKey;
   title: string;
   subtitle: string;
   badge?: string;
@@ -25,12 +37,12 @@ type RecordOption = {
   iconBg: string;
 };
 
-const RECORD_OPTIONS: RecordOption[] = [
+const PRIMARY_OPTIONS: RecordOption[] = [
   {
     key: "glucose",
     title: "Blood Glucose",
-    subtitle: "Log your fasting, post-meal, or random glucose reading (mg/dL)",
-    badge: "DAILY METRIC",
+    subtitle: "Log fasting, post-meal, or bedtime capillary glucose reading (mg/dL)",
+    badge: "PRIMARY METRIC",
     iconName: "water-outline",
     iconColor: "#DC2626",
     iconBg: "rgba(239, 68, 68, 0.12)",
@@ -38,7 +50,7 @@ const RECORD_OPTIONS: RecordOption[] = [
   {
     key: "meal",
     title: "Meal & Nutrition",
-    subtitle: "Record breakfast, lunch, snack, or dinner with Katori portion sizing",
+    subtitle: "Record meals and Indian recipes with standard Katori portion sizing",
     badge: "NUTRITION",
     iconName: "restaurant-outline",
     iconColor: "#D97706",
@@ -54,17 +66,110 @@ const RECORD_OPTIONS: RecordOption[] = [
     iconBg: "rgba(59, 130, 246, 0.12)",
   },
   {
-    key: "task",
-    title: "Care Task",
-    subtitle: "Review and complete scheduled care plan tasks for your clinic",
-    badge: "CARE PLAN",
-    iconName: "checkbox-outline",
+    key: "activity",
+    title: "Physical Activity",
+    subtitle: "Log walking, running, yoga, cycling, or home exercise",
+    badge: "LIFESTYLE",
+    iconName: "walk-outline",
     iconColor: "#059669",
     iconBg: "rgba(16, 185, 129, 0.12)",
   },
 ];
 
+const SECONDARY_OPTIONS: RecordOption[] = [
+  {
+    key: "weight",
+    title: "Body Weight",
+    subtitle: "Track weight in kg or lbs with optional context tagging",
+    badge: "VITAL",
+    iconName: "scale-outline",
+    iconColor: "#0284C7",
+    iconBg: "rgba(2, 132, 199, 0.12)",
+  },
+  {
+    key: "blood_pressure",
+    title: "Blood Pressure & Pulse",
+    subtitle: "Log systolic, diastolic pressure (mmHg) and resting pulse (BPM)",
+    badge: "VITAL",
+    iconName: "heart-outline",
+    iconColor: "#E11D48",
+    iconBg: "rgba(225, 29, 72, 0.12)",
+  },
+  {
+    key: "symptoms",
+    title: "Symptoms & Events",
+    subtitle: "Observed unusual sensations like shakiness, sweating, or fatigue",
+    badge: "OBSERVATION",
+    iconName: "alert-circle-outline",
+    iconColor: "#D97706",
+    iconBg: "rgba(217, 119, 6, 0.12)",
+  },
+  {
+    key: "sleep",
+    title: "Sleep & Rest",
+    subtitle: "Record sleep duration and subjective quality of rest",
+    badge: "RECOVERY",
+    iconName: "moon-outline",
+    iconColor: "#7C3AED",
+    iconBg: "rgba(124, 58, 237, 0.12)",
+  },
+  {
+    key: "documents",
+    title: "Documents & Lab Reports",
+    subtitle: "Review or upload clinical lab test sheets and doctor prescriptions",
+    badge: "CLINICAL",
+    iconName: "document-text-outline",
+    iconColor: "#0D5C75",
+    iconBg: "rgba(13, 92, 117, 0.12)",
+  },
+  {
+    key: "task",
+    title: "Care Task",
+    subtitle: "Review and complete scheduled care plan tasks from your clinic",
+    badge: "CARE PLAN",
+    iconName: "checkbox-outline",
+    iconColor: "#4B5563",
+    iconBg: "rgba(75, 85, 99, 0.12)",
+  },
+];
+
 export function RecordTab({ onSelectOption, onOpenAssist }: RecordTabProps) {
+  const renderCard = (option: RecordOption) => (
+    <TouchableOpacity
+      key={option.key}
+      style={styles.optionCard}
+      onPress={() => onSelectOption(option.key)}
+      activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={`${option.title}: ${option.subtitle}`}
+      accessibilityHint={`Opens the ${option.title} recording screen`}
+    >
+      <View style={[styles.iconCircle, { backgroundColor: option.iconBg }]}>
+        <Ionicons name={option.iconName} size={22} color={option.iconColor} />
+      </View>
+
+      <View style={styles.optionTextColumn}>
+        <View style={styles.badgeRow}>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText} allowFontScaling>
+              {option.badge}
+            </Text>
+          </View>
+        </View>
+        <Text style={styles.optionTitle} allowFontScaling>
+          {option.title}
+        </Text>
+        <Text style={styles.optionSubtitle} allowFontScaling>
+          {option.subtitle}
+        </Text>
+      </View>
+
+      <View style={styles.arrowContainer}>
+        <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+      </View>
+    </TouchableOpacity>
+  );
+
   return (
     <View style={styles.container}>
       <PatientScreenHeader
@@ -86,50 +191,41 @@ export function RecordTab({ onSelectOption, onOpenAssist }: RecordTabProps) {
           </Text>
         </View>
 
+        {/* Section 1: Primary Care Logging */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle} allowFontScaling>
+            Primary Daily Logging
+          </Text>
+          <Text style={styles.sectionCaption} allowFontScaling>
+            Key metabolic signals
+          </Text>
+        </View>
         <View style={styles.optionsList}>
-          {RECORD_OPTIONS.map((option) => (
-            <TouchableOpacity
-              key={option.key}
-              style={styles.optionCard}
-              onPress={() => onSelectOption(option.key)}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel={`${option.title}: ${option.subtitle}`}
-              accessibilityHint={`Opens the ${option.title} recording screen`}
-            >
-              <View style={[styles.iconCircle, { backgroundColor: option.iconBg }]}>
-                <Ionicons name={option.iconName} size={22} color={option.iconColor} />
-              </View>
+          {PRIMARY_OPTIONS.map(renderCard)}
+        </View>
 
-              <View style={styles.optionTextColumn}>
-                <View style={styles.badgeRow}>
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText} allowFontScaling>
-                      {option.badge}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={styles.optionTitle} allowFontScaling>
-                  {option.title}
-                </Text>
-                <Text style={styles.optionSubtitle} allowFontScaling>
-                  {option.subtitle}
-                </Text>
-              </View>
-
-              <View style={styles.arrowContainer}>
-                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-              </View>
-            </TouchableOpacity>
-          ))}
+        {/* Section 2: Contextual Health Observations */}
+        <View style={[styles.sectionHeaderRow, { marginTop: spacing.sm }]}>
+          <Text style={styles.sectionTitle} allowFontScaling>
+            Contextual Health Observations
+          </Text>
+          <Text style={styles.sectionCaption} allowFontScaling>
+            Vitals, symptoms, & lifestyle
+          </Text>
+        </View>
+        <View style={styles.optionsList}>
+          {SECONDARY_OPTIONS.map(renderCard)}
         </View>
 
         <View style={styles.safetyBox} accessibilityRole="summary">
-          <Text style={styles.safetyTitle} allowFontScaling>
-            Clinical Data Integrity
-          </Text>
+          <View style={styles.safetyHeaderRow}>
+            <Ionicons name="shield-checkmark" size={18} color="#059669" />
+            <Text style={styles.safetyTitle} allowFontScaling>
+              Clinical Data Integrity
+            </Text>
+          </View>
           <Text style={styles.safetyText} allowFontScaling>
-            Your logs are reviewed by your verified clinician to tailor your precision care plan.
+            Your logs are securely reviewed by your verified clinician to tailor your precision care plan.
           </Text>
         </View>
       </ScrollView>
@@ -145,125 +241,141 @@ const styles = StyleSheet.create({
   content: {
     padding: spacing.md,
     gap: spacing.md,
-    paddingBottom: 100,
+    paddingBottom: 110,
   },
   introBox: {
-    backgroundColor: colors.tileAqua,
-    borderRadius: radii.lg,
+    backgroundColor: "#F0FDFA",
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#FFFFFF",
+    borderColor: "#CCFBF1",
     padding: spacing.md,
-    shadowColor: colors.primaryInk,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.07,
-    shadowRadius: 16,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
     elevation: 2,
   },
   kicker: {
-    fontSize: 11,
-    fontWeight: typography.weight.bold,
-    color: colors.primary,
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#0D9488",
     letterSpacing: 1.2,
     marginBottom: 4,
   },
   headline: {
-    fontSize: typography.fontSize.headline,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: "700",
+    color: "#0F172A",
+    letterSpacing: -0.2,
   },
   bodyText: {
-    fontSize: typography.fontSize.bodySmall,
-    color: colors.textSecondary,
+    fontSize: 13,
+    color: "#64748B",
     marginTop: 4,
-    lineHeight: typography.lineHeight.bodySmall,
+    lineHeight: 18,
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    marginTop: spacing.xs,
+    marginBottom: 2,
+    paddingHorizontal: 2,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  sectionCaption: {
+    fontSize: 12,
+    color: "#94A3B8",
   },
   optionsList: {
-    gap: spacing.sm,
+    gap: 10,
   },
   optionCard: {
     backgroundColor: colors.surface,
-    borderRadius: radii.lg,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#FFFFFF",
+    borderColor: "#E2E8F0",
     padding: spacing.md,
     flexDirection: "row",
     alignItems: "center",
-    shadowColor: colors.primaryInk,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.07,
-    shadowRadius: 16,
-    elevation: 3,
+    minHeight: 68,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 2,
   },
   iconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: radii.pill,
-    backgroundColor: colors.tileAqua,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     marginRight: spacing.md,
-  },
-  iconText: {
-    fontSize: 22,
   },
   optionTextColumn: {
     flex: 1,
   },
   badgeRow: {
     flexDirection: "row",
-    marginBottom: 2,
+    marginBottom: 3,
   },
   badge: {
-    backgroundColor: colors.tileAqua,
+    backgroundColor: "#F1F5F9",
     paddingHorizontal: 6,
-    paddingVertical: 1,
+    paddingVertical: 2,
     borderRadius: radii.pill,
   },
   badgeText: {
     fontSize: 9,
-    fontWeight: typography.weight.bold,
-    color: colors.primary,
+    fontWeight: "700",
+    color: "#475569",
     letterSpacing: 0.6,
   },
   optionTitle: {
-    fontSize: typography.fontSize.body,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#0F172A",
   },
   optionSubtitle: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+    fontSize: 12,
+    color: "#64748B",
     marginTop: 2,
-    lineHeight: typography.lineHeight.caption,
+    lineHeight: 17,
   },
   arrowContainer: {
-    minWidth: 28,
+    minWidth: 24,
     alignItems: "center",
     justifyContent: "center",
     marginLeft: spacing.xs,
   },
-  arrowText: {
-    fontSize: 20,
-    color: colors.textSecondary,
-    fontWeight: "600",
-  },
   safetyBox: {
-    backgroundColor: colors.tileGreen,
-    borderRadius: radii.lg,
+    backgroundColor: "#ECFDF5",
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#FFFFFF",
+    borderColor: "#A7F3D0",
     padding: spacing.md,
     marginTop: spacing.xs,
+    gap: 4,
+  },
+  safetyHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   safetyTitle: {
-    fontSize: typography.fontSize.caption,
-    fontWeight: typography.weight.bold,
-    color: colors.leafGreen,
-    marginBottom: 2,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#065F46",
   },
   safetyText: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+    fontSize: 12,
+    color: "#047857",
     lineHeight: 18,
   },
 });

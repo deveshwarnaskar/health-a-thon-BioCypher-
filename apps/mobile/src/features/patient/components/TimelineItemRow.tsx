@@ -4,25 +4,44 @@ import { colors, radii, spacing, typography } from "../../../theming/tokens";
 import type { TimelineEvent } from "../types";
 import { SyncStatusBadge } from "../../../components/primitives/SyncStatusBadge";
 
+import { Ionicons } from "@expo/vector-icons";
+
 export type TimelineItemRowProps = {
   event: TimelineEvent;
   onPress?: (event: TimelineEvent) => void;
 };
 
-function getEventIcon(type: TimelineEvent["type"]): string {
+function EventNodeIcon({ type }: { type: TimelineEvent["type"] }) {
   switch (type) {
     case "glucose":
-      return "🩸";
+      return <Ionicons name="water" size={14} color="#DC2626" />;
     case "meal":
-      return "🍲";
+      return <Ionicons name="restaurant" size={14} color="#D97706" />;
     case "medication":
-      return "💊";
+      return <Ionicons name="medkit" size={14} color="#2563EB" />;
     case "task":
-      return "✓";
+      return <Ionicons name="checkbox" size={14} color="#7C3AED" />;
     case "document":
-      return "📄";
+      return <Ionicons name="document-text" size={14} color="#0D9488" />;
     default:
-      return "•";
+      return <Ionicons name="pulse" size={14} color="#64748B" />;
+  }
+}
+
+function getNodeBg(type: TimelineEvent["type"]): string {
+  switch (type) {
+    case "glucose":
+      return "#FEF2F2";
+    case "meal":
+      return "#FFFBEB";
+    case "medication":
+      return "#EFF6FF";
+    case "task":
+      return "#F5F3FF";
+    case "document":
+      return "#F0FDFA";
+    default:
+      return "#F8FAFC";
   }
 }
 
@@ -31,7 +50,6 @@ export function TimelineItemRow({ event, onPress }: TimelineItemRowProps) {
     ? new Date(event.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : "";
 
-  const icon = getEventIcon(event.type);
   const isSavedLocally = event.status === "SAVED_LOCALLY" || event.status === "PENDING";
 
   return (
@@ -49,10 +67,8 @@ export function TimelineItemRow({ event, onPress }: TimelineItemRowProps) {
       </View>
 
       <View style={styles.nodeColumn}>
-        <View style={styles.node}>
-          <Text style={styles.icon} allowFontScaling>
-            {icon}
-          </Text>
+        <View style={[styles.node, { backgroundColor: getNodeBg(event.type) }]}>
+          <EventNodeIcon type={event.type} />
         </View>
         <View style={styles.connector} />
       </View>
@@ -81,54 +97,50 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   timeColumn: {
-    width: 60,
-    paddingTop: 4,
+    width: 62,
+    paddingTop: 6,
     alignItems: "flex-end",
     marginRight: spacing.xs,
   },
   timeText: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
-    fontWeight: typography.weight.medium,
+    fontSize: 12,
+    color: "#64748B",
+    fontWeight: "600",
   },
   nodeColumn: {
     alignItems: "center",
     marginRight: spacing.sm,
   },
   node: {
-    width: 28,
-    height: 28,
+    width: 30,
+    height: 30,
     borderRadius: radii.pill,
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     alignItems: "center",
     justifyContent: "center",
     zIndex: 1,
   },
-  icon: {
-    fontSize: 13,
-  },
   connector: {
     width: 2,
     flex: 1,
-    minHeight: 24,
-    backgroundColor: colors.border,
+    minHeight: 28,
+    backgroundColor: "#E2E8F0",
     marginTop: -2,
     marginBottom: -2,
   },
   card: {
     flex: 1,
     backgroundColor: colors.surface,
-    borderRadius: radii.lg,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#FFFFFF",
-    padding: spacing.sm,
+    borderColor: "#E2E8F0",
+    padding: spacing.sm + 2,
     marginBottom: spacing.xs,
-    shadowColor: colors.primaryInk,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 14,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
     elevation: 2,
   },
   cardTop: {
@@ -138,13 +150,14 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   title: {
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
     flex: 1,
   },
   subtitle: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+    fontSize: 12,
+    color: "#64748B",
+    lineHeight: 16,
   },
 });

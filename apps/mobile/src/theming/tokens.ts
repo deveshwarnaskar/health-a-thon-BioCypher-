@@ -43,6 +43,7 @@ export const colors = {
   tileLavender: "#F7F0FF",
   tileAqua: "#DDF8F6",
   tileCream: "#FFF8E7",
+  error: "#E74C3C",
 } as const;
 
 export type ColorTokens = typeof colors;
@@ -89,6 +90,36 @@ export const typography = {
     semibold: "600",
     bold: "700",
   },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "400" as const,
+  },
+  bodySmall: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "400" as const,
+  },
+  body: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "400" as const,
+  },
+  bodyMedium: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "500" as const,
+  },
+  titleMedium: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: "600" as const,
+  },
+  titleLarge: {
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: "700" as const,
+  },
 } as const;
 
 export type TypographyTokens = typeof typography;
@@ -97,6 +128,7 @@ export const radii = {
   sm: 4,
   md: 8,
   lg: 12,
+  xl: 20,
   pill: 999,
 } as const;
 

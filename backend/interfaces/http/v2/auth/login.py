@@ -361,7 +361,13 @@ async def signup(
             facility_id=facility_id,
             uh_id=uh_id,
             name=display_name,
-            phone=body.phone.strip() if body.phone else None,
+            # WhatsApp number is intentionally NOT stored or connected at
+            # signup. A patient must explicitly complete the OTP verification
+            # flow (POST /whatsapp/identity/request-verification + verify-code,
+            # driven by the in-app connect popup) before their number is linked
+            # to the patient record and routed to WhatsApp. Persisting it here
+            # would silently connect the number and suppress that popup.
+            phone=None,
             active=True,
         )
         session.add(patient_record)

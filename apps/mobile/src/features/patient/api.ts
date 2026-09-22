@@ -16,6 +16,7 @@ import { localDatabase } from "../../db/database";
 import { localSessionIsolation } from "../../db/isolation";
 import { OfflineCaptureService } from "../../sync/offlineCapture";
 import { GlucoseRepository, MealRepository } from "../../db/repositories";
+import { getSecondaryEvents, saveSecondaryEvent } from "./secondaryStorage";
 
 export const patientQueryKeys = {
   medications: (patientId?: string | null) => ["patient", "medications", patientId ?? "self"] as const,
@@ -450,13 +451,19 @@ export function useUnifiedTimeline(patientId?: string | null, options?: { enable
       for (const doc of documentsResponse.items || []) {
         events.push({
           id: `doc-${doc.id}`,
-          type: "task",
+          type: "document",
           title: doc.filename,
           subtitle: `Document · ${doc.kind || "Clinical Report"}`,
           timestamp: doc.created_at,
           status: "SYNCED",
           details: { kind: doc.kind, filename: doc.filename },
         });
+      }
+
+      // 6. Process Secondary Events (Activity, Vitals, Symptoms, Sleep)
+      const secondaryEvents = await getSecondaryEvents(patientId);
+      for (const sec of secondaryEvents) {
+        events.push(sec);
       }
 
       // Sort descending by timestamp / occurred_at
@@ -498,6 +505,209 @@ export function useSarvamMealAnalysis() {
         body: { description, patient_name: patientName },
         schema: aiEndpoints.analyzeMeal.responseSchema,
       });
+    },
+  });
+}
+
+/**
+ * Saves a physical activity event to local durable persistence and refreshes timeline.
+ */
+export function useSaveActivity(options?: { onSuccess?: () => void }) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      patientId,
+      type,
+      durationMinutes,
+      intensity,
+      date,
+      time,
+      notes,
+    }: {
+      patientId: string;
+      type: string;
+      durationMinutes: number;
+      intensity: string;
+      date: string;
+      time: string;
+      notes?: string;
+    }) => {
+      const typeCapitalized = type.charAt(0).toUpperCase() + type.slice(1);
+      const intensityCapitalized = intensity.charAt(0).toUpperCase() + intensity.slice(1);
+      return await saveSecondaryEvent({
+        patientId,
+        type: "activity",
+        title: `${typeCapitalized} · ${durationMinutes} min`,
+        subtitle: `${intensityCapitalized} intensity · ${time}`,
+        timestamp: `${date}T${time}:00Z`,
+        details: { type, durationMinutes, intensity, notes },
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["patient"] });
+      options?.onSuccess?.();
+    },
+  });
+}
+
+/**
+ * Saves a body weight event to local durable persistence and refreshes timeline.
+ */
+export function useSaveWeight(options?: { onSuccess?: () => void }) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      patientId,
+      weight,
+      unit,
+      context,
+      date,
+      time,
+      notes,
+    }: {
+      patientId: string;
+      weight: number;
+      unit: string;
+      context?: string;
+      date: string;
+      time: string;
+      notes?: string;
+    }) => {
+      return await saveSecondaryEvent({
+        patientId,
+        type: "vital",
+        title: `${weight} ${unit}`,
+        subtitle: `Body Weight · ${context || "Measurement"}`,
+        timestamp: `${date}T${time}:00Z`,
+        details: { weight, unit, context, notes },
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["patient"] });
+      options?.onSuccess?.();
+    },
+  });
+}
+
+/**
+ * Saves a blood pressure event to local durable persistence and refreshes timeline.
+ */
+export function useSaveBloodPressure(options?: { onSuccess?: () => void }) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      patientId,
+      systolic,
+      diastolic,
+      pulse,
+      position,
+      date,
+      time,
+      notes,
+    }: {
+      patientId: string;
+      systolic: number;
+      diastolic: number;
+      pulse?: number;
+      position?: string;
+      date: string;
+      time: string;
+      notes?: string;
+    }) => {
+      const pulseStr = pulse ? ` · ${pulse} bpm` : "";
+      const posStr = position ? ` (${position})` : "";
+      return await saveSecondaryEvent({
+        patientId,
+        type: "vital",
+        title: `${systolic}/${diastolic} mmHg`,
+        subtitle: `Blood Pressure${pulseStr}${posStr}`,
+        timestamp: `${date}T${time}:00Z`,
+        details: { systolic, diastolic, pulse, position, notes },
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["patient"] });
+      options?.onSuccess?.();
+    },
+  });
+}
+
+/**
+ * Saves a patient-reported symptom or event to local durable persistence.
+ */
+export function useSaveSymptoms(options?: { onSuccess?: () => void }) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      patientId,
+      selectedSymptoms,
+      nearbyGlucose,
+      date,
+      time,
+      notes,
+    }: {
+      patientId: string;
+      selectedSymptoms: string[];
+      nearbyGlucose?: number;
+      date: string;
+      time: string;
+      notes?: string;
+    }) => {
+      const formatted = selectedSymptoms
+        .map((s) => s.replace("_", " "))
+        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+        .join(", ");
+      const gStr = nearbyGlucose ? ` · Reading: ${nearbyGlucose} mg/dL` : "";
+      return await saveSecondaryEvent({
+        patientId,
+        type: "symptom",
+        title: formatted || "Unusual symptom",
+        subtitle: `Patient observation${gStr}`,
+        timestamp: `${date}T${time}:00Z`,
+        details: { selectedSymptoms, nearbyGlucose, notes },
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["patient"] });
+      options?.onSuccess?.();
+    },
+  });
+}
+
+/**
+ * Saves a sleep duration event to local durable persistence.
+ */
+export function useSaveSleep(options?: { onSuccess?: () => void }) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      patientId,
+      hours,
+      minutes,
+      quality,
+      date,
+      notes,
+    }: {
+      patientId: string;
+      hours: number;
+      minutes: number;
+      quality: string;
+      date: string;
+      notes?: string;
+    }) => {
+      const qStr = quality.charAt(0).toUpperCase() + quality.slice(1);
+      return await saveSecondaryEvent({
+        patientId,
+        type: "sleep",
+        title: `${hours}h ${minutes > 0 ? `${minutes}m` : ""} sleep`,
+        subtitle: `${qStr} quality`,
+        timestamp: `${date}T08:00:00Z`,
+        details: { hours, minutes, quality, notes },
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["patient"] });
+      options?.onSuccess?.();
     },
   });
 }

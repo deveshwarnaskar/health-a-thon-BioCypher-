@@ -1,5 +1,6 @@
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, touchTarget, typography } from "../../../theming/tokens";
 import type { PatientDocument } from "../types";
 
@@ -33,9 +34,7 @@ export function PatientDocumentCard({ document, onView }: PatientDocumentCardPro
     <View style={styles.card} accessibilityRole="none">
       <View style={styles.topRow}>
         <View style={styles.iconContainer}>
-          <Text style={styles.fileIcon} allowFontScaling>
-            📄
-          </Text>
+          <Ionicons name="document-text" size={20} color="#0D9488" />
         </View>
         <View style={styles.infoColumn}>
           <View style={styles.titleBadgeRow}>
@@ -43,8 +42,14 @@ export function PatientDocumentCard({ document, onView }: PatientDocumentCardPro
               {document.filename}
             </Text>
             <View style={[styles.statusBadge, isVerified ? styles.statusBadgeVerified : styles.statusBadgePending]}>
+              <Ionicons
+                name={isVerified ? "checkmark-circle" : "time-outline"}
+                size={12}
+                color={isVerified ? "#059669" : "#64748B"}
+                style={{ marginRight: 3 }}
+              />
               <Text style={[styles.statusBadgeText, isVerified ? styles.statusTextVerified : styles.statusTextPending]} allowFontScaling>
-                {isVerified ? "✓ Verified" : "Pending Verification"}
+                {isVerified ? "Verified" : "Pending"}
               </Text>
             </View>
           </View>
@@ -57,10 +62,11 @@ export function PatientDocumentCard({ document, onView }: PatientDocumentCardPro
       <TouchableOpacity
         style={styles.viewButton}
         onPress={() => onView?.(document)}
-        activeOpacity={0.8}
+        activeOpacity={0.7}
         accessibilityRole="button"
         accessibilityLabel={`View document: ${document.filename}`}
       >
+        <Ionicons name="open-outline" size={15} color="#0D9488" style={{ marginRight: 6 }} />
         <Text style={styles.viewButtonText} allowFontScaling>
           View Document
         </Text>
@@ -72,16 +78,16 @@ export function PatientDocumentCard({ document, onView }: PatientDocumentCardPro
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: radii.lg,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#FFFFFF",
+    borderColor: "#E2E8F0",
     padding: spacing.md,
-    marginBottom: spacing.sm,
-    shadowColor: colors.primaryInk,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.07,
-    shadowRadius: 16,
-    elevation: 2,
+    marginBottom: spacing.sm + 2,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 1,
   },
   topRow: {
     flexDirection: "row",
@@ -89,16 +95,15 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   iconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: radii.pill,
-    backgroundColor: colors.tileAqua,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "#F0FDFA",
+    borderWidth: 1,
+    borderColor: "#CCFBF1",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: spacing.sm,
-  },
-  fileIcon: {
-    fontSize: 18,
+    marginRight: spacing.sm + 2,
   },
   infoColumn: {
     flex: 1,
@@ -111,48 +116,56 @@ const styles = StyleSheet.create({
   },
   filename: {
     flex: 1,
-    fontSize: typography.fontSize.body,
-    fontWeight: typography.weight.bold,
-    color: colors.textPrimary,
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
   },
   statusBadge: {
-    paddingHorizontal: spacing.xs,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: radii.pill,
+    borderWidth: 1,
   },
   statusBadgeVerified: {
-    backgroundColor: colors.tileGreen,
+    backgroundColor: "#ECFDF5",
+    borderColor: "#A7F3D0",
   },
   statusBadgePending: {
-    backgroundColor: colors.backgroundRaised,
+    backgroundColor: "#F1F5F9",
+    borderColor: "#E2E8F0",
   },
   statusBadgeText: {
-    fontSize: typography.fontSize.caption,
-    fontWeight: typography.weight.semibold,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.4,
   },
   statusTextVerified: {
-    color: colors.leafGreen,
+    color: "#059669",
   },
   statusTextPending: {
-    color: colors.textSecondary,
+    color: "#64748B",
   },
   metaText: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+    fontSize: 11,
+    color: "#64748B",
     marginTop: 2,
   },
   viewButton: {
-    backgroundColor: colors.backgroundRaised,
+    flexDirection: "row",
+    backgroundColor: "#F8FAFC",
     borderWidth: 1,
-    borderColor: "#FFFFFF",
+    borderColor: "#E2E8F0",
     borderRadius: radii.pill,
-    minHeight: touchTarget.min,
+    minHeight: 42,
     alignItems: "center",
     justifyContent: "center",
+    marginTop: 2,
   },
   viewButtonText: {
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: typography.weight.semibold,
-    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#0D9488",
   },
 });

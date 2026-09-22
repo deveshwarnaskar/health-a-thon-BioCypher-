@@ -36,7 +36,9 @@ jobs:
         run: uv python install 3.12
 
       - name: Install dependencies from lockfile
-        run: uv pip install -r requirements.lock
+        run: |
+          uv venv
+          uv pip install -r requirements.lock
 
       - name: Run Backend Pytest Suite
         run: uv run pytest -v
@@ -51,7 +53,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
