@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, typography } from "../../../theming/tokens";
 import { PatientScreenHeader } from "../components/PatientScreenHeader";
 import { PatientTaskCard } from "../components/PatientTaskCard";
@@ -138,9 +139,12 @@ export function TasksTab({ patientId, onSelectTask, onOpenAssist }: TasksTabProp
       >
         {activeList.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon} allowFontScaling>
-              {selectedCategory === "completed" ? "📋" : "✓"}
-            </Text>
+            <Ionicons
+              name={selectedCategory === "completed" ? "clipboard-outline" : "checkmark-circle-outline"}
+              size={44}
+              color={colors.disabled}
+              style={{ marginBottom: 12 }}
+            />
             <Text style={styles.emptyTitle} allowFontScaling>
               {selectedCategory === "completed" ? "No completed tasks yet" : "You're all caught up"}
             </Text>

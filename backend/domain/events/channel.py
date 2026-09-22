@@ -40,3 +40,10 @@ class WhatsAppMessageReceived(DomainEvent):
     source_phone: str = ""
     text: str = ""
     provider: str = "whatsapp"
+    recipient_phone_number_id: str = ""
+    timestamp: int | None = None
+    message_type: str = "text"
+    interactive_reply_id: str | None = None
+    media_type: str | None = None
+    media_id: str | None = None
+    caption: str | None = None

@@ -277,10 +277,51 @@ def test_channel_tenant_resolver_postgres(postgres_ops_db):
         assert resolved.patient_id == patient_id
 
 
+def test_channel_tenant_resolver_no_cross_phone_leakage(postgres_ops_db):
+    _, session_factory = postgres_ops_db
+    tenant = _seed_tenant(session_factory, "route-leak")
+    phone_a = "+919000000010"
+    phone_b = "+919000000011"
+    patient_a = uuid4()
+    patient_b = uuid4()
+
+    with SqlAlchemyUnitOfWork(session_factory, tenant) as uow:
+        uow.patients.add(
+            Patient(
+                id=patient_a,
+                uh_id=UHID("UH-LEAK-A"),
+                name="Patient A",
+                phone=PhoneNumber(phone_a),
+            )
+        )
+        uow.patients.add(
+            Patient(
+                id=patient_b,
+                uh_id=UHID("UH-LEAK-B"),
+                name="Patient B",
+                phone=PhoneNumber(phone_b),
+            )
+        )
+        uow.commit()
+
+    with session_factory() as s:
+        resolver = SqlAlchemyChannelTenantResolver(s)
+        resolved_b = resolver.resolve(phone_b)
+        assert resolved_b is not None
+        assert resolved_b.patient_id == patient_b
+        # Regression: input phone must NOT be shadowed by a matching column so
+        # that an unrelated number (e.g. the newest patient) never answers.
+        resolved_a = resolver.resolve(phone_a)
+        assert resolved_a is not None
+        assert resolved_a.patient_id == patient_a
+        assert resolver.resolve("+919000000099") is None
+
+
 __all__ = [
     "test_idempotency_lifecycle_and_concurrency",
     "test_webhook_receipt_dedup_on_postgres",
     "test_outbox_claim_mark_lease",
     "test_audit_events_are_append_only",
     "test_channel_tenant_resolver_postgres",
+    "test_channel_tenant_resolver_no_cross_phone_leakage",
 ]

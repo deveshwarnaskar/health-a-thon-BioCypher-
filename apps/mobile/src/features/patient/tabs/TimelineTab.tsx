@@ -25,6 +25,7 @@ const FILTERS: { key: TimelineFilter; label: string }[] = [
   { key: "meals", label: "Meals" },
   { key: "medication", label: "Medication" },
   { key: "tasks", label: "Tasks" },
+  { key: "documents", label: "Documents" },
 ];
 
 function isSameDay(d1: Date, d2: Date): boolean {
@@ -62,6 +63,9 @@ export function TimelineTab({
   // Filter events
   const filteredEvents = useMemo(() => {
     if (selectedFilter === "all") return events;
+    if (selectedFilter === "meals") return events.filter((e) => e.type === "meal");
+    if (selectedFilter === "tasks") return events.filter((e) => e.type === "task");
+    if (selectedFilter === "documents") return events.filter((e) => e.type === "document");
     return events.filter((e) => e.type === selectedFilter);
   }, [events, selectedFilter]);
 

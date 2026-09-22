@@ -81,6 +81,49 @@ def build_worker(*, db_url: str | None, whatsapp_access_token: str | None = None
     store = SqlAlchemyOutboxWorkerStore(session_factory)
     handlers = {}
 
+    sender = WhatsAppChannelSender(
+        access_token=whatsapp_access_token or settings.whatsapp.access_token,
+        phone_number_id=whatsapp_phone_number_id or settings.whatsapp.phone_number_id,
+        api_version=settings.whatsapp.api_version,
+    )
+
+    sarvam_transcriber = None
+    sarvam_completer = None
+    if settings.ai.sarvam_api_key or settings.ai.provider == "sarvam":
+        from backend.infrastructure.ai.sarvam_client import SarvamClient
+        _sarvam = SarvamClient()
+        if _sarvam.is_configured:
+            def sarvam_transcriber(audio_bytes: bytes, mime_type: str) -> str | None:
+                try:
+                    res = _sarvam.transcribe_audio(audio_bytes, mime_type=mime_type)
+                    return res.get("transcript")
+                except Exception as exc:
+                    logger.warning("sarvam audio transcription failed: %s", exc)
+                    return None
+
+            def sarvam_completer(user_msg: str, patient_name: str) -> str | None:
+                try:
+                    system_prompt = (
+                        "You are the empathetic, culturally attuned Indic AI health companion for THALI x P.L.A.T.E. "
+                        "Speak in warm, conversational Hinglish (Hindi written in Roman script) with respectful address (Ji). "
+                        "Guidelines:\n"
+                        "- Follow ICMR and RSSDI Indian dietary guidelines (Half plate vegetables/salad, 1/4 protein like dal/paneer/eggs, 1/4 whole grains like roti/brown rice).\n"
+                        "- Do NOT prescribe, change, or recommend medication/insulin dosages.\n"
+                        "- Keep answers concise (2-3 short paragraphs), practical, and encouraging."
+                    )
+                    res = _sarvam.chat_completion(
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": f"Patient: {patient_name}\nQuestion: {user_msg}"},
+                        ],
+                        temperature=0.2,
+                        max_tokens=400,
+                    )
+                    return res.get("content", "").strip()
+                except Exception as exc:
+                    logger.warning("sarvam conversational completion failed: %s", exc)
+                    return None
+
     intake = WhatsAppIntakeHandler(
         tenant_resolver=SqlAlchemyChannelTenantResolver(session_factory),
         uow_factory=uow_factory,
@@ -88,23 +131,37 @@ def build_worker(*, db_url: str | None, whatsapp_access_token: str | None = None
         audit_factory=audit_factory,
         clock=clock,
         id_gen=id_gen,
+        sender=sender,
+        transcriber=sarvam_transcriber,
+        ai_completer=sarvam_completer,
     )
     handlers[WEBHOOK_INTAKE_EVENT_TYPE] = intake.handle
 
-    sender = WhatsAppChannelSender(
-        access_token=whatsapp_access_token,
-        phone_number_id=whatsapp_phone_number_id,
-    )
     delivery = ChannelDeliveryHandler(
         sender=sender,
         uow_factory=uow_factory,
         audit_factory=audit_factory,
     )
     handlers[CHANNEL_SEND_EVENT_TYPE] = delivery.handle
-    if not (whatsapp_access_token and whatsapp_phone_number_id):
+    if not (sender._access_token and sender._phone_number_id):
         logger.warning("whatsapp credentials unset — outbound messages will fail-safe with explicit operational error")
 
-    ai_provider = DeterministicDemoProvider()
+    if settings.ai.provider == "sarvam" or settings.ai.sarvam_api_key:
+        from backend.infrastructure.ai.sarvam_provider import SarvamAIProvider
+        ai_provider = SarvamAIProvider(
+            api_key=settings.ai.sarvam_api_key or settings.ai.api_key,
+            model_name=settings.ai.sarvam_model or "sarvam-m",
+            base_url=settings.ai.sarvam_base_url,
+        )
+    elif settings.ai.provider == "gemini" and settings.ai.api_key:
+        from backend.infrastructure.ai.production_model_provider import ProductionModelProvider
+        ai_provider = ProductionModelProvider(
+            api_key=settings.ai.api_key,
+            model_name=settings.ai.model or "gemini-1.5-flash",
+        )
+    else:
+        ai_provider = DeterministicDemoProvider()
+
     evidence_builder = EvidenceBuilder()
     ai_handler = AIGenerationJobHandler(
         provider=ai_provider,
@@ -112,10 +169,23 @@ def build_worker(*, db_url: str | None, whatsapp_access_token: str | None = None
         uow_factory=uow_factory,
         audit_factory=audit_factory,
     )
+    handlers[AI_GENERATION_EVENT_TYPE] = ai_handler.handle
     from backend.infrastructure.observability.worker_telemetry import WorkerTelemetryAdapter
 
     telemetry = WorkerTelemetryAdapter()
-    return OutboxWorker(store, handlers, worker_id=f"worker-{id(store)}", telemetry=telemetry), engine
+    from backend.application.ops.scheduler import ReminderScheduler
+
+    scheduler = ReminderScheduler(
+        uow_factory=uow_factory,
+        events_factory=events_factory,
+        audit_factory=audit_factory,
+        clock=clock,
+        id_gen=id_gen,
+    )
+    worker = OutboxWorker(store, handlers, worker_id=f"worker-{id(store)}", telemetry=telemetry)
+    worker.scheduler = scheduler
+    worker.session_factory = session_factory
+    return worker, engine
 
 
 def main() -> None:
@@ -123,7 +193,7 @@ def main() -> None:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--once", action="store_true", help="process one batch and exit")
     mode.add_argument("--poll", action="store_true", help="poll for due events forever")
-    parser.add_argument("--interval", type=float, default=5.0, help="poll idle sleep (seconds)")
+    parser.add_argument("--interval", type=float, default=0.5, help="poll idle sleep (seconds)")
     parser.add_argument("--db-url", default=None, help="override database URL")
     args = parser.parse_args()
 
@@ -139,11 +209,33 @@ def main() -> None:
         logger.info("processed %s job(s) in one batch", processed)
         return
 
+    last_scheduler_check = 0.0
+    scheduler_interval = 30.0  # evaluate chronobiological check-ins every 30 seconds
+
     while True:
         try:
+            # Periodic chronobiological caregiver companion checks
+            now_ts = time.time()
+            if hasattr(worker, "scheduler") and hasattr(worker, "session_factory") and (now_ts - last_scheduler_check >= scheduler_interval):
+                last_scheduler_check = now_ts
+                try:
+                    with worker.session_factory() as session:
+                        from backend.infrastructure.persistence.models.tenant_models import OrganizationModel
+                        active_tenants = [
+                            r[0] for r in session.query(OrganizationModel.id).filter(OrganizationModel.active.is_(True)).all()
+                        ]
+                    for tid in active_tenants:
+                        nudged = worker.scheduler.schedule_caregiver_companion_nudges(tid)
+                        if nudged > 0:
+                            logger.info("caregiver companion scheduled %s nudge(s) for tenant %s", nudged, tid)
+                        worker.scheduler.process_due_notifications(tid)
+                except Exception:
+                    logger.exception("periodic caregiver companion check failed; continuing")
+
             processed = worker.process_once()
             if processed:
                 logger.info("processed %s job(s)", processed)
+                continue
         except Exception:  # noqa: BLE001 - a poll loop survives one bad batch
             logger.exception("worker batch failed; continuing")
         time.sleep(args.interval)

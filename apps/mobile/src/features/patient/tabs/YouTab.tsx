@@ -6,9 +6,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, touchTarget, typography } from "../../../theming/tokens";
 import { PatientScreenHeader } from "../components/PatientScreenHeader";
 import { SignOutConfirmModal } from "../components/SignOutConfirmModal";
+import { WhatsAppManageModal } from "../components/WhatsAppManageModal";
+import { useWhatsAppIdentity } from "../useWhatsAppIdentity";
 import { useTranslation, type SupportedLanguage } from "../../../i18n/i18n";
 
 export type YouTabProps = {
@@ -20,6 +23,7 @@ export type YouTabProps = {
   onNavigateToDocuments?: () => void;
   onNavigateToNotifications?: () => void;
   onOpenAssist?: () => void;
+  onConnectWhatsApp?: () => void;
 };
 
 export function YouTab({
@@ -31,11 +35,15 @@ export function YouTab({
   onNavigateToDocuments,
   onNavigateToNotifications,
   onOpenAssist,
+  onConnectWhatsApp,
 }: YouTabProps) {
-  const { language, setLanguage } = useTranslation();
+  const { t, language, setLanguage } = useTranslation();
   const [showSignOutModal, setShowSignOutModal] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [showLanguagePicker, setShowLanguagePicker] = useState(false);
+  const [showWhatsAppManageModal, setShowWhatsAppManageModal] = useState(false);
+
+  const { data: whatsAppIdentity, isOffline: isWhatsAppOffline } = useWhatsAppIdentity();
 
   const handleConfirmSignOut = async () => {
     setIsSigningOut(true);
@@ -108,9 +116,9 @@ export function YouTab({
             accessibilityRole="button"
             accessibilityLabel="Prescribed Medications"
           >
-            <Text style={styles.menuIcon} allowFontScaling>
-              💊
-            </Text>
+            <View style={styles.menuIconContainer}>
+              <Ionicons name="medkit-outline" size={20} color={colors.primary} />
+            </View>
             <View style={styles.menuTextColumn}>
               <Text style={styles.menuTitle} allowFontScaling>
                 Prescribed Medications
@@ -119,9 +127,7 @@ export function YouTab({
                 Clinician-authored treatment plans and doses
               </Text>
             </View>
-            <Text style={styles.menuChevron} allowFontScaling>
-              →
-            </Text>
+            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -130,9 +136,9 @@ export function YouTab({
             accessibilityRole="button"
             accessibilityLabel="Documents & Reports"
           >
-            <Text style={styles.menuIcon} allowFontScaling>
-              📄
-            </Text>
+            <View style={styles.menuIconContainer}>
+              <Ionicons name="document-text-outline" size={20} color={colors.primary} />
+            </View>
             <View style={styles.menuTextColumn}>
               <Text style={styles.menuTitle} allowFontScaling>
                 Documents & Reports
@@ -141,9 +147,7 @@ export function YouTab({
                 Care summaries, clinic letters, and lab PDFs
               </Text>
             </View>
-            <Text style={styles.menuChevron} allowFontScaling>
-              →
-            </Text>
+            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -152,9 +156,9 @@ export function YouTab({
             accessibilityRole="button"
             accessibilityLabel="Notification Reminders"
           >
-            <Text style={styles.menuIcon} allowFontScaling>
-              🔔
-            </Text>
+            <View style={styles.menuIconContainer}>
+              <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+            </View>
             <View style={styles.menuTextColumn}>
               <Text style={styles.menuTitle} allowFontScaling>
                 Notifications & Reminders
@@ -163,9 +167,7 @@ export function YouTab({
                 Medication schedule and task alerts
               </Text>
             </View>
-            <Text style={styles.menuChevron} allowFontScaling>
-              →
-            </Text>
+            <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
           </TouchableOpacity>
         </View>
 
@@ -185,6 +187,72 @@ export function YouTab({
           </View>
         </View>
 
+        {/* Section: WhatsApp Integration */}
+        <View style={styles.menuSection}>
+          <Text style={styles.sectionHeader} allowFontScaling>
+            {t("whatsapp.settingsSectionTitle")}
+          </Text>
+
+          {isWhatsAppOffline ? (
+            <View style={styles.waCard}>
+              <Text style={styles.waOfflineText} allowFontScaling>
+                {t("whatsapp.statusUnavailableOffline")}
+              </Text>
+            </View>
+          ) : whatsAppIdentity?.status === "connected" ? (
+            <View style={styles.waCard}>
+              <View style={styles.waHeaderRow}>
+                <View style={styles.waStatusBadge}>
+                  <Text style={styles.waStatusBadgeText} allowFontScaling>
+                    ✓ {t("whatsapp.connectedStatus")}
+                  </Text>
+                </View>
+                <Text style={styles.waPhoneText} allowFontScaling>
+                  {whatsAppIdentity.phone_number_masked || whatsAppIdentity.phone_number}
+                </Text>
+              </View>
+              <Text style={styles.waDescText} allowFontScaling>
+                {t("whatsapp.connectedDesc")}
+              </Text>
+              <TouchableOpacity
+                style={styles.waManageButton}
+                onPress={() => setShowWhatsAppManageModal(true)}
+                accessibilityRole="button"
+                accessibilityLabel={t("whatsapp.manageButton")}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.waManageButtonText} allowFontScaling>
+                  {t("whatsapp.manageButton")} →
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.waCard}>
+              <View style={styles.waHeaderRow}>
+                <View style={styles.waNotConnectedBadge}>
+                  <Text style={styles.waNotConnectedBadgeText} allowFontScaling>
+                    {t("whatsapp.notConnectedStatus")}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.waDescText} allowFontScaling>
+                {t("whatsapp.notConnectedDesc")}
+              </Text>
+              <TouchableOpacity
+                style={styles.waConnectButton}
+                onPress={() => onConnectWhatsApp?.()}
+                accessibilityRole="button"
+                accessibilityLabel={t("whatsapp.connectButton")}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.waConnectButtonText} allowFontScaling>
+                  + {t("whatsapp.connectButton")}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
         {/* Section 3: Preferences & Language */}
         <View style={styles.menuSection}>
           <Text style={styles.sectionHeader} allowFontScaling>
@@ -197,9 +265,9 @@ export function YouTab({
             accessibilityRole="button"
             accessibilityLabel={`Language: ${language}`}
           >
-            <Text style={styles.menuIcon} allowFontScaling>
-              🌐
-            </Text>
+            <View style={styles.menuIconContainer}>
+              <Ionicons name="globe-outline" size={20} color={colors.primary} />
+            </View>
             <View style={styles.menuTextColumn}>
               <Text style={styles.menuTitle} allowFontScaling>
                 Language
@@ -208,9 +276,11 @@ export function YouTab({
                 {languages.find((l) => l.key === language)?.label || "English"}
               </Text>
             </View>
-            <Text style={styles.menuChevron} allowFontScaling>
-              {showLanguagePicker ? "▲" : "▼"}
-            </Text>
+            <Ionicons
+              name={showLanguagePicker ? "chevron-up" : "chevron-down"}
+              size={16}
+              color="#94A3B8"
+            />
           </TouchableOpacity>
 
           {showLanguagePicker ? (
@@ -239,9 +309,7 @@ export function YouTab({
                     {lang.label}
                   </Text>
                   {language === lang.key ? (
-                    <Text style={styles.checkCheck} allowFontScaling>
-                      ✓
-                    </Text>
+                    <Ionicons name="checkmark" size={18} color={colors.primary} />
                   ) : null}
                 </TouchableOpacity>
               ))}
@@ -271,6 +339,7 @@ export function YouTab({
             accessibilityLabel="Sign out of THALI"
             accessibilityHint="Ends this session and returns to the sign-in screen"
           >
+            <Ionicons name="log-out-outline" size={18} color="#DC2626" style={{ marginRight: 6 }} />
             <Text style={styles.signOutText} allowFontScaling>
               Sign out
             </Text>
@@ -293,6 +362,13 @@ export function YouTab({
         onCancel={() => setShowSignOutModal(false)}
         onConfirm={handleConfirmSignOut}
         isSigningOut={isSigningOut}
+      />
+
+      {/* WhatsApp Manage Modal */}
+      <WhatsAppManageModal
+        visible={showWhatsAppManageModal}
+        onClose={() => setShowWhatsAppManageModal(false)}
+        identity={whatsAppIdentity}
       />
     </View>
   );
@@ -399,6 +475,15 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     elevation: 1,
   },
+  menuIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: "rgba(13, 148, 136, 0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: spacing.sm,
+  },
   menuIcon: {
     fontSize: 20,
     marginRight: spacing.md,
@@ -490,6 +575,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   signOutButton: {
+    flexDirection: "row",
     backgroundColor: colors.surface,
     borderRadius: radii.pill,
     borderWidth: 1,
@@ -518,5 +604,86 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.disabled,
     marginTop: 2,
+  },
+  waCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: spacing.md,
+    gap: spacing.xs,
+    shadowColor: colors.primaryInk,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 1,
+  },
+  waHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  waStatusBadge: {
+    backgroundColor: "#DCF8C6",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radii.pill,
+  },
+  waStatusBadgeText: {
+    color: "#075E54",
+    fontSize: typography.fontSize.caption,
+    fontWeight: typography.weight.bold,
+  },
+  waNotConnectedBadge: {
+    backgroundColor: "#F1F5F9",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radii.pill,
+  },
+  waNotConnectedBadgeText: {
+    color: colors.textSecondary,
+    fontSize: typography.fontSize.caption,
+    fontWeight: typography.weight.semibold,
+  },
+  waPhoneText: {
+    fontSize: typography.fontSize.bodySmall,
+    fontWeight: typography.weight.bold,
+    color: colors.textPrimary,
+  },
+  waDescText: {
+    fontSize: typography.fontSize.caption,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    marginVertical: 2,
+  },
+  waManageButton: {
+    alignSelf: "flex-start",
+    marginTop: spacing.xs,
+    paddingVertical: 4,
+  },
+  waManageButtonText: {
+    color: "#128C7E",
+    fontSize: typography.fontSize.caption,
+    fontWeight: typography.weight.bold,
+  },
+  waConnectButton: {
+    alignSelf: "flex-start",
+    marginTop: spacing.xs,
+    backgroundColor: "#128C7E",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    borderRadius: radii.pill,
+    minHeight: touchTarget.min,
+    justifyContent: "center",
+  },
+  waConnectButtonText: {
+    color: "#FFFFFF",
+    fontSize: typography.fontSize.caption,
+    fontWeight: typography.weight.bold,
+  },
+  waOfflineText: {
+    fontSize: typography.fontSize.caption,
+    color: colors.textSecondary,
+    fontStyle: "italic",
   },
 });

@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, typography } from "../../../theming/tokens";
 import { PatientScreenHeader } from "../components/PatientScreenHeader";
 
@@ -19,7 +20,9 @@ type RecordOption = {
   title: string;
   subtitle: string;
   badge?: string;
-  icon: string;
+  iconName: keyof typeof Ionicons.glyphMap;
+  iconColor: string;
+  iconBg: string;
 };
 
 const RECORD_OPTIONS: RecordOption[] = [
@@ -28,28 +31,36 @@ const RECORD_OPTIONS: RecordOption[] = [
     title: "Blood Glucose",
     subtitle: "Log your fasting, post-meal, or random glucose reading (mg/dL)",
     badge: "DAILY METRIC",
-    icon: "🩸",
+    iconName: "water-outline",
+    iconColor: "#DC2626",
+    iconBg: "rgba(239, 68, 68, 0.12)",
   },
   {
     key: "meal",
     title: "Meal & Nutrition",
     subtitle: "Record breakfast, lunch, snack, or dinner with Katori portion sizing",
     badge: "NUTRITION",
-    icon: "🍲",
+    iconName: "restaurant-outline",
+    iconColor: "#D97706",
+    iconBg: "rgba(245, 158, 11, 0.12)",
   },
   {
     key: "medication",
     title: "Medication Dose",
     subtitle: "Confirm you took your prescribed clinician medication",
     badge: "ADHERENCE",
-    icon: "💊",
+    iconName: "medkit-outline",
+    iconColor: "#2563EB",
+    iconBg: "rgba(59, 130, 246, 0.12)",
   },
   {
     key: "task",
     title: "Care Task",
     subtitle: "Review and complete scheduled care plan tasks for your clinic",
     badge: "CARE PLAN",
-    icon: "📋",
+    iconName: "checkbox-outline",
+    iconColor: "#059669",
+    iconBg: "rgba(16, 185, 129, 0.12)",
   },
 ];
 
@@ -86,10 +97,8 @@ export function RecordTab({ onSelectOption, onOpenAssist }: RecordTabProps) {
               accessibilityLabel={`${option.title}: ${option.subtitle}`}
               accessibilityHint={`Opens the ${option.title} recording screen`}
             >
-              <View style={styles.iconCircle}>
-                <Text style={styles.iconText} allowFontScaling>
-                  {option.icon}
-                </Text>
+              <View style={[styles.iconCircle, { backgroundColor: option.iconBg }]}>
+                <Ionicons name={option.iconName} size={22} color={option.iconColor} />
               </View>
 
               <View style={styles.optionTextColumn}>
@@ -109,9 +118,7 @@ export function RecordTab({ onSelectOption, onOpenAssist }: RecordTabProps) {
               </View>
 
               <View style={styles.arrowContainer}>
-                <Text style={styles.arrowText} allowFontScaling>
-                  →
-                </Text>
+                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
               </View>
             </TouchableOpacity>
           ))}

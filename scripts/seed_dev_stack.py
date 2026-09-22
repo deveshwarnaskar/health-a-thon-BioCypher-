@@ -60,7 +60,10 @@ def seed() -> None:
     with Session(engine) as session:
         # Disable RLS check if in postgres superuser / admin connection
         if engine.dialect.name == "postgresql":
-            session.execute(text("SET LOCAL app.current_tenant_id = :tid"), {"tid": str(DEV_TENANT_ID)})
+            session.execute(
+                text("SELECT set_config('app.current_tenant_id', :tid, true)"),
+                {"tid": str(DEV_TENANT_ID)},
+            )
 
         # ------------------------------------------------------------------
         # 1. Tenant (organizations table)
@@ -176,7 +179,7 @@ def seed() -> None:
                 facility_id=facility_id,
                 uh_id="UHID-DEV-0001",
                 name="Sita Sharma",
-                phone_number="+919876543210",
+                phone="+919876543210",
                 active=True,
                 created_at=now,
             )
@@ -193,13 +196,13 @@ def seed() -> None:
         if patient_user:
             mapping = session.query(IdentityPatientMappingModel).filter_by(
                 tenant_id=tenant_id,
-                identity_id=patient_user.id,
+                user_id=patient_user.id,
             ).first()
             if not mapping:
                 mapping = IdentityPatientMappingModel(
                     id=uuid.uuid4(),
                     tenant_id=tenant_id,
-                    identity_id=patient_user.id,
+                    user_id=patient_user.id,
                     patient_id=pat.id,
                     active=True,
                     created_at=now,
@@ -224,7 +227,7 @@ def seed() -> None:
                     facility_id=facility_id,
                     user_id=doctor_user.id,
                     role="doctor",
-                    name="Dr. Dev",
+                    display_name="Dr. Dev",
                     active=True,
                     created_at=now,
                 )

@@ -8,8 +8,12 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, touchTarget, typography } from "../../../theming/tokens";
-import { PatientMedicationCard } from "../components/PatientMedicationCard";
+import {
+  PatientMedicationCard,
+  type MedicationAdherenceAction,
+} from "../components/PatientMedicationCard";
 import { usePatientMedications, useAdministerMedication } from "../api";
 export type MedicationListModalProps = {
   visible: boolean;
@@ -24,14 +28,35 @@ export function MedicationListModal({
 }: MedicationListModalProps) {
   const { data: plans = [] } = usePatientMedications(patientId);
   const administerMutation = useAdministerMedication();
-  const [takenPlans, setTakenPlans] = useState<Set<string>>(new Set());
+  const [adherenceMap, setAdherenceMap] = useState<Record<string, "TAKEN" | "SKIPPED" | "SNOOZED">>({});
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
-  const handleMarkTaken = (planId: string) => {
+  const handleMarkTaken = (
+    planId: string,
+    action: MedicationAdherenceAction = "NOW",
+    administeredAt?: string
+  ) => {
+    if (action === "SKIPPED") {
+      setAdherenceMap((prev) => ({ ...prev, [planId]: "SKIPPED" }));
+      setFeedbackMessage("Dose marked as skipped.");
+      setTimeout(() => setFeedbackMessage(null), 3000);
+      return;
+    }
+    if (action === "SNOOZE") {
+      setAdherenceMap((prev) => ({ ...prev, [planId]: "SNOOZED" }));
+      setFeedbackMessage("Reminder snoozed for 15 minutes.");
+      setTimeout(() => setFeedbackMessage(null), 3000);
+      return;
+    }
+
+    const resolvedTime = administeredAt || new Date().toISOString();
     administerMutation.mutate(
-      { medicationPlanId: planId },
+      { medicationPlanId: planId, administeredAt: resolvedTime },
       {
         onSuccess: () => {
-          setTakenPlans((prev) => new Set(prev).add(planId));
+          setAdherenceMap((prev) => ({ ...prev, [planId]: "TAKEN" }));
+          setFeedbackMessage("Dose recorded successfully.");
+          setTimeout(() => setFeedbackMessage(null), 3000);
         },
       }
     );
@@ -60,9 +85,7 @@ export function MedicationListModal({
             accessibilityRole="button"
             accessibilityLabel="Close medications modal"
           >
-            <Text style={styles.closeText} allowFontScaling>
-              ✕
-            </Text>
+            <Ionicons name="close" size={22} color={colors.textPrimary} />
           </TouchableOpacity>
         </View>
 
@@ -75,6 +98,14 @@ export function MedicationListModal({
               Medications are prescribed and titrated by your doctor. Contact your clinic if you need dosage or prescription changes.
             </Text>
           </View>
+
+          {feedbackMessage && (
+            <View style={styles.feedbackBanner}>
+              <Text style={styles.feedbackBannerText} allowFontScaling>
+                {feedbackMessage}
+              </Text>
+            </View>
+          )}
 
           {plans.length === 0 ? (
             <View style={styles.emptyContainer}>
@@ -93,7 +124,7 @@ export function MedicationListModal({
               <PatientMedicationCard
                 key={plan.medication_plan_id}
                 plan={plan}
-                isTaken={takenPlans.has(plan.medication_plan_id)}
+                adherenceStatus={adherenceMap[plan.medication_plan_id]}
                 onMarkTaken={handleMarkTaken}
                 isMarking={administerMutation.isPending}
               />
@@ -182,5 +213,16 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     textAlign: "center",
     maxWidth: 280,
+  },
+  feedbackBanner: {
+    backgroundColor: colors.tileGreen,
+    padding: spacing.sm,
+    borderRadius: radii.md,
+    marginBottom: spacing.md,
+  },
+  feedbackBannerText: {
+    fontSize: typography.fontSize.bodySmall,
+    color: colors.leafGreen,
+    fontWeight: typography.weight.medium,
   },
 });

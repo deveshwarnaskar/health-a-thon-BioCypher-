@@ -1,6 +1,7 @@
 import React from "react";
 import { Platform, StyleSheet, Text, TouchableOpacity, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, touchTarget, typography } from "../../../theming/tokens";
 import type { PatientTab } from "../types";
 
@@ -16,16 +17,47 @@ export type BottomNavProps = {
 type TabItem = {
   key: PatientTab;
   label: string;
-  icon: string;
+  iconActive: keyof typeof Ionicons.glyphMap;
+  iconInactive: keyof typeof Ionicons.glyphMap;
   accessibilityLabel: string;
 };
 
 const TABS: TabItem[] = [
-  { key: "home", label: "Home", icon: "🏠", accessibilityLabel: "Home tab" },
-  { key: "record", label: "Record", icon: "➕", accessibilityLabel: "Record health data" },
-  { key: "timeline", label: "Timeline", icon: "📈", accessibilityLabel: "Care timeline history" },
-  { key: "tasks", label: "Tasks", icon: "📋", accessibilityLabel: "Care tasks" },
-  { key: "you", label: "You", icon: "👤", accessibilityLabel: "Account and profile" },
+  {
+    key: "home",
+    label: "Home",
+    iconActive: "home",
+    iconInactive: "home-outline",
+    accessibilityLabel: "Home tab",
+  },
+  {
+    key: "record",
+    label: "Record",
+    iconActive: "add-circle",
+    iconInactive: "add-circle-outline",
+    accessibilityLabel: "Record health data",
+  },
+  {
+    key: "timeline",
+    label: "Timeline",
+    iconActive: "pulse",
+    iconInactive: "pulse-outline",
+    accessibilityLabel: "Care timeline history",
+  },
+  {
+    key: "tasks",
+    label: "Tasks",
+    iconActive: "checkbox",
+    iconInactive: "checkbox-outline",
+    accessibilityLabel: "Care tasks",
+  },
+  {
+    key: "you",
+    label: "You",
+    iconActive: "person",
+    iconInactive: "person-outline",
+    accessibilityLabel: "Account and profile",
+  },
 ];
 
 function useSafeInsetsFallback() {
@@ -95,13 +127,15 @@ export function BottomNav({ currentTab, onSelectTab, badgeCount }: BottomNavProp
       >
         {TABS.map((tab) => {
           const isSelected = currentTab === tab.key;
-          const isRecord = tab.key === "record";
           const count = tab.key === "tasks" ? badgeCount?.tasks : undefined;
 
           return (
             <TouchableOpacity
               key={tab.key}
-              style={[styles.tab, isSelected && styles.activeTab, isRecord && styles.recordTab]}
+              style={[
+                styles.tab,
+                isSelected && styles.activeTab,
+              ]}
               onPress={() => onSelectTab(tab.key)}
               accessibilityRole="tab"
               accessibilityState={{ selected: isSelected }}
@@ -109,16 +143,12 @@ export function BottomNav({ currentTab, onSelectTab, badgeCount }: BottomNavProp
               activeOpacity={0.7}
             >
               <View style={styles.iconContainer}>
-                <Text
-                  style={[
-                    styles.icon,
-                    isSelected && styles.activeIcon,
-                    isRecord && styles.recordIcon,
-                  ]}
-                  allowFontScaling
-                >
-                  {tab.icon}
-                </Text>
+                <Ionicons
+                  name={isSelected ? tab.iconActive : tab.iconInactive}
+                  size={22}
+                  color={isSelected ? colors.primary : "#64748B"}
+                  style={styles.icon}
+                />
                 {count && count > 0 ? (
                   <View style={styles.badge} accessibilityElementsHidden>
                     <Text style={styles.badgeText} allowFontScaling>
@@ -131,7 +161,6 @@ export function BottomNav({ currentTab, onSelectTab, badgeCount }: BottomNavProp
                 style={[
                   styles.label,
                   isSelected && styles.activeLabel,
-                  isRecord && styles.recordLabel,
                 ]}
                 allowFontScaling
               >
@@ -191,10 +220,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
   },
   activeTab: {
-    backgroundColor: colors.tileAqua,
-  },
-  recordTab: {
-    transform: [{ translateY: -2 }],
+    backgroundColor: "rgba(13, 148, 136, 0.10)",
   },
   iconContainer: {
     position: "relative",
@@ -202,30 +228,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   icon: {
-    fontSize: 20,
-    color: colors.textSecondary,
     marginBottom: 2,
   },
-  activeIcon: {
-    color: colors.primary,
-  },
-  recordIcon: {
-    fontSize: 22,
-    color: colors.primary,
-  },
   label: {
-    fontSize: typography.fontSize.caption,
-    lineHeight: typography.lineHeight.caption,
-    color: colors.textSecondary,
-    fontWeight: typography.weight.medium,
+    fontSize: 11,
+    lineHeight: 14,
+    color: "#64748B",
+    fontWeight: "500",
+    letterSpacing: 0.1,
   },
   activeLabel: {
     color: colors.primary,
-    fontWeight: typography.weight.bold,
-  },
-  recordLabel: {
-    color: colors.primary,
-    fontWeight: typography.weight.semibold,
+    fontWeight: "700",
   },
   badge: {
     position: "absolute",

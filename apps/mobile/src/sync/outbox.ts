@@ -7,7 +7,9 @@ export type OutboxMutationType =
   | "START_TASK"
   | "COMPLETE_TASK"
   | "REASSIGN_TASK"
-  | "CREATE_TASK";
+  | "CREATE_TASK"
+  | "ADMINISTER_MEDICATION"
+  | "UPLOAD_DOCUMENT";
 
 export type OutboxStatus =
   | "PENDING"

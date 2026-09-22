@@ -246,6 +246,8 @@ export class SyncCoordinator {
         if (mutation.mutationType === "COMPLETE_TASK") newStatus = "COMPLETED";
         await this.taskRepo.updateLocalStatus(mutation.localEntityId, newStatus, "SYNCED", nowIso);
       }
+    } else if (mutation.entityType === "document") {
+      await this.db.runAsync("DELETE FROM local_documents WHERE id = ?", [mutation.localEntityId]).catch(() => {});
     }
   }
 

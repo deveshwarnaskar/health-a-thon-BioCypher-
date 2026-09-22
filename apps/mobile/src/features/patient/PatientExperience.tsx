@@ -15,6 +15,9 @@ import { MedicationListModal } from "./components/MedicationListModal";
 import { DocumentViewerModal } from "./components/DocumentViewerModal";
 import { NotificationDrawer } from "./components/NotificationDrawer";
 import { ThaliAssistModal } from "./components/ThaliAssistModal";
+import { WhatsAppConnectModal } from "./components/WhatsAppConnectModal";
+import { WhatsAppConnectionFlowModal } from "./components/WhatsAppConnectionFlowModal";
+import { useWhatsAppIdentity } from "./useWhatsAppIdentity";
 import { useAuth } from "../../auth/AuthProvider";
 import { usePatientNotifications } from "./api";
 import { useCareTasks } from "../tasks/useCareTasks";
@@ -50,6 +53,25 @@ function PatientExperienceContent({
   const [showDocumentsModal, setShowDocumentsModal] = useState(false);
   const [showNotificationsDrawer, setShowNotificationsDrawer] = useState(false);
   const [showAssistModal, setShowAssistModal] = useState(false);
+  const [showWhatsAppFlowModal, setShowWhatsAppFlowModal] = useState(false);
+  const [hasDismissedOnboardingSession, setHasDismissedOnboardingSession] = useState(false);
+
+  // WhatsApp connection state
+  const {
+    data: whatsAppIdentity,
+    isLoading: isWALoading,
+    isOffline: isWAOffline,
+  } = useWhatsAppIdentity({ enabled: !!authUser });
+
+  // Every time a user signs in, prompt the onboarding modal until connected.
+  // Within an active session, dismissing with "Maybe later" lets the user browse freely.
+  const isWhatsAppConnected = whatsAppIdentity?.status === "connected";
+  const showWhatsAppOnboarding =
+    !!authUser &&
+    !isWhatsAppConnected &&
+    !hasDismissedOnboardingSession &&
+    !isWALoading &&
+    !isWAOffline;
 
   // Badge data
   const { data: notifications = [] } = usePatientNotifications(resolvedPatientId);
@@ -127,6 +149,7 @@ function PatientExperienceContent({
             onOpenNotifications={() => setShowNotificationsDrawer(true)}
             onOpenAssist={() => setShowAssistModal(true)}
             onSignOut={onSignOut}
+            onConnectWhatsApp={() => setShowWhatsAppFlowModal(true)}
           />
         ) : null}
 
@@ -160,6 +183,7 @@ function PatientExperienceContent({
             onNavigateToDocuments={() => setShowDocumentsModal(true)}
             onNavigateToNotifications={() => setShowNotificationsDrawer(true)}
             onOpenAssist={() => setShowAssistModal(true)}
+            onConnectWhatsApp={() => setShowWhatsAppFlowModal(true)}
           />
         ) : null}
       </View>
@@ -199,6 +223,28 @@ function PatientExperienceContent({
         onClose={() => setShowAssistModal(false)}
         onNavigateToRecords={() => setCurrentTab("timeline")}
         onNavigateToMeal={() => setActiveWorkflow("meal")}
+        patientId={resolvedPatientId}
+      />
+
+      {/* WhatsApp Connection Onboarding Modal */}
+      <WhatsAppConnectModal
+        visible={showWhatsAppOnboarding}
+        onConnect={() => {
+          setHasDismissedOnboardingSession(true);
+          setShowWhatsAppFlowModal(true);
+        }}
+        onDismiss={() => {
+          setHasDismissedOnboardingSession(true);
+        }}
+      />
+
+      {/* WhatsApp Interactive Connection Flow Modal */}
+      <WhatsAppConnectionFlowModal
+        visible={showWhatsAppFlowModal}
+        onClose={() => setShowWhatsAppFlowModal(false)}
+        onSuccess={() => {
+          setHasDismissedOnboardingSession(true);
+        }}
       />
     </SafeAreaView>
   );

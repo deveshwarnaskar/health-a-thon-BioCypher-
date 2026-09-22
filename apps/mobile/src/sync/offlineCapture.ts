@@ -193,4 +193,121 @@ export class OfflineCaptureService {
       sync_status: "WAITING_TO_SYNC",
     };
   }
+
+  /**
+   * Captures an offline medication administration (adherence) event into the outbox.
+   * Section 4.1.C & Section 30: Preserves idempotency key and offline state.
+   */
+  async captureMedicationAdministration(
+    context: LocalSessionContext,
+    medicationPlanId: string,
+    administeredAt: string,
+    idempotencyKey: string
+  ): Promise<{
+    medication_plan_id: string;
+    patient_id: string;
+    administered_at: string;
+    sync_status: "SAVED_LOCALLY";
+  }> {
+    const localId = secureUuid();
+    const nowIso = new Date().toISOString();
+
+    await this.outboxRepo.enqueue({
+      id: secureUuid(),
+      tenantId: context.tenantId,
+      userId: context.userId,
+      mutationType: "ADMINISTER_MEDICATION",
+      endpoint: "/api/v2/clinical/medication-administrations",
+      httpMethod: "POST",
+      payloadJson: JSON.stringify({
+        medication_plan_id: medicationPlanId,
+        administered_at: administeredAt,
+      }),
+      idempotencyKey,
+      localEntityId: localId,
+      entityType: "medication_administration",
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      nextRetryAt: null,
+      createdAt: nowIso,
+    });
+
+    return {
+      medication_plan_id: medicationPlanId,
+      patient_id: context.patientId ?? context.userId,
+      administered_at: administeredAt,
+      sync_status: "SAVED_LOCALLY",
+    };
+  }
+
+  /**
+   * Captures an offline document upload into local metadata table and outbox.
+   * Section 8 & Section 30: Document is queued locally and synced when online.
+   */
+  async captureDocumentUpload(
+    context: LocalSessionContext,
+    patientId: string,
+    document: {
+      filename: string;
+      mime_type: string;
+      content_base64: string;
+      kind?: string;
+    },
+    idempotencyKey: string
+  ): Promise<{
+    id: string;
+    filename: string;
+    kind: string;
+    sync_status: "SAVED_LOCALLY";
+  }> {
+    const localId = secureUuid();
+    const nowIso = new Date().toISOString();
+    const kind = document.kind ?? "chart_image";
+    const approxBytes = Math.round((document.content_base64.length * 3) / 4);
+
+    await this.db.withTransactionAsync(async () => {
+      // 1. Cache metadata locally in local_documents
+      await this.db.runAsync(
+        `INSERT INTO local_documents (
+          id, tenant_id, user_id, patient_id, kind, filename, file_size_bytes, content_type, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          localId,
+          context.tenantId,
+          context.userId,
+          patientId,
+          kind,
+          document.filename,
+          approxBytes,
+          document.mime_type,
+          nowIso,
+        ]
+      );
+
+      // 2. Enqueue in mutation outbox
+      await this.outboxRepo.enqueue({
+        id: secureUuid(),
+        tenantId: context.tenantId,
+        userId: context.userId,
+        mutationType: "UPLOAD_DOCUMENT",
+        endpoint: `/api/v2/clinical/patients/${encodeURIComponent(patientId)}/documents/upload`,
+        httpMethod: "POST",
+        payloadJson: JSON.stringify(document),
+        idempotencyKey,
+        localEntityId: localId,
+        entityType: "document",
+        lastErrorCode: null,
+        lastErrorMessage: null,
+        nextRetryAt: null,
+        createdAt: nowIso,
+      });
+    });
+
+    return {
+      id: localId,
+      filename: document.filename,
+      kind,
+      sync_status: "SAVED_LOCALLY",
+    };
+  }
 }

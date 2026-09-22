@@ -48,7 +48,20 @@ class ConfirmMealObservationHandler:
                 observation.carbs_grams = calc.carbs_grams
                 observation.glycemic_index = calc.glycemic_index
             except DomainError:
-                pass
+                from ...infrastructure.parsing.nutrition_taxonomy import (
+                    classify_text,
+                    estimate_nutrition,
+                )
+                items = classify_text(observation.description)
+                if items:
+                    portion_letter = "m"
+                    if observation.portion.katori.volume_ml == 150:
+                        portion_letter = "s"
+                    elif observation.portion.katori.volume_ml == 350:
+                        portion_letter = "l"
+                    nutrition = estimate_nutrition(items, portion_letter)
+                    observation.carbs_grams = nutrition.carbs_grams
+                    observation.glycemic_index = nutrition.gi_category
         self._uow.meal_observations.save(observation)
         self._events.publish(
             MealObservationConfirmed(

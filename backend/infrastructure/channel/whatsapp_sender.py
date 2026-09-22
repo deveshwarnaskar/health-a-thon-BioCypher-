@@ -33,14 +33,32 @@ class WhatsAppChannelSender:
         self,
         access_token: str | None = None,
         phone_number_id: str | None = None,
-        api_version: str = "v21.0",
+        api_version: str | None = None,
         base_url: str | None = None,
         timeout_seconds: float = 10.0,
     ) -> None:
-        self._access_token = access_token or ""
-        self._phone_number_id = phone_number_id or ""
-        self._base_url = base_url or self.GRAPH_BASE_URL
-        self._api_version = api_version
+        token = access_token
+        p_id = phone_number_id
+        version = api_version
+
+        if token is None or p_id is None or version is None:
+            try:
+                from config.settings import Settings
+
+                s = Settings()
+                if token is None:
+                    token = s.whatsapp.access_token
+                if p_id is None:
+                    p_id = s.whatsapp.phone_number_id
+                if version is None:
+                    version = s.whatsapp.api_version
+            except Exception:
+                pass
+
+        self._access_token = token or ""
+        self._phone_number_id = p_id or ""
+        self._base_url = (base_url or self.GRAPH_BASE_URL).rstrip("/")
+        self._api_version = version or "v25.0"
         self._timeout = timeout_seconds
 
     def send(self, message: OutboundMessage) -> DeliveryResult:
@@ -54,55 +72,125 @@ class WhatsAppChannelSender:
 
         payload: dict[str, Any] = {
             "messaging_product": "whatsapp",
-            "to": message.recipient_phone,
+            "recipient_type": "individual",
+            "to": message.recipient_phone.lstrip("+").strip(),
         }
-        if message.channel_type == "WHATSAPP":
-            if message.template_name and message.template_params:
-                payload["type"] = "template"
-                payload["template"] = {
-                    "name": message.template_name,
-                    "language": {"code": "en"},
-                    "components": [
+
+        interactive_type = message.template_params.get("interactive_type")
+        if interactive_type == "button":
+            # Interactive button message
+            button_1 = message.template_params.get("button_1", "Yes / Haan")
+            button_2 = message.template_params.get("button_2", "Cancel / Radd")
+            payload["type"] = "interactive"
+            payload["interactive"] = {
+                "type": "button",
+                "body": {"text": message.template_params.get("body", message.template_name)},
+                "action": {
+                    "buttons": [
                         {
-                            "type": "body",
-                            "parameters": [
-                                {"type": "text", "text": str(value)}
-                                for value in message.template_params.values()
-                            ],
-                        }
-                    ],
-                }
-            else:
-                payload["type"] = "text"
-                payload["text"] = {"body": message.template_params.get("body", message.template_name)}
+                            "type": "reply",
+                            "reply": {
+                                "id": message.template_params.get("button_1_id", "btn_confirm"),
+                                "title": button_1[:20],
+                            },
+                        },
+                        {
+                            "type": "reply",
+                            "reply": {
+                                "id": message.template_params.get("button_2_id", "btn_cancel"),
+                                "title": button_2[:20],
+                            },
+                        },
+                    ]
+                },
+            }
+        elif message.template_name and message.template_name not in ("text", "direct", "raw"):
+            # Template message
+            body_params = [
+                {"type": "text", "text": str(value)}
+                for key, value in message.template_params.items()
+                if not key.startswith("_") and key != "body"
+            ]
+            lang = message.template_params.get("_language", "en")
+            payload["type"] = "template"
+            components = []
+            if body_params:
+                components.append({"type": "body", "parameters": body_params})
+            payload["template"] = {
+                "name": message.template_name,
+                "language": {"code": lang},
+            }
+            if components:
+                payload["template"]["components"] = components
         else:
+            # Plain text message
             payload["type"] = "text"
-            payload["text"] = {"body": message.template_params.get("body", message.template_name)}
+            payload["text"] = {
+                "preview_url": False,
+                "body": message.template_params.get("body", message.template_name),
+            }
 
         url = f"{self._base_url}/{self._api_version}/{self._phone_number_id}/messages"
-        request = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self._access_token}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
+        headers = {
+            "Authorization": f"Bearer {self._access_token}",
+            "Content-Type": "application/json",
+            "User-Agent": "THALI-PLATE/1.0",
+        }
+        if message.correlation_id:
+            headers["X-Correlation-ID"] = str(message.correlation_id)
+
         if not url.startswith(("https://", "http://")):
             raise ValueError("URL must use http or https scheme")
 
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+
         try:
             with urllib.request.urlopen(request, timeout=self._timeout) as response:  # nosec B310
-                body = json.loads(response.read().decode("utf-8"))
-                response.raise_for_status() if hasattr(response, "raise_for_status") else None
+                raw_resp = response.read().decode("utf-8")
+                body = json.loads(raw_resp) if raw_resp else {}
         except urllib.error.HTTPError as exc:
             status = exc.code
-            err = f"provider_rejected_{status}" if 400 <= status < 500 else f"provider_transient_{status}"
-            self._record_failure(err)
-            return DeliveryResult(success=False, error_code=err, retryable=(status >= 500))
+            meta_code = None
+            meta_subcode = None
+            fbtrace_id = None
+            try:
+                err_text = exc.read().decode("utf-8")
+                err_json = json.loads(err_text)
+                meta_err = err_json.get("error", {})
+                meta_code = meta_err.get("code")
+                meta_subcode = meta_err.get("error_subcode")
+                fbtrace_id = meta_err.get("fbtrace_id")
+            except Exception:
+                pass
+
+            # Classification: retryable vs permanent (PHI-safe logging)
+            is_rate_limited = status == 429 or meta_code in (130429, 80007, 4)
+            is_transient_service = status >= 500 or meta_code in (131009, 131016, 1, 2)
+            retryable = is_rate_limited or is_transient_service
+
+            err_code = (
+                f"meta_code_{meta_code}"
+                if meta_code is not None
+                else f"provider_{'transient' if retryable else 'rejected'}_{status}"
+            )
+
+            logger.warning(
+                "whatsapp outbound failed: status=%d meta_code=%s meta_subcode=%s fbtrace_id=%s retryable=%s",
+                status,
+                meta_code,
+                meta_subcode,
+                fbtrace_id,
+                retryable,
+            )
+            self._record_failure(err_code)
+            return DeliveryResult(success=False, error_code=err_code, retryable=retryable)
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            logger.warning("whatsapp send transient failure: %s", exc)
+            logger.warning("whatsapp send transport failure: %s", type(exc).__name__)
             self._record_failure("transport_error")
             return DeliveryResult(success=False, error_code="transport_error", retryable=True)
         except json.JSONDecodeError as exc:
@@ -133,6 +221,37 @@ class WhatsAppChannelSender:
             reg.counter("dependency_failures_total").inc(dependency="whatsapp", error_type=error_code)
         except Exception:
             pass
+
+    def download_media(self, media_id: str) -> tuple[bytes, str] | None:
+        """Download media bytes and mime-type from Meta Graph API using the sender's access token."""
+        if not self._access_token or not media_id:
+            return None
+
+        meta_url = f"{self._base_url}/{self._api_version}/{media_id}"
+        req1 = urllib.request.Request(
+            meta_url,
+            headers={"Authorization": f"Bearer {self._access_token}"},
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(req1, timeout=self._timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                download_url = data.get("url")
+                mime_type = data.get("mime_type", "audio/ogg")
+                if not download_url:
+                    return None
+
+            req2 = urllib.request.Request(
+                download_url,
+                headers={"Authorization": f"Bearer {self._access_token}"},
+                method="GET",
+            )
+            with urllib.request.urlopen(req2, timeout=self._timeout) as resp2:
+                media_bytes = resp2.read()
+                return media_bytes, mime_type
+        except Exception as exc:
+            logger.warning("failed to download whatsapp media %s: %s", media_id, exc)
+            return None
 
 
 __all__ = ["WhatsAppChannelSender"]

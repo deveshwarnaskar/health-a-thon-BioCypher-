@@ -262,3 +262,95 @@ class ReminderScheduler:
             return notif
         finally:
             uow.close()
+
+    def schedule_caregiver_companion_nudges(
+        self,
+        tenant_id: UUID,
+        *,
+        limit: int = 50,
+        force_milestone: Any | None = None,
+    ) -> int:
+        """Evaluate chronobiological proactive caregiver touchpoints for tenant's patients.
+
+        Dispatches empathetic, human-like health companion nudges via WhatsApp
+        while strictly suppressing duplicates, honoring quiet hours, and respecting
+        clinical information asymmetry.
+        """
+        from backend.application.services.caregiver_companion import evaluate_patient_caregiver_nudge
+
+        uow = self._uow_factory(tenant_id)
+        events = self._events_factory(uow)
+        audit = self._audit_factory(uow)
+        now = self._clock.now()
+        scheduled_count = 0
+
+        try:
+            patients = uow.patients.list() if hasattr(uow.patients, "list") else []
+            for patient in patients:
+                if scheduled_count >= limit:
+                    break
+                if not getattr(patient, "active", True):
+                    continue
+
+                nudge = evaluate_patient_caregiver_nudge(
+                    patient,
+                    uow,
+                    now_utc=now,
+                    force_milestone=force_milestone,
+                )
+                if nudge is None:
+                    continue
+
+                notif = Notification(
+                    id=self._id_gen.new_uuid(),
+                    tenant_id=tenant_id,
+                    recipient_id=patient.id,
+                    recipient_phone=nudge.recipient_phone,
+                    patient_id=patient.id,
+                    notification_type=NotificationType.REMINDER,
+                    channel=NotificationChannel.WHATSAPP,
+                    template_name="text",
+                    template_params={
+                        "body": nudge.message_text,
+                        "milestone": nudge.milestone.value,
+                        "urgency": nudge.urgency,
+                    },
+                    status=NotificationStatus.QUEUED,
+                    created_at=now,
+                )
+                uow.notifications.add(notif)
+
+                events.publish(
+                    ChannelMessageQueued(
+                        message_id=notif.id,
+                        channel_type=notif.channel.value,
+                        recipient_phone=nudge.recipient_phone,
+                        template_name=notif.template_name,
+                        template_params=notif.template_params,
+                    )
+                )
+
+                audit.record(
+                    AuditEvent(
+                        tenant_id=tenant_id,
+                        actor_id=SYSTEM_WORKER_ACTOR_ID,
+                        actor_type=SYSTEM_WORKER_ACTOR_TYPE,
+                        action=AuditAction.CREATE.value,
+                        resource_type="NOTIFICATION",
+                        resource_id=str(notif.id),
+                        outcome="SUCCESS",
+                        provenance_metadata={
+                            "trigger": "scheduler_caregiver_nudge",
+                            "milestone": nudge.milestone.value,
+                            "patient_id": str(patient.id),
+                        },
+                    )
+                )
+                scheduled_count += 1
+
+            if scheduled_count > 0:
+                uow.commit()
+            return scheduled_count
+        finally:
+            uow.close()
+

@@ -19,6 +19,10 @@ function getEventIcon(type: TimelineEvent["type"]): string {
       return "💊";
     case "task":
       return "✓";
+    case "document":
+      return "📄";
+    default:
+      return "•";
   }
 }
 

@@ -19,10 +19,13 @@ from backend.interfaces.http.v2.clinical.router import clinical_router
 from backend.interfaces.http.v2.notifications import notifications_router
 from backend.interfaces.http.v2.patients.router import patients_router
 from backend.interfaces.http.v2.tasks.router import tasks_router
+from backend.interfaces.http.v2.ai import ai_router
 from backend.interfaces.http.v2.webhooks.router import webhook_router
+from backend.interfaces.http.v2.whatsapp import whatsapp_identity_router
 
 api_v2_router = APIRouter()
 api_v2_router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
+api_v2_router.include_router(ai_router, prefix="/ai", tags=["AI Services"])
 api_v2_router.include_router(caregivers_router, prefix="/caregivers", tags=["Caregivers"])
 api_v2_router.include_router(clinical_router, prefix="/clinical", tags=["Clinical"])
 api_v2_router.include_router(patients_router, prefix="/patients", tags=["Patients"])
@@ -35,5 +38,6 @@ api_v2_router.include_router(admin_facilities_router, prefix="/admin", tags=["Ad
 api_v2_router.include_router(admin_patients_router, prefix="/admin", tags=["Admin"])
 api_v2_router.include_router(admin_documents_router, prefix="/admin", tags=["Admin"])
 api_v2_router.include_router(webhook_router, prefix="/webhooks", tags=["Webhooks"])
+api_v2_router.include_router(whatsapp_identity_router, prefix="/whatsapp", tags=["WhatsApp"])
 
 

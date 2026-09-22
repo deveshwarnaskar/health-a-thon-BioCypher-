@@ -3,12 +3,19 @@ import { apiClient } from "../../services/api/client";
 import { medicationEndpoints } from "../../services/api/endpoints/medication";
 import { patientsEndpoints } from "../../services/api/endpoints/patients";
 import { notificationsEndpoints, buildNotificationsPath } from "../../services/api/endpoints/notifications";
+import { aiEndpoints } from "../../services/api/endpoints/ai";
 import { fetchObservationFeed } from "../glucose/api";
 import { fetchCareTasks } from "../tasks/api";
 import type { MedicationPlanListResponse, MedicationPlanResponse } from "../../services/schemas/medication";
 import type { NotificationListResponse, NotificationResponse } from "../../services/schemas/notifications";
+import type { ChatAiResponse, AnalyzeMealAiResponse } from "../../services/schemas/ai";
 import type { PatientDocument, TimelineEvent } from "./types";
 import { secureUuid } from "../../services/api/correlation";
+import { connectivityService } from "../../connectivity/connectivityService";
+import { localDatabase } from "../../db/database";
+import { localSessionIsolation } from "../../db/isolation";
+import { OfflineCaptureService } from "../../sync/offlineCapture";
+import { GlucoseRepository, MealRepository } from "../../db/repositories";
 
 export const patientQueryKeys = {
   medications: (patientId?: string | null) => ["patient", "medications", patientId ?? "self"] as const,
@@ -20,6 +27,7 @@ export const patientQueryKeys = {
 
 /**
  * Reads clinician-authored medication plans for the patient.
+ * The patient cannot modify plans, prescribe, or titrate (Section 4.1.B & 11).
  */
 export function usePatientMedications(patientId?: string | null, options?: { enabled?: boolean }) {
   return useQuery<MedicationPlanResponse[]>({
@@ -39,7 +47,8 @@ export function usePatientMedications(patientId?: string | null, options?: { ena
 }
 
 /**
- * Records a patient adherence event ("Mark as taken") against an active clinician-authored plan.
+ * Records a patient adherence event ("Mark as taken" / Two-stage response)
+ * against an active clinician-authored plan with transparent offline support (Section 4.1.C & 12).
  */
 export function useAdministerMedication(options?: {
   onSuccess?: () => void;
@@ -48,17 +57,60 @@ export function useAdministerMedication(options?: {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ medicationPlanId, administeredAt }: { medicationPlanId: string; administeredAt?: string }) => {
+    mutationFn: async ({
+      medicationPlanId,
+      administeredAt,
+    }: {
+      medicationPlanId: string;
+      administeredAt?: string;
+    }) => {
       const idempotencyKey = secureUuid();
-      return await apiClient.request({
-        method: medicationEndpoints.administer.method,
-        path: medicationEndpoints.administer.path,
-        idempotencyKey,
-        body: {
-          medication_plan_id: medicationPlanId,
-          administered_at: administeredAt ?? new Date().toISOString(),
-        },
-      });
+      const actualTime = administeredAt ?? new Date().toISOString();
+
+      // Offline capture path when disconnected
+      if (
+        !connectivityService.isOnline() &&
+        localDatabase.isOpen() &&
+        localSessionIsolation.hasContext()
+      ) {
+        const offlineService = new OfflineCaptureService(localDatabase.getDb());
+        const context = localSessionIsolation.getContext();
+        return await offlineService.captureMedicationAdministration(
+          context,
+          medicationPlanId,
+          actualTime,
+          idempotencyKey
+        );
+      }
+
+      try {
+        return await apiClient.request({
+          method: medicationEndpoints.administer.method,
+          path: medicationEndpoints.administer.path,
+          idempotencyKey,
+          body: {
+            medication_plan_id: medicationPlanId,
+            administered_at: actualTime,
+          },
+        });
+      } catch (err: any) {
+        // Fallback to local outbox on network drop
+        if (
+          (err?.kind === "NETWORK_ERROR" || !err?.httpStatus) &&
+          localDatabase.isOpen() &&
+          localSessionIsolation.hasContext()
+        ) {
+          const offlineService = new OfflineCaptureService(localDatabase.getDb());
+          const context = localSessionIsolation.getContext();
+          return await offlineService.captureMedicationAdministration(
+            context,
+            medicationPlanId,
+            actualTime,
+            idempotencyKey
+          );
+        }
+        throw err;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["patient"] });
@@ -88,6 +140,97 @@ export function usePatientDocuments(patientId?: string | null, options?: { enabl
 }
 
 /**
+ * Uploads a document or lab report with offline outbox queuing fallback (Section 8 & 30).
+ */
+export function useUploadPatientDocument(
+  patientId?: string | null,
+  options?: {
+    onSuccess?: () => void;
+    onError?: (err: unknown) => void;
+  }
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      filename,
+      mimeType,
+      contentBase64,
+      kind,
+    }: {
+      filename: string;
+      mimeType: string;
+      contentBase64: string;
+      kind?: string;
+    }) => {
+      const resolved = patientId || "me";
+      const idempotencyKey = secureUuid();
+
+      if (
+        !connectivityService.isOnline() &&
+        localDatabase.isOpen() &&
+        localSessionIsolation.hasContext()
+      ) {
+        const offlineService = new OfflineCaptureService(localDatabase.getDb());
+        const context = localSessionIsolation.getContext();
+        return await offlineService.captureDocumentUpload(
+          context,
+          resolved,
+          {
+            filename,
+            mime_type: mimeType,
+            content_base64: contentBase64,
+            kind,
+          },
+          idempotencyKey
+        );
+      }
+
+      try {
+        return await apiClient.request({
+          method: "POST",
+          path: `/api/v2/clinical/patients/${encodeURIComponent(resolved)}/documents/upload`,
+          idempotencyKey,
+          body: {
+            filename,
+            mime_type: mimeType,
+            content_base64: contentBase64,
+            kind: kind ?? "chart_image",
+          },
+        });
+      } catch (err: any) {
+        if (
+          (err?.kind === "NETWORK_ERROR" || !err?.httpStatus) &&
+          localDatabase.isOpen() &&
+          localSessionIsolation.hasContext()
+        ) {
+          const offlineService = new OfflineCaptureService(localDatabase.getDb());
+          const context = localSessionIsolation.getContext();
+          return await offlineService.captureDocumentUpload(
+            context,
+            resolved,
+            {
+              filename,
+              mime_type: mimeType,
+              content_base64: contentBase64,
+              kind,
+            },
+            idempotencyKey
+          );
+        }
+        throw err;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: patientQueryKeys.documents(patientId) });
+      queryClient.invalidateQueries({ queryKey: patientQueryKeys.timeline(patientId) });
+      options?.onSuccess?.();
+    },
+    onError: options?.onError,
+  });
+}
+
+/**
  * Reads assistive notifications for the patient.
  */
 export function usePatientNotifications(patientId?: string | null, options?: { enabled?: boolean }) {
@@ -111,7 +254,8 @@ export function usePatientNotifications(patientId?: string | null, options?: { e
 }
 
 /**
- * Builds a unified chronological timeline feed merging glucose, meals, and tasks.
+ * Builds a unified chronological timeline feed merging glucose, meals, medication, tasks,
+ * and locally persisted offline events (Section 9, 30, 47).
  */
 export function useUnifiedTimeline(patientId?: string | null, options?: { enabled?: boolean }) {
   return useQuery<TimelineEvent[]>({
@@ -119,16 +263,32 @@ export function useUnifiedTimeline(patientId?: string | null, options?: { enable
     queryFn: async () => {
       if (!patientId) return [];
 
-      const [observationsFeed, tasksResponse] = await Promise.all([
+      const [observationsFeed, tasksResponse, documentsResponse, plansResponse] = await Promise.all([
         fetchObservationFeed(patientId, 40).catch(() => ({ patient_id: patientId, items: [] })),
         fetchCareTasks({ patient_id: patientId, limit: 30 }).catch(() => ({ total: 0, items: [] })),
+        apiClient
+          .request<{ total: number; items: PatientDocument[] }>({
+            method: patientsEndpoints.documents.method,
+            path: patientsEndpoints.documents.path(patientId),
+          })
+          .catch(() => ({ total: 0, items: [] })),
+        apiClient
+          .request<MedicationPlanListResponse>({
+            method: medicationEndpoints.plans.method,
+            path: medicationEndpoints.plans.path,
+            schema: medicationEndpoints.plans.responseSchema,
+          })
+          .catch(() => ({ total: 0, items: [] })),
       ]);
 
       const events: TimelineEvent[] = [];
+      const seenGlucoseKeys = new Set<string>();
+      const seenMealKeys = new Set<string>();
 
-      // Process Observations (Glucose & Meals)
+      // 1. Process Remote Observations (Glucose & Meals)
       for (const item of observationsFeed.items) {
         if (item.kind === "glucose") {
+          seenGlucoseKeys.add(item.taken_at);
           const date = item.taken_at;
           const ctx = item.tag ? item.tag.replace("_", " ").toLowerCase() : "reading";
           events.push({
@@ -142,6 +302,7 @@ export function useUnifiedTimeline(patientId?: string | null, options?: { enable
             raw: item,
           });
         } else if (item.kind === "meal") {
+          seenMealKeys.add(item.recorded_at);
           const date = item.recorded_at;
           const portion = item.portion_label || "Standard portion";
           events.push({
@@ -157,7 +318,102 @@ export function useUnifiedTimeline(patientId?: string | null, options?: { enable
         }
       }
 
-      // Process Tasks
+      // 2. Query Local Encrypted SQLite for offline or unsynced records (Gate 10O / Section 30)
+      if (localDatabase.isOpen() && localSessionIsolation.hasContext()) {
+        try {
+          const ctx = localSessionIsolation.getContext();
+          const glucoseRepo = new GlucoseRepository(localDatabase.getDb());
+          const mealRepo = new MealRepository(localDatabase.getDb());
+
+          const [localGlucose, localMeals] = await Promise.all([
+            glucoseRepo.findByPatient(ctx, patientId).catch(() => []),
+            mealRepo.findByPatient(ctx, patientId).catch(() => []),
+          ]);
+
+          for (const lg of localGlucose) {
+            if (!seenGlucoseKeys.has(lg.takenAt)) {
+              seenGlucoseKeys.add(lg.takenAt);
+              const tagStr = lg.tag ? lg.tag.replace("_", " ").toLowerCase() : "reading";
+              events.push({
+                id: `local-glucose-${lg.localId}`,
+                type: "glucose",
+                title: `${lg.valueMgDl} mg/dL`,
+                subtitle: `Blood Glucose · ${tagStr.charAt(0).toUpperCase() + tagStr.slice(1)}`,
+                timestamp: lg.takenAt,
+                status: lg.syncStatus === "SYNCED" ? "SYNCED" : "SAVED_LOCALLY",
+                details: { value: lg.valueMgDl, tag: lg.tag },
+              });
+            }
+          }
+
+          for (const lm of localMeals) {
+            if (!seenMealKeys.has(lm.recordedAt)) {
+              seenMealKeys.add(lm.recordedAt);
+              events.push({
+                id: `local-meal-${lm.localId}`,
+                type: "meal",
+                title: lm.description,
+                subtitle: `Meal logged · ${lm.portionSize || "Standard portion"}`,
+                timestamp: lm.recordedAt,
+                status: lm.syncStatus === "SYNCED" ? "SYNCED" : "SAVED_LOCALLY",
+                details: { description: lm.description, portion: lm.portionSize },
+              });
+            }
+          }
+
+          // 2c. Query local offline documents (Gate 10N / Section 12)
+          const localDocs: any[] = await localDatabase.getDb().getAllAsync(
+            "SELECT id, filename, kind, file_size_bytes, created_at FROM local_documents WHERE tenant_id = ? AND user_id = ?",
+            [ctx.tenantId, ctx.userId]
+          ).catch(() => []);
+
+          const seenDocNames = new Set((documentsResponse.items || []).map((d: PatientDocument) => d.filename));
+
+          for (const ld of localDocs) {
+            if (!seenDocNames.has(ld.filename)) {
+              seenDocNames.add(ld.filename);
+              const kindLabel =
+                ld.kind === "lab_report"
+                  ? "Lab Report"
+                  : ld.kind === "prescription"
+                    ? "Prescription"
+                    : "Clinical Document";
+              events.push({
+                id: `local-doc-${ld.id}`,
+                type: "document",
+                title: ld.filename,
+                subtitle: `${kindLabel} · Saved locally`,
+                timestamp: ld.created_at,
+                status: "SAVED_LOCALLY",
+                details: { filename: ld.filename, kind: ld.kind, size: ld.file_size_bytes },
+              });
+            }
+          }
+
+          // 2d. Query local offline medication administrations from outbox (Gate 10O / Section 12)
+          const pendingMeds: any[] = await localDatabase.getDb().getAllAsync(
+            "SELECT id, payload_json, created_at FROM mutation_outbox WHERE tenant_id = ? AND user_id = ? AND mutation_type = 'ADMINISTER_MEDICATION' AND sync_status != 'SYNCED'",
+            [ctx.tenantId, ctx.userId]
+          ).catch(() => []);
+
+          for (const pm of pendingMeds) {
+            try {
+              const payload = JSON.parse(pm.payload_json);
+              events.push({
+                id: `local-med-admin-${pm.id}`,
+                type: "medication",
+                title: "Medication Dose Administered",
+                subtitle: "Recorded offline · Pending server sync",
+                timestamp: payload.administered_at || pm.created_at,
+                status: "SAVED_LOCALLY",
+                details: { medication_plan_id: payload.medication_plan_id, administered_at: payload.administered_at },
+              });
+            } catch {}
+          }
+        } catch {}
+      }
+
+      // 3. Process Tasks
       for (const t of tasksResponse.items) {
         const date = t.completed_at || t.due_at || t.created_at;
         const isDone = t.status === "completed";
@@ -173,7 +429,37 @@ export function useUnifiedTimeline(patientId?: string | null, options?: { enable
         });
       }
 
-      // Sort descending by timestamp
+      // 4. Process Prescribed Medication Plans (Clinician-authored)
+      const patientPlans = (plansResponse.items || []).filter(
+        (p) => !p.patient_id || p.patient_id === patientId
+      );
+      for (const plan of patientPlans) {
+        events.push({
+          id: `medplan-${plan.medication_plan_id}`,
+          type: "medication",
+          title: plan.medication,
+          subtitle: `Prescription · ${plan.instruction || "Take as prescribed"}`,
+          timestamp: plan.created_at,
+          status: "SYNCED",
+          details: { medication: plan.medication, instruction: plan.instruction },
+          raw: plan,
+        });
+      }
+
+      // 5. Process Clinical Documents
+      for (const doc of documentsResponse.items || []) {
+        events.push({
+          id: `doc-${doc.id}`,
+          type: "task",
+          title: doc.filename,
+          subtitle: `Document · ${doc.kind || "Clinical Report"}`,
+          timestamp: doc.created_at,
+          status: "SYNCED",
+          details: { kind: doc.kind, filename: doc.filename },
+        });
+      }
+
+      // Sort descending by timestamp / occurred_at
       return events.sort(
         (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
       );
@@ -182,3 +468,37 @@ export function useUnifiedTimeline(patientId?: string | null, options?: { enable
     staleTime: 10_000,
   });
 }
+
+/**
+ * Communicates with the live Sarvam AI Health Assistant (POST /api/v2/ai/chat).
+ * Empathetic Indic health dialogue with emergency triage & ICMR boundary guards.
+ */
+export function useSarvamChat() {
+  return useMutation<ChatAiResponse, Error, { message: string; patientName?: string }>({
+    mutationFn: async ({ message, patientName }) => {
+      return apiClient.request<ChatAiResponse>({
+        method: aiEndpoints.chat.method,
+        path: aiEndpoints.chat.path,
+        body: { message, patient_name: patientName },
+        schema: aiEndpoints.chat.responseSchema,
+      });
+    },
+  });
+}
+
+/**
+ * Analyzes Indian meals using ICMR-NIN tables and Sarvam LLM (POST /api/v2/ai/analyze-meal).
+ */
+export function useSarvamMealAnalysis() {
+  return useMutation<AnalyzeMealAiResponse, Error, { description: string; patientName?: string }>({
+    mutationFn: async ({ description, patientName }) => {
+      return apiClient.request<AnalyzeMealAiResponse>({
+        method: aiEndpoints.analyzeMeal.method,
+        path: aiEndpoints.analyzeMeal.path,
+        body: { description, patient_name: patientName },
+        schema: aiEndpoints.analyzeMeal.responseSchema,
+      });
+    },
+  });
+}
+

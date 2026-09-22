@@ -36,6 +36,7 @@ class NotificationType(str, Enum):
     TASK_ASSIGNED = "task_assigned"
     CARE_UPDATE = "care_update"
     CLINICAL_COMMUNICATION = "clinical_communication"
+    WELCOME = "welcome"
 
 
 _TRANSITIONS: dict[NotificationStatus, set[NotificationStatus]] = {

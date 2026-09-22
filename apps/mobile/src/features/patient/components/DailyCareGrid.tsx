@@ -1,5 +1,6 @@
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, typography } from "../../../theming/tokens";
 
 export type DailyCareItem = {
@@ -8,7 +9,7 @@ export type DailyCareItem = {
   title: string;
   value: string;
   subtext: string;
-  icon: string;
+  icon?: string;
   statusBadge?: string;
   onPress: () => void;
 };
@@ -30,6 +31,19 @@ function cardBackground(category: DailyCareItem["category"]) {
   }
 }
 
+function CategoryIcon({ category }: { category: DailyCareItem["category"] }) {
+  switch (category) {
+    case "glucose":
+      return <Ionicons name="water-outline" size={22} color="#92400E" />;
+    case "meals":
+      return <Ionicons name="restaurant-outline" size={22} color="#065F46" />;
+    case "medication":
+      return <Ionicons name="medkit-outline" size={22} color="#3730A3" />;
+    case "tasks":
+      return <Ionicons name="checkbox-outline" size={22} color="#9D174D" />;
+  }
+}
+
 export function DailyCareGrid({ items }: DailyCareGridProps) {
   return (
     <View style={styles.grid}>
@@ -47,9 +61,7 @@ export function DailyCareGrid({ items }: DailyCareGridProps) {
           }
         >
           <View style={styles.topRow}>
-            <Text style={styles.icon} allowFontScaling>
-              {item.icon}
-            </Text>
+            <CategoryIcon category={item.category} />
             {item.statusBadge ? (
               <View style={styles.badge}>
                 <Text style={styles.badgeText} allowFontScaling>

@@ -7,7 +7,7 @@ nothing sensitive is embedded in source control.
 
 from typing import List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -72,14 +72,25 @@ class WhatsAppConfig(BaseModel):
     verify_token: str = Field(default="")
     app_secret: str = Field(default="")
     access_token: str = Field(default="")
-    phone_number_id: str = Field(default="")
+    phone_number_id: str = Field(default="", description="Numeric phone number ID (live +91 99035 46271 via .env)")
+    business_account_id: str = Field(default="")
     api_version: str = Field(default="v21.0")
+    test_number_mode: bool = Field(default=False, description="Enable test number dev mapping (never for live 24x7)")
+    welcome_template_names: str = Field(
+        default="thali_welcome,thali_welcome_greeting,hello_world",
+        description="Comma-separated preferred WhatsApp welcome templates; first APPROVED wins, else free-form text",
+    )
 
 
 class AIConfig(BaseModel):
     provider: str = Field(default="deterministic")
     model: str = Field(default="")
     api_key: str = Field(default="")
+    sarvam_api_key: str = Field(default="")
+    sarvam_model: str = Field(default="sarvam-105b-conversations")
+    sarvam_base_url: str = Field(default="https://api.sarvam.ai")
+    sarvam_asr_model: str = Field(default="saaras:v3")
+    sarvam_tts_model: str = Field(default="bulbul:v3")
 
 
 class ObservabilityConfig(BaseModel):
@@ -123,6 +134,31 @@ class Settings(BaseSettings):
     ai: AIConfig = AIConfig()
     observability: ObservabilityConfig = ObservabilityConfig()
     security: SecurityConfig = SecurityConfig()
+
+    @model_validator(mode="after")
+    def _apply_env_fallbacks(self) -> "Settings":
+        import os
+        if not self.whatsapp.access_token and os.getenv("WHATSAPP_ACCESS_TOKEN"):
+            self.whatsapp.access_token = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
+        if os.getenv("WHATSAPP_PHONE_NUMBER_ID"):
+            self.whatsapp.phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+        if os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID"):
+            self.whatsapp.business_account_id = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID", "")
+        if not self.whatsapp.app_secret and os.getenv("WHATSAPP_APP_SECRET"):
+            self.whatsapp.app_secret = os.getenv("WHATSAPP_APP_SECRET", "")
+        if not self.whatsapp.verify_token and (os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN") or os.getenv("WHATSAPP_VERIFY_TOKEN")):
+            self.whatsapp.verify_token = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN") or os.getenv("WHATSAPP_VERIFY_TOKEN", "")
+        if os.getenv("WHATSAPP_API_VERSION"):
+            self.whatsapp.api_version = os.getenv("WHATSAPP_API_VERSION", "")
+        if not self.ai.sarvam_api_key and os.getenv("SARVAM_API_KEY"):
+            self.ai.sarvam_api_key = os.getenv("SARVAM_API_KEY", "")
+        if not self.ai.sarvam_api_key and os.getenv("THALI_SARVAM_API_KEY"):
+            self.ai.sarvam_api_key = os.getenv("THALI_SARVAM_API_KEY", "")
+        if not self.ai.sarvam_api_key and self.ai.provider == "sarvam" and self.ai.api_key:
+            self.ai.sarvam_api_key = self.ai.api_key
+        if os.getenv("SARVAM_MODEL"):
+            self.ai.sarvam_model = os.getenv("SARVAM_MODEL", "sarvam-m")
+        return self
 
 
 class SecurityConfigurationError(ValueError):

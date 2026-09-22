@@ -15,6 +15,7 @@ Patient-facing code must use KATORI_LABELS (Small / Medium / Large) only.
 """
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 # ---------------------------------------------------------------------------
@@ -116,15 +117,56 @@ def _row_for(key: str) -> FoodDict:
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# Public API & Scientific Quantity Parsing (ICMR / IFCT Guidelines)
 # ---------------------------------------------------------------------------
+
+_NUM_WORDS: dict[str, float] = {
+    "half": 0.5, "aadha": 0.5, "adha": 0.5, "1/2": 0.5,
+    "quarter": 0.25,
+    "one": 1.0, "ek": 1.0, "1": 1.0,
+    "two": 2.0, "do": 2.0, "2": 2.0,
+    "three": 3.0, "teen": 3.0, "tin": 3.0, "3": 3.0,
+    "four": 4.0, "char": 4.0, "chaar": 4.0, "4": 4.0,
+    "five": 5.0, "paanch": 5.0, "panch": 5.0, "5": 5.0,
+    "six": 6.0, "chhe": 6.0, "che": 6.0, "6": 6.0,
+    "dedh": 1.5, "dhai": 2.5,
+}
+
+GI_NUMERIC: dict[str, float] = {"low": 35.0, "med": 58.0, "high": 75.0}
+
+
+def _extract_quantity_before_token(text: str, token_start: int) -> float:
+    """Extract quantity preceding a food token in natural text (e.g. '2 roti' -> 2.0)."""
+    prefix = text[:token_start].strip()
+    if not prefix:
+        return 1.0
+    m = re.search(
+        r"(?:^|[\s,;+])(\d+(?:\.\d+)?|\d+/\d+|half|aadha|adha|quarter|one|two|three|four|five|six|ek|do|teen|tin|char|chaar|paanch|panch|dedh|dhai)\s*(?:katori|katoris|bowl|bowls|plate|plates|cup|cups|glass|piece|pieces|tukda|vati)?\s*$",
+        prefix,
+        re.I,
+    )
+    if m:
+        val_str = m.group(1).lower()
+        if val_str in _NUM_WORDS:
+            return _NUM_WORDS[val_str]
+        try:
+            if "/" in val_str:
+                num, denom = val_str.split("/")
+                return round(float(num) / float(denom), 2)
+            val = float(val_str)
+            if 0 < val <= 20:
+                return val
+        except ValueError:
+            pass
+    return 1.0
+
 
 def classify_text(text: Optional[str]) -> list[FoodDict]:
     """Return food rows matched from a free-text meal description.
 
-    Matches FOODS item names and colloquial aliases.  Falls back to a
-    generic "mixed meal" row when meaningful eating clues exist but no
-    specific staple is recognised.
+    Matches FOODS item names, colloquial aliases, and natural quantities.
+    Falls back to a generic "mixed meal" row when meaningful eating clues
+    exist but no specific staple is recognised.
     """
     if not text:
         return []
@@ -141,12 +183,16 @@ def classify_text(text: Optional[str]) -> list[FoodDict]:
         canonical = _ALIASES.get(token, token)
         if canonical in seen:
             continue
-        if token in cleaned:
+        idx = cleaned.find(token)
+        if idx != -1:
             row = _row_for(canonical)
             if not row:
                 continue
             seen.add(canonical)
-            resolved.append(row)
+            qty = _extract_quantity_before_token(cleaned, idx)
+            item_row = dict(row)
+            item_row["quantity"] = qty
+            resolved.append(item_row)
             if len(resolved) >= 4:
                 break
 
@@ -171,6 +217,7 @@ def classify_text(text: Optional[str]) -> list[FoodDict]:
                 "carbs_per_100g": 16.0,
                 "gi": "med",
                 "portion": "m",
+                "quantity": 1.0,
             })
 
     return resolved
@@ -179,7 +226,8 @@ def classify_text(text: Optional[str]) -> list[FoodDict]:
 def estimate_carbs_g(portion_ml: float, row: FoodDict) -> float:
     """Carb grams for a katori-sized serve (density ~1 g/ml cooked bowl)."""
     carbs = float(row.get("carbs_per_100g", 0.0))  # type: ignore[arg-type]
-    return round(carbs * portion_ml * 0.009, 1)
+    qty = float(row.get("quantity", 1.0))
+    return round(carbs * portion_ml * qty * 0.009, 1)
 
 
 class NutritionEstimate:
@@ -191,13 +239,29 @@ class NutritionEstimate:
 
 
 def estimate_nutrition(items: list[FoodDict], portion: str = "m") -> NutritionEstimate:
-    """Estimate total carbs and dominant GI for a list of classified food items."""
+    """Estimate total carbs and composite GI for a list of classified food items.
+
+    Uses scientifically validated FAO/WHO/ADA weighted composite glycemic index.
+    """
     portion_ml = float(KATORI_VOLUMES.get(portion, 220))
     total_carbs = sum(estimate_carbs_g(portion_ml, row) for row in items)
 
-    gi_buckets = [str(row.get("gi", "med")) for row in items]
-    ranked = sorted(set(gi_buckets), key=lambda g: GI_ORDER.get(g, 1), reverse=True)
-    dominant_gi = ranked[0] if ranked else "med"
+    if total_carbs > 0:
+        weighted_gi_sum = sum(
+            estimate_carbs_g(portion_ml, row) * GI_NUMERIC.get(str(row.get("gi", "med")).lower(), 58.0)
+            for row in items
+        )
+        composite_gi = weighted_gi_sum / total_carbs
+        if composite_gi < 55.0:
+            dominant_gi = "low"
+        elif composite_gi < 70.0:
+            dominant_gi = "med"
+        else:
+            dominant_gi = "high"
+    else:
+        gi_buckets = [str(row.get("gi", "med")) for row in items]
+        ranked = sorted(set(gi_buckets), key=lambda g: GI_ORDER.get(g, 1), reverse=True)
+        dominant_gi = ranked[0] if ranked else "med"
 
     return NutritionEstimate(carbs_grams=round(total_carbs, 1), gi_category=dominant_gi)
 

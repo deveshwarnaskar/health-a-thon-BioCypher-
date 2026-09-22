@@ -58,13 +58,41 @@ class SqlAlchemyChannelTenantResolver:
                     return row
 
             # Non-PostgreSQL fallback (also used if the routing function is absent).
+            plus_normalized = "+" + normalized.lstrip("+")
+            plain_digits = normalized.lstrip("+")
+            last10 = plain_digits[-10:] if len(plain_digits) >= 10 else plain_digits
             stmt = (
                 select(PatientModel.id, PatientModel.tenant_id)
-                .where(PatientModel.phone == normalized, PatientModel.active.is_(True))
+                .where(
+                    (PatientModel.phone == normalized)
+                    | (PatientModel.phone == plus_normalized)
+                    | (PatientModel.phone.endswith(last10)),
+                    PatientModel.active.is_(True),
+                )
+                .order_by(PatientModel.created_at.desc())
                 .limit(1)
             )
             result = session.execute(stmt).first()
             if result is None:
+                try:
+                    from config.settings import Settings
+
+                    s = Settings()
+                    if s.whatsapp.test_number_mode:
+                        test_stmt = (
+                            select(PatientModel.id, PatientModel.tenant_id)
+                            .where(PatientModel.active.is_(True))
+                            .order_by(PatientModel.created_at.desc())
+                            .limit(1)
+                        )
+                        test_result = session.execute(test_stmt).first()
+                        if test_result is not None:
+                            return ResolvedChannelPatient(
+                                tenant_id=UUID(str(test_result.tenant_id)),
+                                patient_id=UUID(str(test_result.id)),
+                            )
+                except Exception:
+                    pass
                 return None
             return ResolvedChannelPatient(
                 tenant_id=UUID(str(result.tenant_id)),
@@ -83,10 +111,28 @@ class SqlAlchemyChannelTenantResolver:
         try:
             stmt = text("SELECT tenant_id, patient_id FROM public.resolve_channel_tenant(:phone)")
             row = session.execute(stmt, {"phone": normalized}).first()
+            if row is None and not normalized.startswith("+"):
+                row = session.execute(stmt, {"phone": "+" + normalized}).first()
         except Exception:
             session.rollback()
             return None
         if row is None:
+            try:
+                from config.settings import Settings
+
+                s = Settings()
+                if s.whatsapp.test_number_mode:
+                    stmt2 = text(
+                        "SELECT tenant_id, id AS patient_id FROM public.patients WHERE active = true ORDER BY created_at DESC LIMIT 1"
+                    )
+                    test_row = session.execute(stmt2).first()
+                    if test_row is not None:
+                        return ResolvedChannelPatient(
+                            tenant_id=UUID(str(test_row[0])),
+                            patient_id=UUID(str(test_row[1])),
+                        )
+            except Exception:
+                pass
             return None
         return ResolvedChannelPatient(
             tenant_id=UUID(str(row[0])),

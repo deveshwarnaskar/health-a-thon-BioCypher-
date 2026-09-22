@@ -202,6 +202,34 @@ class WhatsAppInboundResponse(BaseModel):
     message: str = "Webhook event accepted for processing"
 
 
+class WhatsAppIdentityResponse(BaseModel):
+    model_config = _STRICT
+    status: Literal["connected", "not_connected", "pending", "failed"]
+    phone_number: str | None = None
+    phone_number_masked: str | None = None
+    verified_at: str | None = None
+    capabilities: list[str] = Field(default_factory=lambda: ["health_logging", "food_logging", "voice_messages"])
+
+
+class WhatsAppRequestVerificationRequest(BaseModel):
+    model_config = _STRICT
+    phone_number: str
+
+
+class WhatsAppRequestVerificationResponse(BaseModel):
+    model_config = _STRICT
+    success: bool = True
+    phone_number: str
+    expires_in_seconds: int = 600
+    dev_code: str | None = None
+
+
+class WhatsAppVerifyCodeRequest(BaseModel):
+    model_config = _STRICT
+    phone_number: str
+    code: str
+
+
 # ─── Caregiver Relationship (Gate 08) ────────────────────────────────────────
 
 

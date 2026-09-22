@@ -12,10 +12,12 @@ import { PatientScreenHeader } from "../components/PatientScreenHeader";
 import { TodaySummaryCard, type TodayItem } from "../components/TodaySummaryCard";
 import { DailyCareGrid, type DailyCareItem } from "../components/DailyCareGrid";
 import { TimelineItemRow } from "../components/TimelineItemRow";
+import { WhatsAppHomeCard } from "../components/WhatsAppHomeCard";
 import { useGlucoseFeed } from "../../glucose/useGlucoseFeed";
 import { usePatientMeals } from "../../meals/usePatientMeals";
 import { usePatientMedications, useUnifiedTimeline, usePatientNotifications } from "../api";
 import { useCareTasks } from "../../tasks/useCareTasks";
+import { useWhatsAppIdentity } from "../useWhatsAppIdentity";
 
 export type HomeTabProps = {
   patientId: string | null;
@@ -27,6 +29,7 @@ export type HomeTabProps = {
   onOpenNotifications: () => void;
   onOpenAssist: () => void;
   onSignOut?: () => void;
+  onConnectWhatsApp?: () => void;
 };
 
 export function HomeTab({
@@ -39,6 +42,7 @@ export function HomeTab({
   onOpenNotifications,
   onOpenAssist,
   onSignOut,
+  onConnectWhatsApp,
 }: HomeTabProps) {
   const glucoseFeed = useGlucoseFeed(patientId);
   const mealsFeed = usePatientMeals(patientId);
@@ -46,6 +50,7 @@ export function HomeTab({
   const tasksQuery = useCareTasks({ patient_id: patientId ?? undefined });
   const timelineQuery = useUnifiedTimeline(patientId);
   const notificationsQuery = usePatientNotifications(patientId);
+  const whatsAppQuery = useWhatsAppIdentity();
 
   const [isRefreshing, setIsRefreshing] = React.useState(false);
 
@@ -59,6 +64,7 @@ export function HomeTab({
         tasksQuery.refetch(),
         timelineQuery.refetch(),
         notificationsQuery.refetch(),
+        whatsAppQuery.refetch(),
       ]);
     } finally {
       setIsRefreshing(false);
@@ -211,6 +217,11 @@ export function HomeTab({
 
         {/* Section 1: Today Summary Card */}
         <TodaySummaryCard items={todayItems} />
+
+        {/* WhatsApp Connection Card (shown when not connected) */}
+        {whatsAppQuery.data?.status === "not_connected" ? (
+          <WhatsAppHomeCard onConnect={onConnectWhatsApp ?? (() => {})} />
+        ) : null}
 
         {/* Section 2: Daily Care Cards */}
         <View style={styles.section}>

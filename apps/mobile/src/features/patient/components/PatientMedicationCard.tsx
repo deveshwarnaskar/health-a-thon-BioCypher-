@@ -3,10 +3,13 @@ import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { colors, radii, spacing, touchTarget, typography } from "../../../theming/tokens";
 import type { MedicationPlanResponse } from "../../../services/schemas/medication";
 
+export type MedicationAdherenceAction = "NOW" | "ON_TIME" | "SKIPPED" | "SNOOZE";
+
 export type PatientMedicationCardProps = {
   plan: MedicationPlanResponse;
   isTaken?: boolean;
-  onMarkTaken?: (planId: string) => void;
+  adherenceStatus?: "TAKEN" | "SKIPPED" | "SNOOZED" | null;
+  onMarkTaken?: (planId: string, action?: MedicationAdherenceAction, administeredAt?: string) => void;
   isMarking?: boolean;
   onPressDetail?: (plan: MedicationPlanResponse) => void;
 };
@@ -14,10 +17,50 @@ export type PatientMedicationCardProps = {
 export function PatientMedicationCard({
   plan,
   isTaken = false,
+  adherenceStatus,
   onMarkTaken,
   isMarking = false,
   onPressDetail,
 }: PatientMedicationCardProps) {
+  const currentStatus = adherenceStatus ?? (isTaken ? "TAKEN" : null);
+
+  const renderBadge = () => {
+    if (currentStatus === "TAKEN") {
+      return (
+        <View style={[styles.statusBadge, styles.statusBadgeTaken]}>
+          <Text style={[styles.statusText, styles.statusTextTaken]} allowFontScaling>
+            ✓ Taken
+          </Text>
+        </View>
+      );
+    }
+    if (currentStatus === "SKIPPED") {
+      return (
+        <View style={[styles.statusBadge, styles.statusBadgeSkipped]}>
+          <Text style={[styles.statusText, styles.statusTextSkipped]} allowFontScaling>
+            Skipped
+          </Text>
+        </View>
+      );
+    }
+    if (currentStatus === "SNOOZED") {
+      return (
+        <View style={[styles.statusBadge, styles.statusBadgeSnoozed]}>
+          <Text style={[styles.statusText, styles.statusTextSnoozed]} allowFontScaling>
+            Snoozed (15m)
+          </Text>
+        </View>
+      );
+    }
+    return (
+      <View style={[styles.statusBadge, styles.statusBadgeDue]}>
+        <Text style={[styles.statusText, styles.statusTextDue]} allowFontScaling>
+          Scheduled
+        </Text>
+      </View>
+    );
+  };
+
   return (
     <View style={styles.card} accessibilityRole="none">
       <TouchableOpacity
@@ -32,22 +75,7 @@ export function PatientMedicationCard({
               💊
             </Text>
           </View>
-          <View
-            style={[
-              styles.statusBadge,
-              isTaken ? styles.statusBadgeTaken : styles.statusBadgeDue,
-            ]}
-          >
-            <Text
-              style={[
-                styles.statusText,
-                isTaken ? styles.statusTextTaken : styles.statusTextDue,
-              ]}
-              allowFontScaling
-            >
-              {isTaken ? "✓ Taken" : "Scheduled"}
-            </Text>
-          </View>
+          {renderBadge()}
         </View>
 
         <Text style={styles.medicationName} allowFontScaling numberOfLines={1}>
@@ -65,21 +93,63 @@ export function PatientMedicationCard({
         </View>
       </TouchableOpacity>
 
-      {!isTaken && onMarkTaken ? (
+      {!currentStatus && onMarkTaken ? (
         <View style={styles.actionContainer}>
           <TouchableOpacity
             style={[styles.takenButton, isMarking && styles.takenButtonBusy]}
-            onPress={() => onMarkTaken(plan.medication_plan_id)}
+            onPress={() => onMarkTaken(plan.medication_plan_id, "NOW")}
             disabled={isMarking}
             accessibilityRole="button"
-            accessibilityLabel={`Mark ${plan.medication} as taken`}
-            accessibilityHint="Confirms you took this medication dose"
+            accessibilityLabel={`Took ${plan.medication} just now`}
+            accessibilityHint="Records medication dose as taken now"
             activeOpacity={0.8}
           >
             <Text style={styles.takenButtonText} allowFontScaling>
-              {isMarking ? "Recording…" : "Mark as taken"}
+              {isMarking ? "Recording…" : "Took just now"}
             </Text>
           </TouchableOpacity>
+
+          <View style={styles.secondaryActionsRow}>
+            <TouchableOpacity
+              style={styles.secondaryActionBtn}
+              onPress={() => {
+                // Scheduled dose 1 hour ago
+                const onTimeIso = new Date(Date.now() - 3600000).toISOString();
+                onMarkTaken(plan.medication_plan_id, "ON_TIME", onTimeIso);
+              }}
+              disabled={isMarking}
+              accessibilityRole="button"
+              accessibilityLabel={`Took ${plan.medication} on time`}
+            >
+              <Text style={styles.secondaryActionText} allowFontScaling>
+                Took on time
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.secondaryActionBtn}
+              onPress={() => onMarkTaken(plan.medication_plan_id, "SKIPPED")}
+              disabled={isMarking}
+              accessibilityRole="button"
+              accessibilityLabel={`Skip dose for ${plan.medication}`}
+            >
+              <Text style={styles.secondaryActionText} allowFontScaling>
+                Skip dose
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.secondaryActionBtn}
+              onPress={() => onMarkTaken(plan.medication_plan_id, "SNOOZE")}
+              disabled={isMarking}
+              accessibilityRole="button"
+              accessibilityLabel={`Snooze reminder for ${plan.medication}`}
+            >
+              <Text style={styles.secondaryActionText} allowFontScaling>
+                Snooze 15m
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       ) : null}
     </View>
@@ -128,6 +198,12 @@ const styles = StyleSheet.create({
   statusBadgeDue: {
     backgroundColor: colors.tileCream,
   },
+  statusBadgeSkipped: {
+    backgroundColor: colors.backgroundRaised,
+  },
+  statusBadgeSnoozed: {
+    backgroundColor: colors.tileYellow,
+  },
   statusText: {
     fontSize: typography.fontSize.caption,
     fontWeight: typography.weight.bold,
@@ -136,6 +212,12 @@ const styles = StyleSheet.create({
     color: colors.leafGreen,
   },
   statusTextDue: {
+    color: colors.assistive,
+  },
+  statusTextSkipped: {
+    color: colors.textSecondary,
+  },
+  statusTextSnoozed: {
     color: colors.assistive,
   },
   medicationName: {
@@ -180,5 +262,25 @@ const styles = StyleSheet.create({
     color: colors.textOnPrimary,
     fontSize: typography.fontSize.bodySmall,
     fontWeight: typography.weight.semibold,
+  },
+  secondaryActionsRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  secondaryActionBtn: {
+    flex: 1,
+    paddingVertical: spacing.xs,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  secondaryActionText: {
+    fontSize: typography.fontSize.caption,
+    fontWeight: typography.weight.medium,
+    color: colors.textSecondary,
   },
 });

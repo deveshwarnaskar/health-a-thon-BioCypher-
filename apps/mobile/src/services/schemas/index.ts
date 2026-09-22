@@ -8,3 +8,4 @@ export * from "./patients";
 export * from "./meals";
 export * from "./tasks";
 export * from "./notifications";
+export * from "./whatsapp";

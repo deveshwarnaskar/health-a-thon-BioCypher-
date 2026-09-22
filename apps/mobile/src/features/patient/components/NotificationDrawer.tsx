@@ -8,6 +8,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, touchTarget, typography } from "../../../theming/tokens";
 import type { NotificationResponse } from "../../../services/schemas/notifications";
 
@@ -59,18 +60,14 @@ export function NotificationDrawer({
             accessibilityRole="button"
             accessibilityLabel="Close notifications"
           >
-            <Text style={styles.closeText} allowFontScaling>
-              ✕
-            </Text>
+            <Ionicons name="close" size={22} color={colors.textPrimary} />
           </TouchableOpacity>
         </View>
 
         <ScrollView contentContainerStyle={styles.content}>
           {notifications.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyIcon} allowFontScaling>
-                🔔
-              </Text>
+              <Ionicons name="notifications-outline" size={40} color={colors.disabled} style={{ marginBottom: 12 }} />
               <Text style={styles.emptyTitle} allowFontScaling>
                 {"You're all caught up"}
               </Text>

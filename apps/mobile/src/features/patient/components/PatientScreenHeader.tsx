@@ -1,5 +1,6 @@
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, touchTarget, typography } from "../../../theming/tokens";
 
 export type PatientScreenHeaderProps = {
@@ -57,9 +58,7 @@ export function PatientScreenHeader({
             accessibilityLabel="Go back"
             activeOpacity={0.7}
           >
-            <Text style={styles.backIcon} allowFontScaling>
-              ←
-            </Text>
+            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
         ) : null}
 
@@ -123,9 +122,7 @@ export function PatientScreenHeader({
               accessibilityHint="Opens THALI Assist for help with your care information"
               activeOpacity={0.7}
             >
-              <Text style={styles.assistIcon} allowFontScaling>
-                ✦
-              </Text>
+              <Ionicons name="sparkles" size={18} color={colors.primary} />
             </TouchableOpacity>
           ) : null}
 
@@ -137,9 +134,7 @@ export function PatientScreenHeader({
               accessibilityLabel={`Notifications, ${unreadNotificationsCount} unread`}
               activeOpacity={0.7}
             >
-              <Text style={styles.bellIcon} allowFontScaling>
-                🔔
-              </Text>
+              <Ionicons name="notifications-outline" size={20} color={colors.textPrimary} />
               {unreadNotificationsCount > 0 ? (
                 <View style={styles.unreadBadge} accessibilityElementsHidden>
                   <Text style={styles.unreadBadgeText} allowFontScaling>

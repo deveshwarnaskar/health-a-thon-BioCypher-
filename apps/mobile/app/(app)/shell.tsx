@@ -7,11 +7,12 @@ import { useAuth } from "../../src/auth/AuthProvider";
 import { roleLabel, type Role } from "../../src/authz/roles";
 import { colors, spacing, typography } from "../../src/theming/tokens";
 import { LoadingState } from "../../src/components/primitives/LoadingState";
-import { CaregiverWorkflow } from "../../src/features/caregiver";
+import { CaregiverWorkflow, CaregiverReconciliationScreen } from "../../src/features/caregiver";
 import { DoctorWorkflow } from "../../src/features/doctor";
 import { DietitianWorkflow } from "../../src/features/meals";
 import { FHWWorkflow, CoordinatorWorkflow } from "../../src/features/tasks";
 import { PatientExperience } from "../../src/features/patient";
+import { useSyncLifecycle } from "../../src/sync/syncLifecycle";
 
 /**
  * Protected, role-aware shell. Role derives exclusively from the verified
@@ -20,6 +21,9 @@ import { PatientExperience } from "../../src/features/patient";
  */
 export default function ShellScreen() {
   const { state, signOut } = useAuth();
+  // Automatically manages encrypted SQLite initialization & outbox synchronization
+  useSyncLifecycle();
+
   const [selectedDestination, setSelectedDestination] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
 
@@ -42,18 +46,26 @@ export default function ShellScreen() {
     );
   }
 
-  if (role === "Caregiver" && selectedDestination === "patients") {
+  if (role === "Caregiver" && (selectedDestination === "patients" || selectedDestination === "home")) {
     return <CaregiverWorkflow onExit={() => setSelectedDestination(null)} />;
   }
 
+  if (role === "Caregiver" && selectedDestination === "verify") {
+    return <CaregiverReconciliationScreen onBack={() => setSelectedDestination(null)} />;
+  }
+
   // Gate 10F-M: the Doctor vertical slice owns Review and Patients today;
-  // medication plans are reached inside the patient record (Create Plan).
+  // medication plans are reached inside the patient record (Create Plan) or directly.
   if (role === "Doctor" && selectedDestination === "review") {
     return <DoctorWorkflow flow="review" onHome={() => setSelectedDestination(null)} />;
   }
 
   if (role === "Doctor" && selectedDestination === "patients") {
     return <DoctorWorkflow flow="patients" onHome={() => setSelectedDestination(null)} />;
+  }
+
+  if (role === "Doctor" && selectedDestination === "plans") {
+    return <DoctorWorkflow flow="plans" onHome={() => setSelectedDestination(null)} />;
   }
 
   // Gate 10H-M: Dietitian meal & nutrition vertical slice

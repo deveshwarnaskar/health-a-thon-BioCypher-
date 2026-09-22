@@ -5,12 +5,20 @@ import {
   generateAiArtifactResponseSchema,
   reviewAiArtifactRequestSchema,
   reviewAiArtifactResponseSchema,
+  chatAiRequestSchema,
+  chatAiResponseSchema,
+  analyzeMealAiRequestSchema,
+  analyzeMealAiResponseSchema,
   type AIArtifactListResponse,
   type AIArtifactResponse,
   type GenerateAIArtifactRequest,
   type GenerateAIArtifactResponse,
   type ReviewAIArtifactRequest,
   type ReviewAIArtifactResponse,
+  type ChatAiRequest,
+  type ChatAiResponse,
+  type AnalyzeMealAiRequest,
+  type AnalyzeMealAiResponse,
 } from "../../schemas/ai";
 import type { EndpointDefinition } from "./types";
 
@@ -44,4 +52,20 @@ export const aiEndpoints = {
     requestSchema: reviewAiArtifactRequestSchema,
     responseSchema: reviewAiArtifactResponseSchema,
   } satisfies EndpointDefinition<ReviewAIArtifactResponse, ReviewAIArtifactRequest>,
+
+  chat: {
+    method: "POST",
+    path: "/api/v2/ai/chat",
+    requiresIdempotencyKey: false,
+    requestSchema: chatAiRequestSchema,
+    responseSchema: chatAiResponseSchema,
+  } satisfies EndpointDefinition<ChatAiResponse, ChatAiRequest>,
+
+  analyzeMeal: {
+    method: "POST",
+    path: "/api/v2/ai/analyze-meal",
+    requiresIdempotencyKey: false,
+    requestSchema: analyzeMealAiRequestSchema,
+    responseSchema: analyzeMealAiResponseSchema,
+  } satisfies EndpointDefinition<AnalyzeMealAiResponse, AnalyzeMealAiRequest>,
 } as const;

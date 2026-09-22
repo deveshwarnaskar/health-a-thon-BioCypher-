@@ -21,6 +21,14 @@ export function PatientDocumentCard({ document, onView }: PatientDocumentCardPro
     ? `${Math.round(document.file_size_bytes / 1024)} KB`
     : "PDF Document";
 
+  const isVerified = (document as any).status === "VERIFIED" || (document as any).verification_status === "VERIFIED";
+  const kindLabel =
+    document.kind === "lab_report"
+      ? "Lab Report"
+      : document.kind === "prescription"
+        ? "Prescription"
+        : "Clinical Document";
+
   return (
     <View style={styles.card} accessibilityRole="none">
       <View style={styles.topRow}>
@@ -30,11 +38,18 @@ export function PatientDocumentCard({ document, onView }: PatientDocumentCardPro
           </Text>
         </View>
         <View style={styles.infoColumn}>
-          <Text style={styles.filename} allowFontScaling numberOfLines={1}>
-            {document.filename}
-          </Text>
+          <View style={styles.titleBadgeRow}>
+            <Text style={styles.filename} allowFontScaling numberOfLines={1}>
+              {document.filename}
+            </Text>
+            <View style={[styles.statusBadge, isVerified ? styles.statusBadgeVerified : styles.statusBadgePending]}>
+              <Text style={[styles.statusBadgeText, isVerified ? styles.statusTextVerified : styles.statusTextPending]} allowFontScaling>
+                {isVerified ? "✓ Verified" : "Pending Verification"}
+              </Text>
+            </View>
+          </View>
           <Text style={styles.metaText} allowFontScaling>
-            {formattedDate} · {sizeKb}
+            {kindLabel} · {formattedDate} · {sizeKb}
           </Text>
         </View>
       </View>
@@ -88,10 +103,38 @@ const styles = StyleSheet.create({
   infoColumn: {
     flex: 1,
   },
+  titleBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.xs,
+  },
   filename: {
+    flex: 1,
     fontSize: typography.fontSize.body,
     fontWeight: typography.weight.bold,
     color: colors.textPrimary,
+  },
+  statusBadge: {
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    borderRadius: radii.pill,
+  },
+  statusBadgeVerified: {
+    backgroundColor: colors.tileGreen,
+  },
+  statusBadgePending: {
+    backgroundColor: colors.backgroundRaised,
+  },
+  statusBadgeText: {
+    fontSize: typography.fontSize.caption,
+    fontWeight: typography.weight.semibold,
+  },
+  statusTextVerified: {
+    color: colors.leafGreen,
+  },
+  statusTextPending: {
+    color: colors.textSecondary,
   },
   metaText: {
     fontSize: typography.fontSize.caption,

@@ -5,11 +5,11 @@ import type { CareTaskResponse } from "../../services/schemas/tasks";
 
 export type PatientTab = "home" | "record" | "timeline" | "tasks" | "you";
 
-export type TimelineFilter = "all" | "glucose" | "meals" | "medication" | "tasks";
+export type TimelineFilter = "all" | "glucose" | "meals" | "medication" | "tasks" | "documents";
 
 export type TimelineEvent = {
   id: string;
-  type: "glucose" | "meal" | "medication" | "task";
+  type: "glucose" | "meal" | "medication" | "task" | "document";
   title: string;
   subtitle: string;
   timestamp: string; // ISO 8601

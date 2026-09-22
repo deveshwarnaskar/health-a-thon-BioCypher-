@@ -25,6 +25,11 @@ from backend.infrastructure.parsing.hinglish_parser import (
     ambiguous_reading_values,
     parse_inbound,
 )
+from backend.infrastructure.parsing.intent_firewall import (
+    IntentFirewall,
+    IntentType,
+    IntentVerdict,
+)
 from backend.infrastructure.parsing.nutrition_taxonomy import (
     classify_text,
     estimate_nutrition,
@@ -89,13 +94,14 @@ def parse_intake_text(
 
     # 2. Full Hinglish parse
     parsed: ParsedInput = parse_inbound(stripped)
+    effective_occurred_at = parsed.stated_time or recorded_at
 
     if parsed.is_reading and parsed.reading is not None:
         tag = _map_tag(parsed.reading_tag)
         return IngestGlucoseReading(
             patient_id=patient_id,
             value=GlucoseValue(int(parsed.reading)),
-            taken_at=recorded_at,
+            taken_at=effective_occurred_at,
             tag=tag,
             correlation_id=correlation_id,
         )
@@ -114,7 +120,7 @@ def parse_intake_text(
         carbs_grams=nutrition.carbs_grams if items else None,
         gi_category=nutrition.gi_category if items else None,
         classified_items=items,
-        recorded_at=recorded_at,
+        recorded_at=effective_occurred_at,
         correlation_id=correlation_id,
         is_ambiguous=False,
         ambiguous_candidates=[],
@@ -132,4 +138,7 @@ __all__ = [
     "parse_inbound",
     "ambiguous_reading_values",
     "ParsedInput",
+    "IntentFirewall",
+    "IntentType",
+    "IntentVerdict",
 ]

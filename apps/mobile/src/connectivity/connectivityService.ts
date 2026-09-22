@@ -15,6 +15,8 @@ export class ConnectivityService {
 
   constructor(initialStatus: ConnectivityStatus = "ONLINE") {
     this.status = initialStatus;
+    this.isOnline = this.isOnline.bind(this);
+    this.getStatus = this.getStatus.bind(this);
   }
 
   getStatus(): ConnectivityStatus {

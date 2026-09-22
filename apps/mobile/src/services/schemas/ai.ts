@@ -71,3 +71,53 @@ export const aiArtifactListResponseSchema = z
   .strict();
 
 export type AIArtifactListResponse = z.infer<typeof aiArtifactListResponseSchema>;
+
+// ─── Sarvam AI Conversational & Indic Nutrition Schemas ──────────────────────
+
+export const chatAiRequestSchema = z.object({
+  message: z.string(),
+  patient_name: z.string().optional(),
+});
+export type ChatAiRequest = z.infer<typeof chatAiRequestSchema>;
+
+export const chatAiResponseSchema = z.object({
+  reply: z.string(),
+  safety_checked: z.boolean().optional(),
+  provider: z.string().optional(),
+});
+export type ChatAiResponse = z.infer<typeof chatAiResponseSchema>;
+
+export const analyzeMealAiRequestSchema = z.object({
+  description: z.string(),
+  patient_name: z.string().optional(),
+});
+export type AnalyzeMealAiRequest = z.infer<typeof analyzeMealAiRequestSchema>;
+
+export const analyzeMealAiResponseSchema = z.object({
+  raw_description: z.string().optional(),
+  items: z
+    .array(
+      z.object({
+        name: z.string(),
+        portion_text: z.string().optional(),
+        calories_kcal: z.number(),
+        carbs_g: z.number(),
+        protein_g: z.number(),
+        fat_g: z.number().optional(),
+        fiber_g: z.number().optional(),
+        glycemic_index_category: z.string().optional(),
+      })
+    )
+    .optional(),
+  total_calories_kcal: z.number(),
+  total_carbs_g: z.number(),
+  total_protein_g: z.number(),
+  total_fat_g: z.number().optional(),
+  total_fiber_g: z.number().optional(),
+  glycemic_impact: z.string(),
+  balanced_plate_score: z.string(),
+  patient_guidance_hinglish: z.string(),
+  clinician_notes: z.string().optional(),
+  source: z.string().optional(),
+});
+export type AnalyzeMealAiResponse = z.infer<typeof analyzeMealAiResponseSchema>;

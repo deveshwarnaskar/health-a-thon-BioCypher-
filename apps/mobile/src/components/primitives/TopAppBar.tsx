@@ -1,6 +1,7 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, typography } from "../../theming/tokens";
 import { IconButton } from "./Button";
 
@@ -20,9 +21,7 @@ export function TopAppBar({ title, onBack, leadingLabel, actions }: TopAppBarPro
       <View style={styles.row}>
         {onBack ? (
           <IconButton label={leadingLabel ?? "Back"} onPress={onBack} style={styles.backButton}>
-            <Text style={styles.backGlyph} allowFontScaling>
-              {"<"}
-            </Text>
+            <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />
           </IconButton>
         ) : null}
         <View style={styles.titleColumn}>

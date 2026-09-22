@@ -344,7 +344,14 @@ async def generate_ai_artifact(
     assert_authorized_clinician_facility(ctx, uow, patient)
 
     settings = Settings()
-    if settings.ai.provider == "gemini" and settings.ai.api_key:
+    if settings.ai.provider == "sarvam" or (settings.ai.sarvam_api_key and settings.ai.provider != "gemini"):
+        from backend.infrastructure.ai.sarvam_provider import SarvamAIProvider
+        provider = SarvamAIProvider(
+            api_key=settings.ai.sarvam_api_key or settings.ai.api_key,
+            model_name=settings.ai.sarvam_model or "sarvam-m",
+            base_url=settings.ai.sarvam_base_url,
+        )
+    elif settings.ai.provider == "gemini" and settings.ai.api_key:
         provider = ProductionModelProvider(
             api_key=settings.ai.api_key,
             model_name=settings.ai.model or "gemini-1.5-flash",
