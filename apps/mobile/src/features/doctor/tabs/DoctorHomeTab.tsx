@@ -1,5 +1,7 @@
-import React, { useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
+  Animated,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -10,18 +12,40 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { touchTarget } from "../../../theming/tokens";
 import {
   doctorPalette,
   doctorRadii,
-  doctorShadow,
   doctorSoftShadow,
-  doctorPillShadow,
 } from "../doctorDesign";
 import type { PatientSummaryResponse } from "../../../services/schemas/patients";
+import {
+  useCohortClinicalSummary,
+  COHORT_PERIOD_DAYS,
+  type CohortPeriodKey,
+} from "../useCohortClinicalSummary";
+import {
+  DoctorHomeHeader,
+  ClinicalSnapshot,
+  AttentionPatients,
+  CohortControlCard,
+  GlucoseTrendCard,
+  PatientStatusDistribution,
+  MonitoringStatusCard,
+  ClinicalTrendsCard,
+  CareGapsCard,
+  CardiometabolicCard,
+  AIReviewSummaryCard,
+  ReportsSummaryCard,
+  DoctorQuickActions,
+  DoctorQrModal,
+  SectionHeader,
+  SegmentControl,
+} from "../home";
 
 export type DoctorHomeTabProps = {
   doctorName?: string | null;
+  doctorAccountId?: string | null;
+  doctorDisplayName?: string | null;
   facilityId?: string | null;
   patients: PatientSummaryResponse[];
   reviewCount: number;
@@ -39,12 +63,19 @@ export type DoctorHomeTabProps = {
   onSignOut?: () => void;
 };
 
+const PERIOD_OPTIONS = [
+  { key: "7d", label: "7D" },
+  { key: "30d", label: "30D" },
+  { key: "90d", label: "90D" },
+];
+
 export function DoctorHomeTab({
-  doctorName,
   facilityId: propFacilityId,
+  doctorAccountId,
+  doctorDisplayName,
   patients,
-  reviewCount,
-  taskCount,
+  reviewCount: propReviewCount,
+  taskCount: propTaskCount,
   isLoading = false,
   onRefresh,
   onSelectPatient,
@@ -57,26 +88,99 @@ export function DoctorHomeTab({
   const facilityId = propFacilityId || "Facility 1";
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeWorkflowTab, setActiveWorkflowTab] = useState<
-    "patients" | "review" | "telemetry" | "more"
-  >("patients");
+  const [period, setPeriod] = useState<CohortPeriodKey>("30d");
+  const [qrModalVisible, setQrModalVisible] = useState(false);
 
-  const handlePullToRefresh = async () => {
+  const summary = useCohortClinicalSummary(patients);
+
+  const cohortHasData =
+    summary.cohortByPeriod["7d"].sampleSize > 0 ||
+    summary.cohortByPeriod["30d"].sampleSize > 0 ||
+    summary.cohortByPeriod["90d"].sampleSize > 0;
+
+  // Derived "last synced": the most recent successful clinician-feed fetch
+  // (react-query dataUpdatedAt) — no effect/setState cascade needed.
+  const lastSyncedAt = summary.hasFeedQueriesSettled ? summary.latestFeedUpdateAt : null;
+
+  const handlePullToRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      await onRefresh();
+      await Promise.all([onRefresh(), summary.refreshCohort()]);
     } finally {
       setIsRefreshing(false);
     }
-  };
+  }, [onRefresh, summary]);
 
-  const activePatients = patients.filter((p) => p.active);
-  const featuredPatient = patients[0];
-  const highlightPatient1 = patients[1] || featuredPatient;
-  const highlightPatient2 = patients[2] || featuredPatient;
+  const activePatients = patients.filter((p) => p.active).length;
+
+  const hypoAlerts = useMemo(
+    () =>
+      summary.attentionPatients.filter((entry) =>
+        entry.flags.some((flag) => /hypoglycem/i.test(flag.label))
+      ).length,
+    [summary.attentionPatients]
+  );
+
+  const statusDist = summary.statusByPeriod[period];
+  const selectedTrend = summary.trendsByPeriod[period];
+  const selectedMean = summary.meanByWindow[period];
+
+  const trendHasData =
+    selectedTrend.tir.current !== null ||
+    selectedTrend.mean.current !== null ||
+    selectedTrend.gmi.current !== null;
+
+  const quickActions = [
+    {
+      key: "patients",
+      label: "Patient Directory",
+      subLabel: `${activePatients} active cohort records`,
+      icon: "people-outline" as const,
+      onPress: onNavigateToPatients,
+      badges: activePatients || undefined,
+    },
+    {
+      key: "review",
+      label: "AI Decision Queue",
+      subLabel: summary.reviewTotal > 0 ? `${summary.reviewTotal} to validate` : "Queue clear",
+      icon: "sparkles-outline" as const,
+      onPress: onNavigateToReview,
+      badges: summary.isReviewLoading ? undefined : summary.reviewTotal,
+    },
+    {
+      key: "tasks",
+      label: "Care Tasks & Gaps",
+      subLabel: `${summary.careTaskTotal} pending items`,
+      icon: "clipboard-outline" as const,
+      onPress: onNavigateToTasks,
+      badges: summary.isTasksLoading ? undefined : summary.careTaskTotal,
+    },
+    {
+      key: "telemetry",
+      label: "Live Telemetry",
+      subLabel: "Real-time glucose feed",
+      icon: "pulse-outline" as const,
+      onPress: () => onNavigateToSubWorkspace("monitoring"),
+    },
+    {
+      key: "reports",
+      label: "Official Reports",
+      subLabel: "Downloadable PDF engine",
+      icon: "document-text-outline" as const,
+      onPress: () => onNavigateToSubWorkspace("reports"),
+    },
+    {
+      key: "hub",
+      label: "Clinical Workspace Hub",
+      subLabel: "Sub-workspaces & audits",
+      icon: "grid-outline" as const,
+      onPress: onNavigateToWorkspaceHub,
+    },
+  ];
 
   return (
-    <ScrollView
+    <>
+      <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
@@ -89,7 +193,7 @@ export function DoctorHomeTab({
         />
       }
     >
-      {/* 1. Floating Modern Search Bar with filter button */}
+      {/* Search bar (existing Doctor Home DNA) */}
       <View style={styles.searchBarContainer}>
         <View style={styles.searchBar}>
           <Ionicons name="search" size={20} color={doctorPalette.muted} style={styles.searchIcon} />
@@ -108,341 +212,150 @@ export function DoctorHomeTab({
             autoCorrect={false}
           />
         </View>
-        <TouchableOpacity
-          style={styles.filterButton}
-          onPress={onNavigateToPatients}
-          accessibilityRole="button"
-          accessibilityLabel="Open patient directory filters"
-          activeOpacity={0.7}
-        >
-          <Ionicons name="options-outline" size={20} color={doctorPalette.ink} />
-        </TouchableOpacity>
+        <DoctorHomeQrButton onPress={() => setQrModalVisible(true)} />
       </View>
 
-      {/* 2. Workflow / Category Square Cards Row */}
-      <View style={styles.categorySection}>
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle} allowFontScaling>
-            Clinical Workflows
-          </Text>
-          <TouchableOpacity
-            onPress={onNavigateToWorkspaceHub}
-            accessibilityRole="button"
-            accessibilityLabel="View all clinical workstations"
-          >
-            <Text style={styles.viewAllText} allowFontScaling>
-              View all
-            </Text>
-          </TouchableOpacity>
-        </View>
+      {/* Facility + last-synced strip */}
+      <DoctorHomeHeader facilityId={facilityId} lastSyncedAt={lastSyncedAt} />
 
-        <View style={styles.categoryRow}>
-          {/* Card 1: Cohort / Patients (Active style with lime-green accent) */}
-          <TouchableOpacity
-            style={[
-              styles.categorySquare,
-              activeWorkflowTab === "patients" ? styles.categorySquareActive : styles.categorySquareDefault,
-            ]}
-            onPress={() => {
-              setActiveWorkflowTab("patients");
-              onNavigateToPatients();
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={`Patient Cohort, ${patients.length} records`}
-            activeOpacity={0.75}
-          >
-            <View style={styles.categoryIconWrap}>
-              <Ionicons
-                name="people"
-                size={24}
-                color={activeWorkflowTab === "patients" ? doctorPalette.ink : doctorPalette.muted}
-              />
-            </View>
-            <Text
-              style={[
-                styles.categoryLabel,
-                activeWorkflowTab === "patients" ? styles.categoryLabelActive : null,
-              ]}
-              allowFontScaling
-              numberOfLines={1}
-            >
-              Cohort
-            </Text>
-          </TouchableOpacity>
-
-          {/* Card 2: AI Review */}
-          <TouchableOpacity
-            style={[
-              styles.categorySquare,
-              activeWorkflowTab === "review" ? styles.categorySquareActive : styles.categorySquareDefault,
-            ]}
-            onPress={() => {
-              setActiveWorkflowTab("review");
-              onNavigateToReview();
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={`AI Review Queue, ${reviewCount} pending`}
-            activeOpacity={0.75}
-          >
-            <View style={styles.categoryIconWrap}>
-              <Ionicons
-                name="sparkles"
-                size={22}
-                color={activeWorkflowTab === "review" ? doctorPalette.ink : "#F59E0B"}
-              />
-              {reviewCount > 0 ? <View style={styles.categoryDot} /> : null}
-            </View>
-            <Text
-              style={[
-                styles.categoryLabel,
-                activeWorkflowTab === "review" ? styles.categoryLabelActive : null,
-              ]}
-              allowFontScaling
-              numberOfLines={1}
-            >
-              AI Review
-            </Text>
-          </TouchableOpacity>
-
-          {/* Card 3: Telemetry */}
-          <TouchableOpacity
-            style={[
-              styles.categorySquare,
-              activeWorkflowTab === "telemetry" ? styles.categorySquareActive : styles.categorySquareDefault,
-            ]}
-            onPress={() => {
-              setActiveWorkflowTab("telemetry");
-              onNavigateToSubWorkspace("monitoring");
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Longitudinal Telemetry Monitoring"
-            activeOpacity={0.75}
-          >
-            <View style={styles.categoryIconWrap}>
-              <Ionicons
-                name="analytics"
-                size={22}
-                color={activeWorkflowTab === "telemetry" ? doctorPalette.ink : "#8B5CF6"}
-              />
-            </View>
-            <Text
-              style={[
-                styles.categoryLabel,
-                activeWorkflowTab === "telemetry" ? styles.categoryLabelActive : null,
-              ]}
-              allowFontScaling
-              numberOfLines={1}
-            >
-              Telemetry
-            </Text>
-          </TouchableOpacity>
-
-          {/* Card 4: More / Hub */}
-          <TouchableOpacity
-            style={[
-              styles.categorySquare,
-              activeWorkflowTab === "more" ? styles.categorySquareActive : styles.categorySquareDefault,
-            ]}
-            onPress={() => {
-              setActiveWorkflowTab("more");
-              onNavigateToWorkspaceHub();
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Open all utilities"
-            activeOpacity={0.75}
-          >
-            <View style={styles.categoryIconWrap}>
-              <Ionicons
-                name="grid"
-                size={22}
-                color={activeWorkflowTab === "more" ? doctorPalette.ink : doctorPalette.muted}
-              />
-            </View>
-            <Text
-              style={[
-                styles.categoryLabel,
-                activeWorkflowTab === "more" ? styles.categoryLabelActive : null,
-              ]}
-              allowFontScaling
-              numberOfLines={1}
-            >
-              More
-            </Text>
-          </TouchableOpacity>
-        </View>
+      {/* Clinical Workflows */}
+      <View style={styles.workflowRow}>
+        <WorkflowSquare
+          icon="people"
+          label="Cohort"
+          active
+          count={patients.length}
+          accessibilityLabel={`Patient Cohort, ${patients.length} records`}
+          onPress={() => {
+            setPeriod("30d");
+            onNavigateToPatients();
+          }}
+        />
+        <WorkflowSquare
+          icon="sparkles"
+          label="AI Review"
+          tint="#D97706"
+          count={summary.reviewTotal > 0 ? summary.reviewTotal : undefined}
+          dot={summary.isReviewLoading ? false : summary.reviewTotal > 0}
+          accessibilityLabel={`AI Review Queue, ${summary.isReviewLoading ? "…" : summary.reviewTotal} pending`}
+          onPress={onNavigateToReview}
+        />
+        <WorkflowSquare
+          icon="pulse"
+          label="Telemetry"
+          tint="#7C3AED"
+          accessibilityLabel="Longitudinal Telemetry Monitoring"
+          onPress={() => onNavigateToSubWorkspace("monitoring")}
+        />
+        <WorkflowSquare
+          icon="document-text"
+          label="Reports PDF"
+          tint={doctorPalette.primary}
+          accessibilityLabel="Official clinical PDF reports"
+          onPress={() => onNavigateToSubWorkspace("reports")}
+        />
       </View>
 
-      {/* 3. Featured Patient / Urgent Priority Hero Card */}
-      <View style={styles.featuredSection}>
-        <Text style={styles.sectionTitle} allowFontScaling>
-          Priority Clinical Focus
-        </Text>
+      {/* 1. Today's Clinical Snapshot */}
+      <ClinicalSnapshot
+        activePatients={activePatients}
+        needAttention={summary.attentionPatients.length}
+        cohortTir={summary.cohortByPeriod["30d"].tirPct}
+        hypoAlerts={hypoAlerts}
+        isLoading={summary.isLoadingFeed}
+        hasCohortData={cohortHasData}
+      />
 
-        {featuredPatient ? (
-          <View style={styles.featuredCard}>
-            <View style={styles.featuredCardContent}>
-              {/* Top Row: Name with verified checkmark & graphic */}
-              <View style={styles.featuredTopRow}>
-                <View style={styles.featuredInfoCol}>
-                  <View style={styles.patientNameWithBadge}>
-                    <Text style={styles.featuredPatientName} numberOfLines={1} allowFontScaling>
-                      {featuredPatient.name}
-                    </Text>
-                    <Ionicons name="checkmark-circle" size={18} color={doctorPalette.primary} />
-                  </View>
-                  <Text style={styles.featuredPatientMeta} allowFontScaling>
-                    Type 2 Diabetes · UHID: {featuredPatient.uh_id}
-                  </Text>
+      {/* 2. AI Review Summary */}
+      <AIReviewSummaryCard
+        total={summary.reviewTotal}
+        kinds={summary.reviewKinds}
+        onOpen={onNavigateToReview}
+        isLoading={summary.isReviewLoading}
+      />
 
-                  {/* Rating / Metric badge pill */}
-                  <View style={styles.metricPillBadge}>
-                    <Ionicons name="water" size={13} color="#DC2626" />
-                    <Text style={styles.metricPillBadgeText} allowFontScaling>
-                      Fasting 184 mg/dL · TIR 54%
-                    </Text>
-                  </View>
-                </View>
+      {/* 3. Reports Summary */}
+      <ReportsSummaryCard onOpen={() => onNavigateToSubWorkspace("reports")} lastSyncedDays={null} />
 
-                {/* Stethoscope / Avatar Graphic Circle */}
-                <View style={styles.featuredAvatarCircle}>
-                  <Ionicons name="medical" size={28} color={doctorPalette.ink} />
-                </View>
-              </View>
+      {/* 4. Patients Who Need Attention */}
+      <AttentionPatients
+        patients={summary.attentionPatients}
+        onSelectPatient={(id) => {
+          const patient = patients.find((p) => p.patient_id === id);
+          if (patient) onSelectPatient(patient);
+        }}
+        onViewAll={onNavigateToPatients}
+        isLoading={summary.isLoadingFeed}
+        emptyMessage="All analyzed patients are meeting their glycemic targets within the 14-day monitoring window."
+      />
 
-              {/* Stat Chips Row */}
-              <View style={styles.statChipsRow}>
-                <View style={styles.miniStatChip}>
-                  <Ionicons name="calendar-outline" size={13} color={doctorPalette.ink} />
-                  <Text style={styles.miniStatText} allowFontScaling>
-                    14-Day Baseline
-                  </Text>
-                </View>
-                <View style={styles.miniStatChip}>
-                  <Ionicons name="time-outline" size={13} color={doctorPalette.ink} />
-                  <Text style={styles.miniStatText} allowFontScaling>
-                    High Excursion
-                  </Text>
-                </View>
-              </View>
-
-              {/* Vibrant Blue Pill Action Button */}
-              <TouchableOpacity
-                style={styles.featuredActionButton}
-                onPress={() => onSelectPatient(featuredPatient)}
-                accessibilityRole="button"
-                accessibilityLabel={`Inspect clinical care plan for ${featuredPatient.name}`}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.featuredActionText} allowFontScaling>
-                  Review Care Plan
-                </Text>
-                <View style={styles.featuredActionArrow}>
-                  <Ionicons name="arrow-forward" size={14} color={doctorPalette.primary} />
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.emptyFeaturedCard}>
-            <Ionicons name="people-outline" size={32} color={doctorPalette.muted} />
-            <Text style={styles.emptyFeaturedText} allowFontScaling>
-              No patients registered in facility cohort.
+      {/* 5-10. Command Center — period-aware */}
+      <View style={styles.periodBlock}>
+        <View style={styles.periodHead}>
+          <View>
+            <SectionHeader title="Command Center" />
+            <Text style={styles.periodSub} allowFontScaling>
+              Whole-cohort analysis & trends
             </Text>
           </View>
-        )}
-      </View>
-
-      {/* 4. Cohort Highlights Section (Dual Modern Cards like "Nearby Specialists") */}
-      <View style={styles.highlightsSection}>
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle} allowFontScaling>
-            Active Cohort Rounds
-          </Text>
-          <TouchableOpacity
-            onPress={onNavigateToPatients}
-            accessibilityRole="button"
-            accessibilityLabel="View full patient cohort"
-          >
-            <Text style={styles.viewAllText} allowFontScaling>
-              View all
-            </Text>
-          </TouchableOpacity>
+          <SegmentControl
+            options={PERIOD_OPTIONS}
+            selected={period}
+            onSelect={(key) => setPeriod(key as CohortPeriodKey)}
+            accessibilityHint={(o) => `Analyze the cohort over the last ${COHORT_PERIOD_DAYS[o.key as CohortPeriodKey]} days`}
+          />
         </View>
 
-        <View style={styles.dualCardsRow}>
-          {/* Card 1: Electric Solid Blue Card */}
-          {highlightPatient1 ? (
-            <TouchableOpacity
-              style={styles.blueHighlightCard}
-              onPress={() => onSelectPatient(highlightPatient1)}
-              accessibilityRole="button"
-              accessibilityLabel={`Open record for ${highlightPatient1.name}`}
-              activeOpacity={0.85}
-            >
-              <View style={styles.highlightAvatarCircleWhite}>
-                <Text style={styles.highlightAvatarTextBlue} allowFontScaling>
-                  {highlightPatient1.name.charAt(0).toUpperCase()}
-                </Text>
-              </View>
+        <CohortControlCard
+          metrics={summary.cohortByPeriod[period]}
+          analyzedCount={summary.analyzedCount}
+          periodLabel={`last ${COHORT_PERIOD_DAYS[period]} days`}
+          isLoading={summary.isLoadingFeed}
+        />
 
-              <Text style={styles.highlightNameWhite} numberOfLines={1} allowFontScaling>
-                {highlightPatient1.name}
-              </Text>
-              <Text style={styles.highlightMetaWhite} numberOfLines={1} allowFontScaling>
-                {highlightPatient1.uh_id} · Active
-              </Text>
+        <GlucoseTrendCard
+          dailySeries={summary.dailySeriesByWindow[period]}
+          mean7d={summary.meanByWindow["7d"]}
+          mean30d={summary.meanByWindow["30d"]}
+          mean90d={summary.meanByWindow["90d"]}
+          previous7d={summary.previousMeanByWindow["7d"]}
+          isLoading={summary.isLoadingFeed}
+          hasData={selectedMean !== null}
+        />
 
-              <View style={styles.highlightFooter}>
-                <View style={styles.miniTagWhite}>
-                  <Text style={styles.miniTagWhiteText} allowFontScaling>
-                    TIR 72%
-                  </Text>
-                </View>
-                <View style={styles.circleArrowBtnWhite}>
-                  <Ionicons name="arrow-forward" size={14} color={doctorPalette.primary} />
-                </View>
-              </View>
-            </TouchableOpacity>
-          ) : null}
+        <PatientStatusDistribution distribution={statusDist} analyzedCount={summary.analyzedCount} onViewAll={onNavigateToPatients} />
 
-          {/* Card 2: Crisp White Card with lime accent arrow */}
-          {highlightPatient2 ? (
-            <TouchableOpacity
-              style={styles.whiteHighlightCard}
-              onPress={() => onSelectPatient(highlightPatient2)}
-              accessibilityRole="button"
-              accessibilityLabel={`Open record for ${highlightPatient2.name}`}
-              activeOpacity={0.85}
-            >
-              <View style={styles.highlightAvatarCircleSoft}>
-                <Text style={styles.highlightAvatarTextDark} allowFontScaling>
-                  {highlightPatient2.name.charAt(0).toUpperCase()}
-                </Text>
-              </View>
+        <MonitoringStatusCard
+          upToDate={summary.monitoring30d.upToDate}
+          limited={summary.monitoring30d.limited}
+          noRecentData={summary.monitoring30d.noRecentData}
+          analyzed={summary.monitoring30d.analyzed}
+        />
 
-              <Text style={styles.highlightNameDark} numberOfLines={1} allowFontScaling>
-                {highlightPatient2.name}
-              </Text>
-              <Text style={styles.highlightMetaDark} numberOfLines={1} allowFontScaling>
-                {highlightPatient2.uh_id} · Routine
-              </Text>
-
-              <View style={styles.highlightFooter}>
-                <View style={styles.miniTagLime}>
-                  <Text style={styles.miniTagLimeText} allowFontScaling>
-                    Stable
-                  </Text>
-                </View>
-                <View style={styles.circleArrowBtnLime}>
-                  <Ionicons name="arrow-forward" size={14} color={doctorPalette.ink} />
-                </View>
-              </View>
-            </TouchableOpacity>
-          ) : null}
-        </View>
+        <ClinicalTrendsCard
+          trend={selectedTrend}
+          isLoading={summary.isLoadingFeed}
+          hasData={trendHasData}
+          onViewAll={onNavigateToReview}
+        />
       </View>
 
-      {/* 5. Clinical Safety & Decision Support Governance Card */}
+      {/* 11. Care Gaps */}
+      <CareGapsCard
+        counts={summary.careGaps}
+        totalTasks={summary.careTaskTotal}
+        onViewAll={onNavigateToTasks}
+        isLoading={summary.isTasksLoading}
+        hasNumericData={summary.careGaps.total > 0}
+      />
+
+      {/* 12. Cardiometabolic Health */}
+      <CardiometabolicCard isLoading={false} hasNumericData={false} />
+
+      {/* 13. Quick Actions */}
+      <DoctorQuickActions actions={quickActions} />
+
+      {/* Clinical Safety & Decision Support Governance */}
       <View style={styles.safetyCard}>
         <View style={styles.safetyHeader}>
           <View style={styles.safetyIconBadge}>
@@ -458,12 +371,178 @@ export function DoctorHomeTab({
           </View>
         </View>
         <Text style={styles.safetyBodyText} allowFontScaling>
-          All glycemic indices, time-in-range measurements, and longitudinal baselines are computed
-          with strict mathematical determinism. Machine-generated dietary observations require human
-          doctor sign-off before entering authoritative medical records.
+          All glycemic indices, time-in-range measurements, and longitudinal baselines on this dashboard
+          are computed with strict mathematical determinism from confirmed observations. Cohort figures
+          reflect real glucose data only — no synthetic fill across the {summary.analyzedCount} patients
+          analyzed. Machine-generated observations require human doctor sign-off before entering
+          authoritative medical records.
         </Text>
+        <View style={styles.safetyBadgesRow}>
+          <View style={styles.safetyPill}>
+            <Ionicons name="checkmark-circle" size={12} color="#15803D" />
+            <Text style={styles.safetyPillText} allowFontScaling>ADA 2024 Standards</Text>
+          </View>
+          <View style={styles.safetyPill}>
+            <Ionicons name="calculator" size={12} color={doctorPalette.primary} />
+            <Text style={styles.safetyPillText} allowFontScaling>Deterministic Math</Text>
+          </View>
+          <View style={styles.safetyPill}>
+            <Ionicons name="person-circle" size={12} color="#7C3AED" />
+            <Text style={styles.safetyPillText} allowFontScaling>Clinician Sign-off</Text>
+          </View>
+        </View>
       </View>
     </ScrollView>
+
+      <DoctorQrModal
+        visible={qrModalVisible}
+        doctorAccountId={doctorAccountId}
+        doctorDisplayName={doctorDisplayName}
+        facilityId={facilityId}
+        onClose={() => setQrModalVisible(false)}
+      />
+    </>
+  );
+}
+
+function DoctorHomeQrButton({ onPress }: { onPress: () => void }) {
+  const pressAnim = useRef(new Animated.Value(0)).current;
+
+  const handlePressIn = () => {
+    Animated.spring(pressAnim, {
+      toValue: 1,
+      speed: 25,
+      bounciness: 0,
+      useNativeDriver: false,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(pressAnim, {
+      toValue: 0,
+      friction: 4,
+      tension: 80,
+      useNativeDriver: false,
+    }).start();
+  };
+
+  const handlePress = () => {
+    Animated.sequence([
+      Animated.timing(pressAnim, {
+        toValue: 1.25,
+        duration: 75,
+        useNativeDriver: false,
+      }),
+      Animated.spring(pressAnim, {
+        toValue: 0,
+        friction: 3.5,
+        tension: 85,
+        useNativeDriver: false,
+      }),
+    ]).start();
+    onPress();
+  };
+
+  const scale = pressAnim.interpolate({
+    inputRange: [0, 1, 1.25],
+    outputRange: [1, 0.90, 0.84],
+  });
+
+  const rotate = pressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "-6deg"],
+  });
+
+  const backgroundColor = pressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [doctorPalette.surface, doctorPalette.surfaceLime],
+  });
+
+  const borderColor = pressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [doctorPalette.borderSubtle, doctorPalette.primary],
+  });
+
+  return (
+    <Pressable
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      onPress={handlePress}
+      accessibilityRole="button"
+      accessibilityLabel="Open doctor account QR code"
+      hitSlop={6}
+    >
+      <Animated.View
+        style={[
+          styles.qrButton,
+          {
+            backgroundColor,
+            borderColor,
+            transform: [{ scale }, { rotate }],
+          },
+        ]}
+      >
+        <Ionicons name="qr-code-outline" size={22} color={doctorPalette.ink} />
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+function WorkflowSquare({
+  icon,
+  label,
+  active,
+  tint,
+  dot,
+  count,
+  onPress,
+  accessibilityLabel,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  label: string;
+  active?: boolean;
+  tint?: string;
+  dot?: boolean;
+  count?: number | string;
+  onPress: () => void;
+  accessibilityLabel: string;
+}) {
+  const iconColor = active ? doctorPalette.ink : (tint ?? doctorPalette.primary);
+  return (
+    <TouchableOpacity
+      style={[styles.categorySquare, active ? styles.categorySquareActive : styles.categorySquareDefault]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      activeOpacity={0.75}
+    >
+      <View style={styles.categoryIconWrap}>
+        <View
+          style={[
+            styles.categoryIconCircle,
+            active
+              ? { backgroundColor: "rgba(255, 255, 255, 0.65)" }
+              : tint
+              ? { backgroundColor: `${tint}15` }
+              : { backgroundColor: doctorPalette.surfaceBlue },
+          ]}
+        >
+          <Ionicons name={icon} size={19} color={iconColor} />
+        </View>
+        {count !== undefined && Number(count) > 0 ? (
+          <View style={styles.categoryBadge}>
+            <Text style={styles.categoryBadgeText} allowFontScaling numberOfLines={1}>
+              {count}
+            </Text>
+          </View>
+        ) : dot ? (
+          <View style={styles.categoryDot} />
+        ) : null}
+      </View>
+      <Text style={[styles.categoryLabel, active ? styles.categoryLabelActive : null]} allowFontScaling numberOfLines={1}>
+        {label}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
@@ -475,8 +554,8 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 4,
-    paddingBottom: 110,
-    gap: 20,
+    paddingBottom: 130,
+    gap: 22,
   },
   searchBarContainer: {
     flexDirection: "row",
@@ -504,10 +583,10 @@ const styles = StyleSheet.create({
     color: doctorPalette.ink,
     paddingVertical: 8,
   },
-  filterButton: {
+  qrButton: {
     width: 50,
     height: 50,
-    borderRadius: 25,
+    borderRadius: 14,
     backgroundColor: doctorPalette.surface,
     alignItems: "center",
     justifyContent: "center",
@@ -515,26 +594,7 @@ const styles = StyleSheet.create({
     borderColor: doctorPalette.borderSubtle,
     ...doctorSoftShadow,
   },
-  categorySection: {
-    gap: 12,
-  },
-  sectionHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: doctorPalette.ink,
-    letterSpacing: -0.2,
-  },
-  viewAllText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: doctorPalette.muted,
-  },
-  categoryRow: {
+  workflowRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 10,
@@ -562,10 +622,36 @@ const styles = StyleSheet.create({
   categoryIconWrap: {
     position: "relative",
   },
+  categoryIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  categoryBadge: {
+    position: "absolute",
+    top: -4,
+    right: -6,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: doctorPalette.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: doctorPalette.surface,
+  },
+  categoryBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
   categoryDot: {
     position: "absolute",
     top: -2,
-    right: -4,
+    right: -3,
     width: 8,
     height: 8,
     borderRadius: 4,
@@ -580,247 +666,19 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: doctorPalette.ink,
   },
-  featuredSection: {
-    gap: 12,
+  periodBlock: {
+    gap: 22,
   },
-  featuredCard: {
-    backgroundColor: doctorPalette.limeSoft,
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: doctorPalette.limeBorder,
-    padding: 20,
-    ...doctorSoftShadow,
-  },
-  featuredCardContent: {
-    gap: 14,
-  },
-  featuredTopRow: {
+  periodHead: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  featuredInfoCol: {
-    flex: 1,
-  },
-  patientNameWithBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  featuredPatientName: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: doctorPalette.ink,
-    letterSpacing: -0.2,
-    maxWidth: 200,
-  },
-  featuredPatientMeta: {
-    fontSize: 13,
-    color: doctorPalette.inkSecondary,
-    marginTop: 2,
-  },
-  metricPillBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "rgba(255, 255, 255, 0.7)",
-    borderRadius: doctorRadii.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    alignSelf: "flex-start",
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.9)",
-  },
-  metricPillBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: doctorPalette.ink,
-  },
-  featuredAvatarCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: doctorPalette.surfaceLime,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "rgba(255, 255, 255, 0.8)",
-    ...doctorSoftShadow,
-  },
-  statChipsRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  miniStatChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "rgba(255, 255, 255, 0.65)",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: doctorRadii.pill,
-  },
-  miniStatText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: doctorPalette.ink,
-  },
-  featuredActionButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: doctorPalette.primary,
-    borderRadius: doctorRadii.pill,
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    minHeight: touchTarget.min,
-    ...doctorPillShadow,
-  },
-  featuredActionText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "800",
-    letterSpacing: 0.1,
-  },
-  featuredActionArrow: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyFeaturedCard: {
-    backgroundColor: doctorPalette.surface,
-    borderRadius: 24,
-    padding: 24,
-    alignItems: "center",
-    gap: 8,
-    ...doctorSoftShadow,
-  },
-  emptyFeaturedText: {
-    fontSize: 14,
-    color: doctorPalette.muted,
-  },
-  highlightsSection: {
+    alignItems: "flex-end",
     gap: 12,
   },
-  dualCardsRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  blueHighlightCard: {
-    flex: 1,
-    backgroundColor: doctorPalette.primary,
-    borderRadius: 24,
-    padding: 16,
-    gap: 8,
-    ...doctorPillShadow,
-  },
-  whiteHighlightCard: {
-    flex: 1,
-    backgroundColor: doctorPalette.surface,
-    borderRadius: 24,
-    padding: 16,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: doctorPalette.borderSubtle,
-    ...doctorSoftShadow,
-  },
-  highlightAvatarCircleWhite: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(255, 255, 255, 0.22)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.4)",
-  },
-  highlightAvatarTextBlue: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-  highlightAvatarCircleSoft: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: doctorPalette.surfaceBlue,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#DBEAFE",
-  },
-  highlightAvatarTextDark: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: doctorPalette.primary,
-  },
-  highlightNameWhite: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    marginTop: 2,
-  },
-  highlightMetaWhite: {
-    fontSize: 12,
-    color: "rgba(255, 255, 255, 0.8)",
-  },
-  highlightNameDark: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: doctorPalette.ink,
-    marginTop: 2,
-  },
-  highlightMetaDark: {
+  periodSub: {
     fontSize: 12,
     color: doctorPalette.muted,
-  },
-  highlightFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 6,
-  },
-  miniTagWhite: {
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    borderRadius: doctorRadii.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  miniTagWhiteText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "800",
-  },
-  miniTagLime: {
-    backgroundColor: doctorPalette.surfaceLime,
-    borderRadius: doctorRadii.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  miniTagLimeText: {
-    color: doctorPalette.ink,
-    fontSize: 10,
-    fontWeight: "800",
-  },
-  circleArrowBtnWhite: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  circleArrowBtnLime: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: doctorPalette.surfaceLime,
-    alignItems: "center",
-    justifyContent: "center",
+    marginTop: 2,
   },
   safetyCard: {
     backgroundColor: doctorPalette.surface,
@@ -828,7 +686,7 @@ const styles = StyleSheet.create({
     padding: 18,
     borderWidth: 1,
     borderColor: doctorPalette.borderSubtle,
-    gap: 10,
+    gap: 12,
     ...doctorSoftShadow,
   },
   safetyHeader: {
@@ -861,5 +719,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     color: doctorPalette.muted,
+  },
+  safetyBadgesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingTop: 4,
+  },
+  safetyPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: doctorPalette.surfaceSoft,
+    borderRadius: doctorRadii.pill,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: doctorPalette.borderSubtle,
+  },
+  safetyPillText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: doctorPalette.inkSecondary,
   },
 });

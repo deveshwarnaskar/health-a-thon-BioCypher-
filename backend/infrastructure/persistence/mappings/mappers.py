@@ -24,12 +24,15 @@ from backend.domain.entities import (
     GlucoseObservation,
     IdentityPatientMapping,
     MealObservation,
+    ClinicalObservation,
+    ObservationType,
     MedicationPlan,
     Notification,
     NotificationChannel,
     NotificationStatus,
     NotificationType,
     Patient,
+    PatientClinicianLink,
     ReviewAuthority,
     ReviewState,
 )
@@ -47,6 +50,7 @@ from ..models import (
     CareTaskModel,
     CareTeamMemberModel,
     CaregiverRelationshipModel,
+    ClinicalObservationModel,
     DocumentReferenceModel,
     FacilityModel,
     GlucoseObservationModel,
@@ -54,6 +58,7 @@ from ..models import (
     MealObservationModel,
     MedicationPlanModel,
     NotificationModel,
+    PatientClinicianLinkModel,
     PatientModel,
 )
 
@@ -326,6 +331,37 @@ def caregiver_relationship_to_model(
     )
 
 
+# --- PatientClinicianLink Mapping ---
+
+def patient_clinician_link_to_domain(model: PatientClinicianLinkModel) -> PatientClinicianLink:
+    return PatientClinicianLink(
+        id=model.id,
+        patient_id=model.patient_id,
+        clinician_user_id=model.clinician_user_id,
+        facility_id=model.facility_id,
+        clinician_name=model.clinician_name,
+        active=model.active,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+    )
+
+
+def patient_clinician_link_to_model(
+    entity: PatientClinicianLink, tenant_id: UUID
+) -> PatientClinicianLinkModel:
+    return PatientClinicianLinkModel(
+        id=entity.id,
+        tenant_id=tenant_id,
+        patient_id=entity.patient_id,
+        clinician_user_id=entity.clinician_user_id,
+        facility_id=entity.facility_id,
+        clinician_name=entity.clinician_name,
+        active=entity.active,
+        created_at=entity.created_at,
+        updated_at=entity.updated_at,
+    )
+
+
 # --- IdentityPatientMapping Mapping ---
 
 def identity_patient_mapping_to_domain(model: IdentityPatientMappingModel) -> IdentityPatientMapping:
@@ -455,5 +491,53 @@ def document_reference_to_model(entity: DocumentReference, tenant_id: UUID) -> D
         correlation_id=entity.correlation_id,
         created_at=entity.created_at,
     )
+
+
+# --- ClinicalObservation Mapping ---
+
+def clinical_observation_to_domain(model: ClinicalObservationModel) -> ClinicalObservation:
+    obs_type = ObservationType.LABORATORY
+    try:
+        obs_type = ObservationType(model.observation_type)
+    except Exception:
+        pass
+    return ClinicalObservation(
+        id=model.id,
+        patient_id=model.patient_id,
+        facility_id=model.facility_id,
+        observation_type=obs_type,
+        code=model.code,
+        value=model.value,
+        value_text=model.value_text,
+        unit=model.unit,
+        observed_at=model.observed_at,
+        recorded_at=model.recorded_at,
+        source=model.source,
+        document_id=model.document_id,
+        metadata_json=model.metadata_json,
+        created_at=model.created_at,
+    )
+
+
+def clinical_observation_to_model(entity: ClinicalObservation, tenant_id: UUID) -> ClinicalObservationModel:
+    type_str = entity.observation_type.value if hasattr(entity.observation_type, "value") else str(entity.observation_type)
+    return ClinicalObservationModel(
+        id=entity.id,
+        tenant_id=tenant_id,
+        patient_id=entity.patient_id,
+        facility_id=entity.facility_id,
+        observation_type=type_str,
+        code=entity.code,
+        value=entity.value,
+        value_text=entity.value_text,
+        unit=entity.unit,
+        observed_at=entity.observed_at,
+        recorded_at=entity.recorded_at,
+        source=entity.source,
+        document_id=entity.document_id,
+        metadata_json=entity.metadata_json,
+        created_at=entity.created_at,
+    )
+
 
 

@@ -213,7 +213,7 @@ class WhatsAppIntakeHandler:
         phone: str,
         tenant_id: UUID,
         job: OutboxJob,
-    ) -> None:
+    ) -> bool:
         """Send the personalized welcome if a PENDING WELCOME marker exists.
 
         The 24h customer-care window is open at this point (the customer just
@@ -231,14 +231,19 @@ class WhatsAppIntakeHandler:
             ]
         except Exception as exc:
             logger.info("deferred welcome lookup skipped: %s", exc)
-            return
+            return False
         if not pending:
-            return
+            return False
 
         marker = pending[0]
         body = str((marker.template_params or {}).get("body") or "")
+        delivered = False
         if body.strip():
+            from backend.application.services.welcome_template import build_welcome_message
+
+            body = build_welcome_message(getattr(patient, "name", "") or "")
             self._send_reply(phone, body, tenant_id, job.correlation_id)
+            delivered = True
         try:
             marker.queue()
             marker.mark_delivered()
@@ -247,6 +252,7 @@ class WhatsAppIntakeHandler:
             logger.info("deferred welcome delivered to %s", phone)
         except Exception as exc:
             logger.warning("deferred welcome bookkeeping failed: %s", exc)
+        return delivered
 
     def _send_reply(
         self,
@@ -341,7 +347,7 @@ class WhatsAppIntakeHandler:
 
             # Deliver any deferred WELCOME greeting now that the 24h window is open
             # (the customer just messaged the business, so free-form text is allowed).
-            self._deliver_deferred_welcome(uow, patient, phone, tenant_id, job)
+            welcome_delivered = self._deliver_deferred_welcome(uow, patient, phone, tenant_id, job)
 
             # ---- Multimodal ingestion layer (voice + image; additive) ---------
             # When disabled, behavior is byte-for-byte the legacy path: media with
@@ -484,7 +490,7 @@ class WhatsAppIntakeHandler:
                 )
 
             # Conversational AI/ML layer (op-in; None disables it entirely).
-            if self._conversation_engine is not None:
+            if self._conversation_engine is not None and not welcome_delivered:
                 conv_outcome = self._conversation_engine.handle(
                     text=text,
                     patient=patient,
@@ -554,8 +560,30 @@ class WhatsAppIntakeHandler:
 
             # 2. Help / Greeting intent
             if verdict.intent == IntentType.HELP:
-                from backend.application.services.welcome_template import build_welcome_message
-                help_msg = build_welcome_message(getattr(patient, "name", ""))
+                if welcome_delivered:
+                    # Welcome greeting was already dispatched for this inbound message;
+                    # avoid sending duplicate greetings in the same turn.
+                    uow.commit()
+                    return DeliveryOutcome.SUCCESS
+
+                low_text = (text or "").strip().lower()
+                casual_greetings = {"hi", "hello", "hey", "hii", "hiii", "helo", "hlo", "namaste", "namaskar", "pranam"}
+                if low_text in casual_greetings:
+                    name = getattr(patient, "name", "")
+                    clean_n = name.strip() if name else ""
+                    prefix = f"Namaste {clean_n} ji! 🙏 " if clean_n else "Namaste! 🙏 "
+                    help_msg = (
+                        f"{prefix}Main aapka THALI personal health companion hoon.\n\n"
+                        "Main aapki kya madad kar sakta hoon? Aap yahan:\n"
+                        "• 🩸 Blood sugar reading likh kar ya voice note 🎙️ se bhej sakte hain (jaise: *'110 fasting'*)\n"
+                        "• 🍽️ Apne khane ki jankari likh kar, plate ki photo 📸 ya voice note 🎙️ se darz kar sakte hain\n"
+                        "• 🩺 Sehat ya diet se juda koi bhi sawal poochh sakte hain!\n\n"
+                        "Aap command *'help'* bhej kar poori guide bhi dekh sakte hain."
+                    )
+                else:
+                    from backend.application.services.welcome_template import build_welcome_message
+
+                    help_msg = build_welcome_message(getattr(patient, "name", ""))
                 self._send_reply(phone, help_msg, tenant_id, job.correlation_id)
                 self._audit_factory(uow).record(
                     _audit_for_worker(
@@ -573,6 +601,11 @@ class WhatsAppIntakeHandler:
 
             # 2b. Conversational Healthcare / Onboarding Queries
             if verdict.intent == IntentType.CONVERSATIONAL:
+                if welcome_delivered:
+                    # Welcome greeting was already dispatched for this inbound message;
+                    # avoid sending duplicate reply in the same turn.
+                    uow.commit()
+                    return DeliveryOutcome.SUCCESS
                 from backend.application.services.conversational_assistant import generate_conversational_reply
                 patient_name = getattr(patient, "name", "")
                 reply = generate_conversational_reply(text, patient_name=patient_name, ai_completer=self._ai_completer)

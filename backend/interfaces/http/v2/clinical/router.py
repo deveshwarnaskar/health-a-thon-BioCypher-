@@ -19,7 +19,7 @@ import base64
 import uuid as _uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from backend.application.commands import (
     ConfirmMealObservation,
@@ -69,6 +69,8 @@ from backend.application.services.record_medication_administration import (
 from backend.application.services.review_ai_artifact import ReviewAIArtifactHandler
 from backend.application.services.generate_report import GenerateReportHandler
 from backend.application.services.upload_document import UploadDocumentHandler
+from backend.application.services.get_patient_clinical_state import GetPatientClinicalStateHandler
+
 
 from backend.application.dtos.clinical import ClinicalGlucoseRecord, ClinicalMealRecord
 from backend.domain.entities import DocumentKind
@@ -1081,6 +1083,9 @@ async def generate_report(
     except Exception:
         download_url = None
 
+    if not download_url:
+        download_url = f"/api/v2/clinical/documents/{doc_ref.id}/download"
+
     return DocumentReferenceResponse(
         id=str(doc_ref.id),
         patient_id=str(doc_ref.patient_id),
@@ -1094,7 +1099,58 @@ async def generate_report(
 
 
 @clinical_router.get(
+    "/patients/{patient_id}/clinical-state",
+    dependencies=[
+        Depends(
+            audit_dependency(
+                action=AuditAction.READ,
+                resource_type="patient.clinical_state",
+                resource_id_from=lambda r: r.path_params.get("patient_id"),
+                atomic=False,
+            )
+        )
+    ],
+)
+async def get_patient_clinical_state(
+    request: Request,
+    response: Response,
+    patient_id: str,
+    window_days: int = Query(14, ge=1, le=180),
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> dict[str, Any]:
+    """Retrieve normalized authoritative patient clinical state (Sections A through L)."""
+    apply_rate_limit(request=request, response=response, tier=TIERS["read"], limiter=limiter, ctx=ctx)
+
+    try:
+        patient_uuid = _uuid.UUID(patient_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid patient_id")
+
+    patient = authorize_patient_operation(
+        ctx, policy, Operation.READ_OBSERVATIONS, patient_uuid, uow
+    )
+    if not getattr(patient, "active", True):
+        raise HTTPException(status_code=403, detail="Patient is deactivated")
+
+    # Scoping: If clinician, verify facility alignment
+    from backend.domain.value_objects import Role
+    if hasattr(ctx, "role") and ctx.role in (Role.CLINICIAN, Role.DOCTOR):
+        assert_authorized_clinician_facility(ctx, uow, patient)
+
+    handler = GetPatientClinicalStateHandler(uow)
+    return handler.handle(
+        patient_id=patient_uuid,
+        window_days=window_days,
+        facility_id=patient.facility_id,
+    )
+
+
+@clinical_router.get(
     "/patients/{patient_id}/documents",
+
     response_model=DocumentReferenceListResponse,
 )
 async def list_patient_documents(
@@ -1143,6 +1199,8 @@ async def list_patient_documents(
             url = storage.generate_presigned_url(d.storage_key, expires_in=300)
         except Exception:
             url = None
+        if not url:
+            url = f"/api/v2/clinical/documents/{d.id}/download"
         items.append(
             DocumentReferenceResponse(
                 id=str(d.id),
@@ -1196,6 +1254,8 @@ async def get_document_reference(
         url = storage.generate_presigned_url(doc_ref.storage_key, expires_in=300)
     except Exception:
         url = None
+    if not url:
+        url = f"/api/v2/clinical/documents/{doc_ref.id}/download"
 
     return DocumentReferenceResponse(
         id=str(doc_ref.id),
@@ -1227,13 +1287,14 @@ async def download_document(
     response: Response,
     document_id: str,
     signed_url: bool = False,
+    base64: bool = False,
     ctx: AuthenticatedContext = Depends(get_authenticated_context),
     policy: AuthorizationPolicy = Depends(get_authorization_policy),
     uow: UnitOfWork = Depends(get_unit_of_work),
     storage=Depends(get_object_storage),
     limiter: Annotated[object, Depends(get_rate_limiter)] = None,
 ):
-    """Download document payload directly or generate a short-lived presigned URL."""
+    """Download document payload directly or generate a short-lived presigned URL or base64 JSON."""
     apply_rate_limit(request=request, response=response, tier=TIERS["read"], limiter=limiter, ctx=ctx)
 
     try:
@@ -1252,6 +1313,25 @@ async def download_document(
     if not getattr(patient, "active", True):
         raise HTTPException(status_code=403, detail="Patient is deactivated")
 
+    if base64:
+        try:
+            payload = storage.get(doc_ref.storage_key)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Document payload not found in storage")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to retrieve document: {e}")
+
+        import base64 as _base64
+        encoded = _base64.b64encode(payload).decode("ascii")
+        return DocumentDownloadResponse(
+            download_url=None,
+            expires_in=None,
+            filename=doc_ref.filename,
+            mime_type=doc_ref.mime_type,
+            content_base64=encoded,
+            file_size_bytes=len(payload),
+        )
+
     if signed_url:
         try:
             url = storage.generate_presigned_url(doc_ref.storage_key, expires_in=300)
@@ -1264,6 +1344,8 @@ async def download_document(
             expires_in=300,
             filename=doc_ref.filename,
             mime_type=doc_ref.mime_type,
+            content_base64=None,
+            file_size_bytes=doc_ref.file_size_bytes,
         )
 
     try:

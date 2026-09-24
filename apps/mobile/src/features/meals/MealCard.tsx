@@ -1,14 +1,31 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { AppCard } from "../../components/primitives/AppCard";
+import { Ionicons } from "@expo/vector-icons";
 import { Badge } from "../../components/primitives/Badge";
-import { colors, spacing, typography } from "../../theming/tokens";
+import { colors, spacing } from "../../theming/tokens";
 import type { PatientMealObservation } from "../../services/schemas/clinical";
 
 export type MealCardProps = {
   item: PatientMealObservation;
   testID?: string;
 };
+
+/**
+ * Consistent clinical palettes for the logbook (anchored to design tokens).
+ */
+const palette = {
+  muted: "#64748B",
+  faint: "#94A3B8",
+  ink: "#0F172A",
+  confirmed: "#059669",
+  confirmedBg: "#ECFDF5",
+  confirmedBorder: "#A7F3D0",
+  pending: "#D97706",
+  pendingBg: "#FFFBEB",
+  pendingBorder: "#FDE68A",
+  border: "rgba(15, 23, 42, 0.07)",
+  hairline: "#EEF2F7",
+} as const;
 
 export function MealCard({ item, testID }: MealCardProps) {
   const formattedDate = React.useMemo(() => {
@@ -25,39 +42,76 @@ export function MealCard({ item, testID }: MealCardProps) {
     }
   }, [item.recorded_at]);
 
+  const confirmed = item.confirmed === true;
+  const statusAccent = confirmed ? palette.confirmed : palette.pending;
+
   const card = (
-    <AppCard
-      accessibilityLabel={`Meal ${item.description}, ${item.confirmed ? "confirmed" : "pending confirmation"}`}
+    <View
+      style={styles.card}
+      accessible
+      accessibilityLabel={`Meal ${item.description}, ${confirmed ? "confirmed" : "pending confirmation"}`}
     >
-      <View style={styles.header}>
-        <Text style={styles.description} allowFontScaling numberOfLines={2}>
-          {item.description}
-        </Text>
-        {item.confirmed ? (
-          <Badge label="Confirmed" tone="success" />
-        ) : (
-          <Badge label="Draft" tone="warning" />
-        )}
+      {/* Colored Status Accent Strip */}
+      <View style={[styles.statusAccentStrip, { backgroundColor: statusAccent }]} />
+
+      <View style={styles.cardContent}>
+        {/* Upper Row: Description + Status Badge */}
+        <View style={styles.cardHeader}>
+          <Text style={styles.description} numberOfLines={2} allowFontScaling>
+            {item.description}
+          </Text>
+          <Badge
+            label={confirmed ? "Confirmed" : "Draft"}
+            tone={confirmed ? "success" : "warning"}
+          />
+        </View>
+
+        {/* Meta Row: Portion + Timestamp */}
+        <View style={styles.cardMetaRow}>
+          <View style={styles.timestampRow}>
+            <Ionicons name="time-outline" size={12} color={palette.muted} style={{ marginRight: 4 }} />
+            <Text style={styles.timestampText} allowFontScaling>
+              {formattedDate}
+            </Text>
+          </View>
+
+          {item.portion_label ? (
+            <Text style={styles.portion} numberOfLines={1} allowFontScaling>
+              {item.portion_label}
+              {item.quantity != null ? ` (${item.quantity}x)` : ""}
+            </Text>
+          ) : null}
+        </View>
       </View>
-
-      {item.portion_label ? (
-        <Text style={styles.portion} allowFontScaling>
-          Portion: {item.portion_label}
-          {item.quantity != null ? ` (${item.quantity}x)` : ""}
-        </Text>
-      ) : null}
-
-      <Text style={styles.timestamp} allowFontScaling>
-        {formattedDate}
-      </Text>
-    </AppCard>
+    </View>
   );
 
   return testID ? <View testID={testID}>{card}</View> : card;
 }
 
 const styles = StyleSheet.create({
-  header: {
+  card: {
+    flexDirection: "row",
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    overflow: "hidden",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  statusAccentStrip: {
+    width: 4,
+  },
+  cardContent: {
+    flex: 1,
+    padding: spacing.md - 2,
+    gap: spacing.sm,
+  },
+  cardHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
@@ -65,18 +119,36 @@ const styles = StyleSheet.create({
   },
   description: {
     flex: 1,
-    fontSize: typography.fontSize.body,
+    fontSize: 15,
+    fontWeight: "700",
+    color: palette.ink,
+    lineHeight: 21,
+    letterSpacing: -0.2,
+  },
+  cardMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: palette.hairline,
+    paddingTop: spacing.xs,
+  },
+  timestampRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 1,
+  },
+  timestampText: {
+    fontSize: 11,
     fontWeight: "600",
-    color: colors.textPrimary,
+    color: palette.muted,
   },
   portion: {
-    fontSize: typography.fontSize.bodySmall,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  timestamp: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
+    fontSize: 11,
+    fontWeight: "700",
+    color: palette.ink,
+    flexShrink: 1,
+    textAlign: "right",
   },
 });

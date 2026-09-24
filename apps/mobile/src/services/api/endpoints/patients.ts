@@ -1,8 +1,14 @@
 import {
   patientListResponseSchema,
   patientSummaryResponseSchema,
+  patientClinicianLinkResponseSchema,
+  patientClinicianLinkListResponseSchema,
+  linkPatientToClinicianRequestSchema,
   type PatientListResponse,
   type PatientSummaryResponse,
+  type PatientClinicianLinkResponse,
+  type PatientClinicianLinkListResponse,
+  type LinkPatientToClinicianRequest,
 } from "../../schemas/patients";
 import type { EndpointDefinition } from "./types";
 
@@ -29,4 +35,26 @@ export const patientsEndpoints = {
         : `/api/v2/patients/${encodeURIComponent(patientId)}/documents`,
     requiresIdempotencyKey: false,
   } satisfies EndpointDefinition<any, undefined>,
+
+  clinicianLinks: {
+    link: {
+      method: "POST",
+      path: (patientId: string) =>
+        `/api/v2/patients/${encodeURIComponent(patientId)}/clinician-links`,
+      requiresIdempotencyKey: true,
+      requestSchema: linkPatientToClinicianRequestSchema,
+      responseSchema: patientClinicianLinkResponseSchema,
+    } satisfies EndpointDefinition<
+      PatientClinicianLinkResponse,
+      LinkPatientToClinicianRequest
+    >,
+
+    list: {
+      method: "GET",
+      path: (patientId: string) =>
+        `/api/v2/patients/${encodeURIComponent(patientId)}/clinician-links`,
+      requiresIdempotencyKey: false,
+      responseSchema: patientClinicianLinkListResponseSchema,
+    } satisfies EndpointDefinition<PatientClinicianLinkListResponse, undefined>,
+  },
 } as const;

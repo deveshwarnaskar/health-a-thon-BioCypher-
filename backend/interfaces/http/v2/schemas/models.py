@@ -261,6 +261,39 @@ class RegisterCaregiverRequest(BaseModel):
     expires_at: datetime | None = None
 
 
+# ─── Clinician Link (Gate 13) ─────────────────────────────────────────────────
+
+
+class LinkPatientToClinicianRequest(BaseModel):
+    """Patient-initiated clinician connection by scanning the clinician's QR.
+
+    Emits exactly ONE field: the clinician's user id (the account embedded in
+    the QR value). The patient is resolved from the authenticated identity —
+    never a client field. Verification of the QR contents is the request's job;
+    the backend re-validates authority on the patient's own record.
+    """
+
+    model_config = _STRICT
+    clinician_user_id: UUID
+
+
+class PatientClinicianLinkResponse(BaseModel):
+    model_config = _STRICT
+    link_id: str
+    patient_id: str
+    clinician_user_id: str
+    clinician_name: str
+    facility_id: str | None = None
+    active: bool
+    created_at: datetime
+
+
+class PatientClinicianLinkListResponse(BaseModel):
+    model_config = _STRICT
+    patient_id: str
+    items: list[PatientClinicianLinkResponse]
+
+
 # ─── Caregiver Patient Discovery (Gate 10E-B) ───────────────────────────────
 
 
@@ -680,10 +713,12 @@ class DocumentReferenceListResponse(BaseModel):
 
 class DocumentDownloadResponse(BaseModel):
     model_config = _STRICT
-    download_url: str
-    expires_in: int
+    download_url: str | None = None
+    expires_in: int | None = None
     filename: str
     mime_type: str
+    content_base64: str | None = None
+    file_size_bytes: int | None = None
 
 
 class UploadDocumentRequest(BaseModel):

@@ -1,5 +1,6 @@
 import React from "react";
 import { useRouter } from "expo-router";
+import { useAuth } from "../../src/auth/AuthProvider";
 import { CaregiverWorkflow } from "../../src/features/caregiver";
 
 /**
@@ -8,9 +9,11 @@ import { CaregiverWorkflow } from "../../src/features/caregiver";
  */
 export default function CaregiverScreen() {
   const router = useRouter();
+  const { signOut } = useAuth();
 
   return (
     <CaregiverWorkflow
+      onSignOut={signOut}
       onExit={() => {
         if (router.canGoBack()) {
           router.back();

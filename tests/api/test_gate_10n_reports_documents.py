@@ -873,3 +873,40 @@ def test_unauthorized_role_denied(client: TestClient, test_setup):
         },
     )
     assert res.status_code == 403
+
+
+# 31. test_document_download_base64
+def test_document_download_base64(client: TestClient, test_setup, session_factory):
+    import base64
+    from backend.interfaces.http.dependencies import get_object_storage
+
+    storage = get_object_storage()
+    content = b"%PDF-1.4 Authoritative Clinical Report Payload"
+    key = f"tenants/{test_setup['tenant_id']}/patients/{test_setup['patient_id']}/clinical_report/{uuid4()}.pdf"
+    storage.put(key, content)
+
+    doc = seed_document_reference(
+        session_factory,
+        test_setup["tenant_id"],
+        test_setup["patient_id"],
+        facility_id=test_setup["facility_id"],
+        storage_key=key,
+    )
+
+    token = make_jwt(
+        sub=str(test_setup["clinician_user_id"]),
+        tenant_id=str(test_setup["tenant_id"]),
+        roles=["doctor"],
+        facility_id=str(test_setup["facility_id"]),
+    )
+    res = client.get(
+        f"/api/v2/clinical/documents/{doc.id}/download?base64=true",
+        headers=bearer(token),
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["filename"] == "test_report.pdf"
+    assert data["mime_type"] == "application/pdf"
+    assert data["content_base64"] == base64.b64encode(content).decode("ascii")
+    assert data["file_size_bytes"] == len(content)
+

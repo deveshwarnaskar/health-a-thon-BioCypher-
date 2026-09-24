@@ -161,8 +161,45 @@ class SarvamClient:
         asr_model = model or self.default_asr_model
         headers = {"api-subscription-key": self.api_key}
 
+        # Normalize MIME types: strip parameters like ';codecs=opus' and map mobile audio containers
+        raw_mime = (mime_type or "audio/ogg").lower().strip()
+        base_mime = raw_mime.split(";")[0].strip()
+
+        if base_mime in ("audio/m4a", "audio/x-m4a"):
+            normalized_mime = "audio/x-m4a"
+        elif base_mime in ("audio/webm", "video/webm"):
+            normalized_mime = "audio/webm"
+        elif base_mime in ("audio/mp4", "video/mp4", "audio/3gp", "audio/3gpp", "audio/amr"):
+            normalized_mime = "audio/mp4"
+        elif base_mime in ("audio/aac", "audio/x-aac"):
+            normalized_mime = "audio/aac"
+        elif base_mime in ("audio/wav", "audio/x-wav", "audio/wave"):
+            normalized_mime = "audio/wav"
+        elif base_mime in ("audio/ogg", "audio/opus"):
+            normalized_mime = "audio/ogg"
+        elif base_mime in ("audio/mpeg", "audio/mp3", "audio/mpeg3", "audio/x-mp3"):
+            normalized_mime = "audio/mpeg"
+        elif base_mime in ("unknown", "application/octet-stream", "", "audio/caf", "audio/x-caf"):
+            lower_fn = filename.lower()
+            if lower_fn.endswith(".m4a"):
+                normalized_mime = "audio/x-m4a"
+            elif lower_fn.endswith(".webm"):
+                normalized_mime = "audio/webm"
+            elif lower_fn.endswith(".mp4"):
+                normalized_mime = "audio/mp4"
+            elif lower_fn.endswith(".wav"):
+                normalized_mime = "audio/wav"
+            elif lower_fn.endswith(".ogg"):
+                normalized_mime = "audio/ogg"
+            elif lower_fn.endswith(".aac"):
+                normalized_mime = "audio/aac"
+            else:
+                normalized_mime = "application/octet-stream"
+        else:
+            normalized_mime = "application/octet-stream"
+
         files = {
-            "file": (filename, audio_bytes, mime_type),
+            "file": (filename, audio_bytes, normalized_mime),
         }
         data = {
             "model": asr_model,

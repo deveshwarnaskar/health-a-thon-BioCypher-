@@ -98,3 +98,32 @@ def test_deferred_welcome_does_not_block_unregistered_sender():
     outcome = handler.handle(_make_job("dal and rice"))
     assert outcome == DeliveryOutcome.SUCCESS
     assert len(sender.sent) == 1  # meal prompt only, no greeting
+
+
+def test_deferred_welcome_onboarding_inbound_no_duplicate_reply():
+    patient_id = uuid4()
+    tenant_id = uuid4()
+    patient = Patient(id=patient_id, name="Subham Das", uh_id=UHID("UHID-123"), active=True)
+    uow = SimpleUow(patient)
+    marker = _pending_welcome(patient_id)
+    uow.notifications.add(marker)
+
+    sender = RecordingSender()
+    audit_store = RecordingAuditStore()
+    handler = _build_handler(tenant_id, patient, uow, sender, audit_store)
+
+    job = _make_job("Hi THALI, my WhatsApp is connected! How can I log my blood sugar?")
+    outcome = handler.handle(job)
+    assert outcome == DeliveryOutcome.SUCCESS
+
+    # Exactly 1 message sent: the rich welcome greeting
+    assert len(sender.sent) == 1
+    body = sender.sent[0].template_params["body"]
+    assert "Welcome to *THALI × P.L.A.T.E.*" in body
+    assert "Voice Note" in body
+    assert "Plate Photo" in body
+    assert "Reminders" in body
+
+    # Marker is now delivered
+    stored = uow.notifications.get(marker.id)
+    assert stored.status == NotificationStatus.DELIVERED

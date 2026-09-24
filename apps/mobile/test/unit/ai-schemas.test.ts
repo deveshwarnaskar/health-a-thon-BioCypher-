@@ -6,6 +6,8 @@ import {
   reviewAiArtifactResponseSchema,
   aiArtifactResponseSchema,
   aiArtifactListResponseSchema,
+  analyzeMealPhotoAiRequestSchema,
+  analyzeMealPhotoAiResponseSchema,
 } from "../../src/services/schemas/ai";
 import { aiEndpoints } from "../../src/services/api/endpoints/ai";
 
@@ -139,6 +141,55 @@ describe("Gate 10M AI Generation & Review Schemas", () => {
         items: [artResp],
       });
       expect(listResp.artifact_count).toBe(1);
+    });
+  });
+
+  describe("Meal Photo AI Analysis Schemas", () => {
+    it("validates valid analyze-meal-photo request", () => {
+      const parsed = analyzeMealPhotoAiRequestSchema.parse({
+        image_base64: "dGVzdC1iYXNlNjQ=",
+        mime_type: "image/jpeg",
+        patient_name: "Aarav Sharma",
+      });
+      expect(parsed.image_base64).toBe("dGVzdC1iYXNlNjQ=");
+      expect(parsed.mime_type).toBe("image/jpeg");
+    });
+
+    it("validates valid analyze-meal-photo response", () => {
+      const parsed = analyzeMealPhotoAiResponseSchema.parse({
+        description: "2 roti with dal and mixed sabzi",
+        items: [
+          {
+            name: "Roti",
+            portion_text: "2 medium",
+            calories_kcal: 240,
+            carbs_g: 40,
+            protein_g: 6,
+          },
+          {
+            name: "Dal",
+            portion_text: "1 katori",
+            calories_kcal: 150,
+            carbs_g: 22,
+            protein_g: 9,
+          },
+        ],
+        total_calories_kcal: 390,
+        total_carbs_g: 62,
+        total_protein_g: 15,
+        glycemic_impact: "MODERATE",
+        patient_guidance_hinglish: "Yeh thali achhi hai, salad zaroor add karein.",
+        provider: "gemini_flash_lite_vision",
+      });
+      expect(parsed.items?.length).toBe(2);
+      expect(parsed.total_calories_kcal).toBe(390);
+      expect(parsed.provider).toBe("gemini_flash_lite_vision");
+    });
+
+    it("verifies analyzeMealPhoto endpoint definition", () => {
+      expect(aiEndpoints.analyzeMealPhoto.method).toBe("POST");
+      expect(aiEndpoints.analyzeMealPhoto.path).toBe("/api/v2/ai/analyze-meal-photo");
+      expect(aiEndpoints.analyzeMealPhoto.requiresIdempotencyKey).toBe(false);
     });
   });
 });

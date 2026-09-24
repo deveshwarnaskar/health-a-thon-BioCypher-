@@ -38,6 +38,7 @@ class UserModel(Base):
         ForeignKey("facilities.id", ondelete="SET NULL"),
         nullable=True,
     )
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="active", server_default="active"

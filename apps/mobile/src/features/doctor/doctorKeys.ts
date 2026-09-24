@@ -26,4 +26,6 @@ export const doctorKeys = {
     patientId
       ? (["doctor", "notifications", "patient", patientId] as const)
       : (["doctor", "notifications"] as const),
+  clinicalState: (patientId: string, windowDays: number = 14) =>
+    ["doctor", "clinical-state", patientId, windowDays] as const,
 } as const;

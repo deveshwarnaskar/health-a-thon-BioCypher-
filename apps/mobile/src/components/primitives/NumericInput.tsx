@@ -10,6 +10,8 @@ export type NumericInputProps = {
   disabled?: boolean;
   /** Strip non-numeric characters before forwarding the value. */
   numericOnly?: boolean;
+  /** Optional element rendered inside the field's trailing edge (e.g. a mic button). */
+  trailing?: React.ReactNode;
   accessibilityHint?: string;
 };
 
@@ -18,6 +20,7 @@ const NON_NUMERIC = /[^0-9]/g;
 export function NumericInput({
   numericOnly = true,
   onChangeText,
+  trailing,
   ...rest
 }: NumericInputProps) {
   const handleChange = (raw: string) => {
@@ -31,6 +34,7 @@ export function NumericInput({
   return (
     <TextInput
       {...rest}
+      trailing={trailing}
       onChangeText={handleChange}
       keyboardType="number-pad"
       textContentType="none"

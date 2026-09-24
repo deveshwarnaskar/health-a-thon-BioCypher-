@@ -118,6 +118,16 @@ class CaregiverRelationshipRevoked:
 
 
 @dataclass(frozen=True)
+class PatientClinicianLinkedResult:
+    link_id: UUID
+    patient_id: UUID
+    clinician_user_id: UUID
+    clinician_name: str
+    facility_id: UUID | None
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class IdentityMappingCreated:
     mapping_id: UUID
     user_id: UUID

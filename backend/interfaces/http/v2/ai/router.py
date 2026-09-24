@@ -35,6 +35,12 @@ class AnalyzeMealRequest(BaseModel):
     patient_name: str = Field(default="")
 
 
+class AnalyzeMealPhotoRequest(BaseModel):
+    image_base64: str = Field(..., min_length=1)
+    mime_type: str = Field(default="image/jpeg")
+    patient_name: str = Field(default="")
+
+
 class ConversationalChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     patient_name: str = Field(default="")
@@ -57,6 +63,88 @@ class TranscribeBase64Request(BaseModel):
     filename: str = Field(default="voice.ogg")
 
 
+def _transcribe_with_gemini_fallback(
+    audio_bytes: bytes,
+    mime_type: str = "audio/mp4",
+) -> dict[str, Any] | None:
+    """Fallback speech-to-text using Gemini flash lite."""
+    import base64
+    import json
+    import urllib.request
+    from config.settings import Settings
+
+    try:
+        settings = Settings()
+        gemini_key = settings.ai.api_key
+        if not gemini_key:
+            return None
+
+        gemini_mime = (mime_type or "audio/mp4").lower().strip()
+        gemini_mime = gemini_mime.split(";")[0].strip()
+        if gemini_mime in ("audio/m4a", "audio/x-m4a", "audio/caf", "audio/x-caf", "audio/3gp", "audio/3gpp", "application/octet-stream"):
+            gemini_mime = "audio/mp4"
+
+        for model in ("gemini-3.5-transcribe", "gemini-3-flash-preview"):
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
+                payload = {
+                    "contents": [
+                        {
+                            "parts": [
+                                {
+                                    "inline_data": {
+                                        "mime_type": gemini_mime,
+                                        "data": base64.b64encode(audio_bytes).decode("utf-8"),
+                                    }
+                                },
+                                {
+                                    "text": (
+                                        "Transcribe the spoken audio verbatim in the original spoken language "
+                                        "(e.g. English, Hindi, Hinglish). Output ONLY the transcription text. "
+                                        "Do not include quotes, markdown formatting, explanations, or metadata."
+                                    )
+                                },
+                            ]
+                        }
+                    ]
+                }
+                req = urllib.request.Request(
+                    url,
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=20.0) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    candidates = data.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        raw_text = ""
+                        for p in parts:
+                            raw_text += p.get("audioTranscription", {}).get("text") or p.get("text", "")
+                        raw_text = raw_text.strip()
+                        # Clean any surrounding quotes or markdown artifacts
+                        if (raw_text.startswith('"') and raw_text.endswith('"')) or (
+                            raw_text.startswith("'") and raw_text.endswith("'")
+                        ):
+                            raw_text = raw_text[1:-1].strip()
+                        for prefix in ("transcription:", "transcript:", "audio:"):
+                            if raw_text.lower().startswith(prefix):
+                                raw_text = raw_text[len(prefix) :].strip()
+
+                        if raw_text:
+                            return {
+                                "transcript": raw_text,
+                                "language_code": "unknown",
+                                "provider": f"gemini_{model}",
+                            }
+            except Exception as model_exc:
+                logger.debug("Gemini transcription fallback model %s failed: %s", model, model_exc)
+                continue
+    except Exception as exc:
+        logger.warning("Gemini transcription fallback failed: %s", exc)
+    return None
+
+
 @ai_router.post("/transcribe")
 async def transcribe_audio(
     file: UploadFile = File(...),
@@ -65,45 +153,85 @@ async def transcribe_audio(
 ) -> dict[str, Any]:
     """Transcribe spoken Indic audio (WhatsApp voice notes, app mic dictation).
 
-    Uses Sarvam Saaras ASR v2 with automatic Indian language & Hinglish detection.
+    Uses Sarvam Saaras ASR v2/v3 with automatic Indian language & Hinglish detection,
+    falling back to Gemini if Sarvam is unavailable.
     """
     try:
         content = await file.read()
         if not content:
-            raise HTTPException(status_code=400, detail="Empty audio file uploaded")
+            raise HTTPException(status_code=400, detail="Voice recording was empty. Please speak and try again.")
 
         client = SarvamClient()
-        if not client.is_configured:
-            # Safe mock transcript for dev/offline testing if key is not configured
-            return {
-                "transcript": "Audio received (Sarvam API key not configured — fallback mode)",
-                "language_code": language_code,
-                "provider": "fallback",
-                "filename": file.filename,
-                "size_bytes": len(content),
-            }
+        if client.is_configured:
+            try:
+                res = client.transcribe_audio(
+                    content,
+                    filename=file.filename or "audio.ogg",
+                    mime_type=file.content_type or "audio/ogg",
+                    language_code=language_code,
+                )
+                transcript = res.get("transcript", "").strip()
+                if transcript:
+                    return {
+                        "transcript": transcript,
+                        "language_code": res.get("language_code", language_code),
+                        "provider": "sarvam_saaras_v3",
+                        "latency_ms": res.get("latency_ms"),
+                    }
+                # If Sarvam returned 200 but empty transcript, attempt Gemini fallback
+                logger.info("Sarvam ASR returned empty transcript. Attempting Gemini fallback...")
+                gemini_res = _transcribe_with_gemini_fallback(content, file.content_type or "audio/mp4")
+                if gemini_res and gemini_res.get("transcript", "").strip():
+                    return gemini_res
+                return {
+                    "transcript": "",
+                    "language_code": res.get("language_code", language_code),
+                    "provider": "sarvam_saaras_v3",
+                }
+            except SarvamClientError as se:
+                logger.warning("Sarvam ASR error in transcribe: %s. Attempting Gemini fallback...", se)
+                gemini_res = _transcribe_with_gemini_fallback(content, file.content_type or "audio/mp4")
+                if gemini_res and gemini_res.get("transcript", "").strip():
+                    return gemini_res
 
-        res = client.transcribe_audio(
-            content,
-            filename=file.filename or "audio.ogg",
-            mime_type=file.content_type or "audio/ogg",
-            language_code=language_code,
-        )
+                err_str = str(se).lower()
+                if "duration is 0" in err_str or "too short" in err_str or "silent" in err_str:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Voice recording was too short or silent. Please speak for at least 1-2 seconds.",
+                    )
+                if se.status_code == 400 or se.error_code == "PROVIDER_4XX":
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Voice recording could not be processed. Please speak clearly for 2-3 seconds and try again.",
+                    )
+                if se.error_code == "CREDENTIALS_MISSING":
+                    raise HTTPException(status_code=503, detail="AI speech credentials not configured")
+                elif se.error_code == "TIMEOUT":
+                    raise HTTPException(status_code=504, detail="Audio transcription timed out. Please try again.")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Audio transcription service is momentarily busy. Please try speaking again.",
+                )
+
+        # Sarvam not configured, attempt Gemini fallback
+        gemini_res = _transcribe_with_gemini_fallback(content, file.content_type or "audio/mp4")
+        if gemini_res and gemini_res.get("transcript", "").strip():
+            return gemini_res
+
+        # Safe mock transcript for dev/offline testing if no keys configured
         return {
-            "transcript": res["transcript"],
-            "language_code": res["language_code"],
-            "provider": "sarvam_saaras_v2",
-            "latency_ms": res.get("latency_ms"),
+            "transcript": "Audio received (AI key not configured — fallback mode)",
+            "language_code": language_code,
+            "provider": "fallback",
+            "filename": file.filename,
+            "size_bytes": len(content),
         }
-    except SarvamClientError as e:
-        if e.error_code == "CREDENTIALS_MISSING":
-            raise HTTPException(status_code=503, detail="Sarvam AI credentials not configured")
-        elif e.error_code == "TIMEOUT":
-            raise HTTPException(status_code=504, detail="Audio transcription timed out")
-        raise HTTPException(status_code=502, detail=f"Transcription error: {e.message}")
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Transcribe audio unexpected failure: %s", exc)
-        raise HTTPException(status_code=500, detail="Audio transcription failed")
+        raise HTTPException(status_code=500, detail="Audio transcription failed. Please try again.")
 
 
 @ai_router.post("/transcribe-base64")
@@ -113,41 +241,85 @@ def transcribe_audio_base64(
 ) -> dict[str, Any]:
     """Transcribe base64-encoded audio (ideal for mobile apps)."""
     import base64
+    import binascii
     try:
-        content = base64.b64decode(body.audio_base64)
+        try:
+            content = base64.b64decode(body.audio_base64)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=400, detail="Malformed base64 audio payload.")
+
         if not content:
-            raise HTTPException(status_code=400, detail="Decoded audio data is empty")
+            raise HTTPException(status_code=400, detail="Voice recording was empty. Please speak and try again.")
 
         client = SarvamClient()
-        if not client.is_configured:
-            return {
-                "transcript": "Audio received (Sarvam API key not configured — fallback mode)",
-                "language_code": body.language_code,
-                "provider": "fallback",
-                "size_bytes": len(content),
-            }
+        if client.is_configured:
+            try:
+                res = client.transcribe_audio(
+                    content,
+                    filename=body.filename,
+                    mime_type=body.mime_type,
+                    language_code=body.language_code,
+                )
+                transcript = res.get("transcript", "").strip()
+                if transcript:
+                    return {
+                        "transcript": transcript,
+                        "language_code": res.get("language_code", body.language_code),
+                        "provider": "sarvam_saaras_v3",
+                        "latency_ms": res.get("latency_ms"),
+                    }
+                # If Sarvam returned 200 with empty transcript, attempt Gemini fallback
+                logger.info("Sarvam ASR returned empty transcript. Attempting Gemini fallback...")
+                gemini_res = _transcribe_with_gemini_fallback(content, body.mime_type)
+                if gemini_res and gemini_res.get("transcript", "").strip():
+                    return gemini_res
+                return {
+                    "transcript": "",
+                    "language_code": res.get("language_code", body.language_code),
+                    "provider": "sarvam_saaras_v3",
+                }
+            except SarvamClientError as se:
+                logger.warning("Sarvam ASR error in transcribe-base64: %s. Attempting Gemini fallback...", se)
+                gemini_res = _transcribe_with_gemini_fallback(content, body.mime_type)
+                if gemini_res and gemini_res.get("transcript", "").strip():
+                    return gemini_res
 
-        res = client.transcribe_audio(
-            content,
-            filename=body.filename,
-            mime_type=body.mime_type,
-            language_code=body.language_code,
-        )
+                err_str = str(se).lower()
+                if "duration is 0" in err_str or "too short" in err_str or "silent" in err_str:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Voice recording was too short or silent. Please speak for at least 1-2 seconds.",
+                    )
+                if se.status_code == 400 or se.error_code == "PROVIDER_4XX":
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Voice recording could not be processed. Please speak clearly for 2-3 seconds and try again.",
+                    )
+                if se.error_code == "CREDENTIALS_MISSING":
+                    raise HTTPException(status_code=503, detail="AI speech credentials not configured")
+                elif se.error_code == "TIMEOUT":
+                    raise HTTPException(status_code=504, detail="Audio transcription timed out. Please try again.")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Audio transcription service is momentarily busy. Please try speaking again.",
+                )
+
+        # Sarvam not configured, attempt Gemini fallback
+        gemini_res = _transcribe_with_gemini_fallback(content, body.mime_type)
+        if gemini_res and gemini_res.get("transcript", "").strip():
+            return gemini_res
+
         return {
-            "transcript": res["transcript"],
-            "language_code": res["language_code"],
-            "provider": "sarvam_saaras_v2",
-            "latency_ms": res.get("latency_ms"),
+            "transcript": "Audio received (AI key not configured — fallback mode)",
+            "language_code": body.language_code,
+            "provider": "fallback",
+            "size_bytes": len(content),
         }
-    except SarvamClientError as e:
-        if e.error_code == "CREDENTIALS_MISSING":
-            raise HTTPException(status_code=503, detail="Sarvam AI credentials not configured")
-        elif e.error_code == "TIMEOUT":
-            raise HTTPException(status_code=504, detail="Audio transcription timed out")
-        raise HTTPException(status_code=502, detail=f"Transcription error: {e.message}")
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Transcribe audio base64 failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Audio transcription failed")
+        raise HTTPException(status_code=500, detail="Audio transcription failed. Please try again.")
 
 
 @ai_router.post("/analyze-meal")
@@ -187,6 +359,148 @@ def analyze_meal(
         "patient_guidance_hinglish": res.patient_guidance_hinglish,
         "clinician_notes": res.clinician_notes,
         "source": res.source,
+    }
+
+
+@ai_router.post("/analyze-meal-photo")
+def analyze_meal_photo(
+    body: AnalyzeMealPhotoRequest,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+) -> dict[str, Any]:
+    """Analyze Indian meal composition from photo using Gemini Vision AI.
+
+    Identifies dishes, portions, calculates calories/carbs/protein/fiber,
+    and returns text description ready for meal logging.
+    """
+    import base64
+    import binascii
+    import json
+    import urllib.request
+    from config.settings import Settings
+
+    try:
+        raw_b64 = body.image_base64
+        if "," in raw_b64:
+            raw_b64 = raw_b64.split(",", 1)[1]
+        img_bytes = base64.b64decode(raw_b64)
+        if not img_bytes:
+            raise HTTPException(status_code=400, detail="Image data is empty.")
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid image base64 data.")
+
+    clean_mime = (body.mime_type or "image/jpeg").lower().strip()
+    if clean_mime not in ("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"):
+        clean_mime = "image/jpeg"
+
+    settings = Settings()
+    gemini_key = settings.ai.api_key
+
+    if gemini_key:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={gemini_key}"
+            prompt = (
+                "You are an expert Indian clinical nutrition assistant (ICMR-NIN guidelines).\n"
+                "Carefully inspect this photo of an Indian meal or plate.\n"
+                "1. Identify each dish/item visible (e.g. roti, chapati, dal, rice, sabzi, salad, curd, paneer, chicken, idli, dosa).\n"
+                "2. Estimate realistic Indian household portion counts (e.g. '2 rotis', '1 katori dal', '1 small cup curd').\n"
+                "3. Calculate estimated total macronutrients (calories in kcal, carbs in grams, protein in grams, fat in grams, fiber in grams).\n"
+                "4. Provide a clear, natural meal description in English or Hinglish that the patient can review and save in their health record (e.g. '2 rotis with 1 bowl dal tadka and cucumber salad').\n"
+                "5. Provide 1-2 sentences of helpful, friendly Hinglish dietary advice for diabetes management.\n\n"
+                "Return a single JSON object with these exact keys:\n"
+                "{\n"
+                '  "description": "concise description of identified foods",\n'
+                '  "items": [\n'
+                '    {"name": "item name", "portion_text": "e.g. 2 rotis", "calories_kcal": 160, "carbs_g": 30, "protein_g": 5, "fat_g": 2, "fiber_g": 3, "glycemic_index_category": "LOW|MODERATE|HIGH"}\n'
+                "  ],\n"
+                '  "total_calories_kcal": 420,\n'
+                '  "total_carbs_g": 58,\n'
+                '  "total_protein_g": 16,\n'
+                '  "total_fat_g": 12,\n'
+                '  "total_fiber_g": 8,\n'
+                '  "glycemic_impact": "LOW|MODERATE|ELEVATED",\n'
+                '  "balanced_plate_score": "EXCELLENT|BALANCED|HIGH_CARB",\n'
+                '  "patient_guidance_hinglish": "1-2 lines friendly Hinglish advice"\n'
+                "}"
+            )
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "inline_data": {
+                                    "mime_type": clean_mime,
+                                    "data": base64.b64encode(img_bytes).decode("utf-8"),
+                                }
+                            },
+                            {"text": prompt},
+                        ]
+                    }
+                ],
+                "generationConfig": {
+                    "response_mime_type": "application/json",
+                },
+            }
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=25.0) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts:
+                        raw_json = parts[0].get("text", "").strip()
+                        parsed = json.loads(raw_json)
+                        if isinstance(parsed, list) and len(parsed) > 0:
+                            parsed = parsed[0]
+                        if isinstance(parsed, dict) and parsed.get("description"):
+                            return {
+                                "description": str(parsed.get("description", "")).strip(),
+                                "items": parsed.get("items", []),
+                                "total_calories_kcal": int(parsed.get("total_calories_kcal") or 0),
+                                "total_carbs_g": int(parsed.get("total_carbs_g") or 0),
+                                "total_protein_g": int(parsed.get("total_protein_g") or 0),
+                                "total_fat_g": int(parsed.get("total_fat_g") or 0),
+                                "total_fiber_g": int(parsed.get("total_fiber_g") or 0),
+                                "glycemic_impact": parsed.get("glycemic_impact", "MODERATE"),
+                                "balanced_plate_score": parsed.get("balanced_plate_score", "BALANCED"),
+                                "patient_guidance_hinglish": parsed.get("patient_guidance_hinglish", ""),
+                                "photo_captured": True,
+                                "provider": "gemini_flash_lite_vision",
+                            }
+        except Exception as exc:
+            logger.warning("Gemini Vision meal analysis failed, falling back to deterministic analyzer: %s", exc)
+
+    # Deterministic fallback via IndicNutritionAnalyzer
+    analyzer = IndicNutritionAnalyzer()
+    res = analyzer.analyze_meal("2 roti with dal and mixed sabzi", patient_name=body.patient_name)
+    return {
+        "description": "Indian thali with roti, dal, and vegetable sabzi",
+        "items": [
+            {
+                "name": item.name,
+                "portion_text": item.portion_text,
+                "calories_kcal": item.calories_kcal,
+                "carbs_g": item.carbs_g,
+                "protein_g": item.protein_g,
+                "fat_g": item.fat_g,
+                "fiber_g": item.fiber_g,
+                "glycemic_index_category": item.glycemic_index_category,
+            }
+            for item in res.items
+        ],
+        "total_calories_kcal": res.total_calories_kcal,
+        "total_carbs_g": res.total_carbs_g,
+        "total_protein_g": res.total_protein_g,
+        "total_fat_g": res.total_fat_g,
+        "total_fiber_g": res.total_fiber_g,
+        "glycemic_impact": res.glycemic_impact,
+        "balanced_plate_score": res.balanced_plate_score,
+        "patient_guidance_hinglish": res.patient_guidance_hinglish,
+        "photo_captured": True,
+        "provider": "indic_nutrition_fallback",
     }
 
 

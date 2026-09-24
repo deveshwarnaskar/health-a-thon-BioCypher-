@@ -9,6 +9,10 @@ import {
   chatAiResponseSchema,
   analyzeMealAiRequestSchema,
   analyzeMealAiResponseSchema,
+  analyzeMealPhotoAiRequestSchema,
+  analyzeMealPhotoAiResponseSchema,
+  transcribeAiRequestSchema,
+  transcribeAiResponseSchema,
   type AIArtifactListResponse,
   type AIArtifactResponse,
   type GenerateAIArtifactRequest,
@@ -19,6 +23,10 @@ import {
   type ChatAiResponse,
   type AnalyzeMealAiRequest,
   type AnalyzeMealAiResponse,
+  type AnalyzeMealPhotoAiRequest,
+  type AnalyzeMealPhotoAiResponse,
+  type TranscribeAiRequest,
+  type TranscribeAiResponse,
 } from "../../schemas/ai";
 import type { EndpointDefinition } from "./types";
 
@@ -68,4 +76,20 @@ export const aiEndpoints = {
     requestSchema: analyzeMealAiRequestSchema,
     responseSchema: analyzeMealAiResponseSchema,
   } satisfies EndpointDefinition<AnalyzeMealAiResponse, AnalyzeMealAiRequest>,
+
+  analyzeMealPhoto: {
+    method: "POST",
+    path: "/api/v2/ai/analyze-meal-photo",
+    requiresIdempotencyKey: false,
+    requestSchema: analyzeMealPhotoAiRequestSchema,
+    responseSchema: analyzeMealPhotoAiResponseSchema,
+  } satisfies EndpointDefinition<AnalyzeMealPhotoAiResponse, AnalyzeMealPhotoAiRequest>,
+
+  transcribe: {
+    method: "POST",
+    path: "/api/v2/ai/transcribe-base64",
+    requiresIdempotencyKey: false,
+    requestSchema: transcribeAiRequestSchema,
+    responseSchema: transcribeAiResponseSchema,
+  } satisfies EndpointDefinition<TranscribeAiResponse, TranscribeAiRequest>,
 } as const;

@@ -43,6 +43,9 @@ _CACHE_TTL_SECONDS: float = 300.0
 _cache: dict[str, tuple[float, set[str] | None]] = {}
 
 
+_UNSET = object()
+
+
 class WhatsAppTemplateRegistry:
     """Resolves approved WhatsApp message templates for business-initiated sends.
 
@@ -55,15 +58,27 @@ class WhatsAppTemplateRegistry:
         self,
         settings: Settings | None = None,
         *,
-        business_account_id: str | None = None,
-        access_token: str | None = None,
-        api_version: str | None = None,
+        business_account_id: Any = _UNSET,
+        access_token: Any = _UNSET,
+        api_version: Any = _UNSET,
         cache_ttl: float = _CACHE_TTL_SECONDS,
     ) -> None:
         self._settings = settings or Settings()
-        self._business_account_id = business_account_id or self._settings.whatsapp.business_account_id
-        self._access_token = access_token or self._settings.whatsapp.access_token
-        self._api_version = api_version or self._settings.whatsapp.api_version
+        self._business_account_id = (
+            self._settings.whatsapp.business_account_id
+            if business_account_id is _UNSET
+            else business_account_id
+        )
+        self._access_token = (
+            self._settings.whatsapp.access_token
+            if access_token is _UNSET
+            else access_token
+        )
+        self._api_version = (
+            self._settings.whatsapp.api_version
+            if api_version is _UNSET
+            else (api_version or self._settings.whatsapp.api_version)
+        )
         self._cache_ttl = cache_ttl
         configured = (self._settings.whatsapp.welcome_template_names or "").split(",")
         self._preference: Sequence[str] = tuple(

@@ -106,9 +106,13 @@ export function DoctorWorkspaceHubTab({
   onSelectWorkspace,
   onSignOut,
 }: DoctorWorkspaceHubTabProps) {
-  const doctorName = propDoctorName || "Doctor";
+  let cleanDoctorName = (propDoctorName || "Doctor").trim();
+  cleanDoctorName = cleanDoctorName.replace(/^Dr\.?\s*/i, "");
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(cleanDoctorName)) {
+    cleanDoctorName = "Doctor";
+  }
   const facilityId = propFacilityId || "Facility 1";
-  const initial = doctorName.replace(/^Dr\.\s*/i, "").charAt(0).toUpperCase() || "D";
+  const initial = cleanDoctorName.charAt(0).toUpperCase() || "D";
 
   return (
     <ScrollView
@@ -127,7 +131,7 @@ export function DoctorWorkspaceHubTab({
           <View style={styles.profileInfoCol}>
             <View style={styles.nameBadgeRow}>
               <Text style={styles.profileDoctorName} numberOfLines={1} allowFontScaling>
-                Dr. {doctorName}
+                Dr. {cleanDoctorName}
               </Text>
               <Ionicons name="checkmark-circle" size={18} color={doctorPalette.primary} />
             </View>
@@ -262,7 +266,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 4,
     gap: 20,
-    paddingBottom: 110,
+    paddingBottom: 130,
   },
   profileCard: {
     backgroundColor: doctorPalette.surface,

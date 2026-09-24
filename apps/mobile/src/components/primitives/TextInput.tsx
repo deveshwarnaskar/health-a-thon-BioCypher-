@@ -22,6 +22,8 @@ export type TextInputProps = {
   placeholder?: string;
   multiline?: boolean;
   numberOfLines?: number;
+  /** Optional element rendered inside the field's trailing edge (e.g. a mic button). */
+  trailing?: React.ReactNode;
   testID?: string;
   accessibilityLabel?: string;
   accessibilityHint?: string;
@@ -41,6 +43,7 @@ export function TextInput({
   placeholder,
   multiline,
   numberOfLines,
+  trailing,
   testID,
   accessibilityLabel,
   accessibilityHint,
@@ -52,25 +55,34 @@ export function TextInput({
           {label}
         </Text>
       ) : null}
-      <RNTextInput
-        value={value}
-        onChangeText={onChangeText}
-        style={[styles.input, error ? styles.inputError : null, disabled ? styles.inputDisabled : null]}
-        editable={!disabled}
-        secureTextEntry={secureTextEntry}
-        textContentType={textContentType}
-        keyboardType={keyboardType}
-        autoCapitalize={autoCapitalize}
-        placeholder={placeholder}
-        placeholderTextColor={colors.disabled}
-        multiline={multiline}
-        numberOfLines={numberOfLines}
-        testID={testID}
-        allowFontScaling
-        accessibilityLabel={accessibilityLabel ?? label}
-        accessibilityHint={accessibilityHint}
-        accessibilityState={{ disabled }}
-      />
+      <View
+        style={[
+          styles.field,
+          error ? styles.fieldError : null,
+          disabled ? styles.fieldDisabled : null,
+        ]}
+      >
+        <RNTextInput
+          value={value}
+          onChangeText={onChangeText}
+          style={[styles.input, disabled ? styles.inputDisabled : null]}
+          editable={!disabled}
+          secureTextEntry={secureTextEntry}
+          textContentType={textContentType}
+          keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize}
+          placeholder={placeholder}
+          placeholderTextColor={colors.disabled}
+          multiline={multiline}
+          numberOfLines={numberOfLines}
+          testID={testID}
+          allowFontScaling
+          accessibilityLabel={accessibilityLabel ?? label}
+          accessibilityHint={accessibilityHint}
+          accessibilityState={{ disabled }}
+        />
+        {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
+      </View>
       {error ? (
         <Text style={styles.error} allowFontScaling accessibilityLiveRegion="polite">
           {error}
@@ -93,27 +105,37 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: colors.textPrimary,
   },
-  input: {
-    minHeight: 48,
-    paddingHorizontal: spacing.md,
+  field: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surface,
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: "#FFFFFF",
-    backgroundColor: colors.surface,
-    color: colors.textPrimary,
-    fontSize: typography.fontSize.body,
     shadowColor: colors.primaryInk,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.06,
     shadowRadius: 14,
     elevation: 2,
   },
-  inputError: {
+  fieldError: {
     borderColor: colors.critical,
   },
-  inputDisabled: {
+  fieldDisabled: {
     backgroundColor: colors.background,
+  },
+  input: {
+    flex: 1,
+    minHeight: 48,
+    paddingHorizontal: spacing.md,
+    color: colors.textPrimary,
+    fontSize: typography.fontSize.body,
+  },
+  inputDisabled: {
     color: colors.disabled,
+  },
+  trailing: {
+    paddingRight: spacing.xs,
   },
   error: {
     color: colors.critical,

@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { TopAppBar } from "../../components/primitives/TopAppBar";
 import { AlertBanner } from "../../components/primitives/AlertBanner";
 import { AppCard } from "../../components/primitives/AppCard";
@@ -15,6 +16,7 @@ import { EmptyState } from "../../components/primitives/EmptyState";
 import { LoadingState } from "../../components/primitives/LoadingState";
 import { TextInput } from "../../components/primitives/TextInput";
 import { colors, radii, spacing, typography } from "../../theming/tokens";
+import { caregiverPalette, caregiverRadii, caregiverShadow } from "./caregiverDesign";
 import { useCaregiverPatients } from "./useCaregiverPatients";
 import { useAuth } from "../../auth/AuthProvider";
 import { useConfirmMeal } from "../meals/useConfirmMeal";
@@ -202,9 +204,12 @@ export function CaregiverReconciliationScreen({
         ) : null}
 
         <View style={styles.noticeBox} accessibilityRole="summary">
-          <Text style={styles.noticeTitle} allowFontScaling>
-            Caregiver Reconciliation (Section 14)
-          </Text>
+          <View style={styles.noticeHeader}>
+            <Ionicons name="checkmark-done-circle" size={18} color={caregiverPalette.primary} />
+            <Text style={styles.noticeTitle} allowFontScaling>
+              Caregiver Reconciliation (Section 14)
+            </Text>
+          </View>
           <Text style={styles.noticeText} allowFontScaling>
             Review unresolved patient records. Every action (Verify, Correct, Skip) is audited and preserves original clinical history. Caregivers cannot modify physician care plans or prescribe medications.
           </Text>
@@ -224,12 +229,15 @@ export function CaregiverReconciliationScreen({
         {reconciliationItems.map((item) => {
           const isEditing = correctingItemId === item.id;
           return (
-            <AppCard key={item.id} accessibilityLabel={`Reconciliation item: ${item.title}`}>
+            <View key={item.id} style={styles.itemCard} accessibilityLabel={`Reconciliation item: ${item.title}`}>
               <View style={styles.itemHeader}>
-                <View>
-                  <Text style={styles.patientTag} allowFontScaling>
-                    PATIENT: {item.patientName}
-                  </Text>
+                <View style={styles.itemTitleBlock}>
+                  <View style={styles.patientTagRow}>
+                    <Ionicons name="person" size={11} color={caregiverPalette.primary} />
+                    <Text style={styles.patientTag} allowFontScaling>
+                      {item.patientName}
+                    </Text>
+                  </View>
                   <Text style={styles.itemTitle} allowFontScaling>
                     {item.title}
                   </Text>
@@ -267,6 +275,7 @@ export function CaregiverReconciliationScreen({
                   <TouchableOpacity
                     style={[styles.actionBtn, styles.verifyBtn]}
                     onPress={() => handleVerify(item)}
+                    activeOpacity={0.8}
                     accessibilityRole="button"
                     accessibilityLabel={`Verify ${item.title}`}
                   >
@@ -278,6 +287,7 @@ export function CaregiverReconciliationScreen({
                   <TouchableOpacity
                     style={[styles.actionBtn, styles.correctBtn]}
                     onPress={() => handleStartCorrect(item)}
+                    activeOpacity={0.8}
                     accessibilityRole="button"
                     accessibilityLabel={`Correct ${item.title}`}
                   >
@@ -289,6 +299,7 @@ export function CaregiverReconciliationScreen({
                   <TouchableOpacity
                     style={[styles.actionBtn, styles.skipBtn]}
                     onPress={() => handleSkip(item)}
+                    activeOpacity={0.8}
                     accessibilityRole="button"
                     accessibilityLabel={`Skip ${item.title}`}
                   >
@@ -298,7 +309,7 @@ export function CaregiverReconciliationScreen({
                   </TouchableOpacity>
                 </View>
               )}
-            </AppCard>
+            </View>
           );
         })}
       </ScrollView>
@@ -309,7 +320,7 @@ export function CaregiverReconciliationScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: caregiverPalette.appBackground,
   },
   content: {
     padding: spacing.md,
@@ -317,85 +328,108 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxl,
   },
   noticeBox: {
-    backgroundColor: colors.tileAqua,
-    borderRadius: radii.md,
-    padding: spacing.md,
+    backgroundColor: caregiverPalette.surfaceTeal,
+    borderRadius: caregiverRadii.md,
+    padding: 14,
     borderWidth: 1,
-    borderColor: "#FFFFFF",
+    borderColor: caregiverPalette.tealSoft,
+    gap: 6,
+    ...caregiverShadow.subtle,
+  },
+  noticeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   noticeTitle: {
-    fontSize: typography.fontSize.body,
-    fontWeight: "700",
-    color: colors.primary,
-    marginBottom: spacing.xxs,
+    fontSize: 14,
+    fontWeight: "800",
+    color: caregiverPalette.primary,
   },
   noticeText: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
+    fontSize: 12,
+    color: caregiverPalette.tealDark,
     lineHeight: 18,
+  },
+  itemCard: {
+    backgroundColor: caregiverPalette.surface,
+    borderRadius: caregiverRadii.lg,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: caregiverPalette.border,
+    gap: 10,
+    ...caregiverShadow.card,
   },
   itemHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: spacing.xxs,
+    gap: 8,
+  },
+  itemTitleBlock: {
+    flex: 1,
+    gap: 4,
+  },
+  patientTagRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   patientTag: {
     fontSize: 11,
     fontWeight: "700",
-    color: colors.primary,
-    letterSpacing: 0.8,
+    color: caregiverPalette.primary,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
   },
   itemTitle: {
-    fontSize: typography.fontSize.body,
-    fontWeight: "700",
-    color: colors.textPrimary,
-    marginTop: 2,
+    fontSize: 15,
+    fontWeight: "800",
+    color: caregiverPalette.ink,
   },
   itemSubtitle: {
-    fontSize: typography.fontSize.caption,
-    color: colors.textSecondary,
-    marginBottom: spacing.sm,
+    fontSize: 12,
+    color: caregiverPalette.muted,
   },
   actionRow: {
     flexDirection: "row",
     gap: spacing.sm,
-    marginTop: spacing.xs,
+    marginTop: 4,
   },
   actionBtn: {
     flex: 1,
-    paddingVertical: spacing.xs,
-    borderRadius: radii.pill,
+    paddingVertical: 9,
+    borderRadius: caregiverRadii.sm,
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 36,
+    minHeight: 38,
   },
   verifyBtn: {
-    backgroundColor: colors.leafGreen,
+    backgroundColor: caregiverPalette.emerald,
   },
   verifyBtnText: {
-    color: colors.textOnPrimary,
-    fontSize: typography.fontSize.caption,
+    color: "#FFFFFF",
+    fontSize: 12,
     fontWeight: "700",
   },
   correctBtn: {
-    backgroundColor: colors.surface,
+    backgroundColor: caregiverPalette.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: caregiverPalette.border,
   },
   correctBtnText: {
-    color: colors.textPrimary,
-    fontSize: typography.fontSize.caption,
+    color: caregiverPalette.ink,
+    fontSize: 12,
     fontWeight: "700",
   },
   skipBtn: {
-    backgroundColor: colors.surface,
+    backgroundColor: caregiverPalette.surfaceSoft,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: caregiverPalette.border,
   },
   skipBtnText: {
-    color: colors.textSecondary,
-    fontSize: typography.fontSize.caption,
+    color: caregiverPalette.muted,
+    fontSize: 12,
     fontWeight: "600",
   },
   correctionForm: {

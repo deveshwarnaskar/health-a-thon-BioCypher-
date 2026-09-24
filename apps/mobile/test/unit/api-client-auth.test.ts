@@ -96,6 +96,21 @@ describe("ApiClient auth integration", () => {
     expect(auth.signalAuthExpired).not.toHaveBeenCalled();
   });
 
+  it("401 on auth token endpoint does not trigger refreshSession (no refresh-of-refresh deadlock)", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(401, {}));
+    const refreshSession = vi.fn(async () => "tok-refreshed");
+    const auth = fakeAuth({ refreshSession });
+    const client = makeClient(fetchImpl, auth, "corr-refresh-ep");
+
+    const thrown = await client
+      .request({ method: "POST", path: "/api/v2/auth/refresh", body: { refresh_token: "rt" } })
+      .then(() => null, (err) => err);
+    expect(isAuthExpiredSignal(thrown)).toBe(true);
+    expect(refreshSession).not.toHaveBeenCalled();
+    expect(auth.signalAuthExpired).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("decisive refresh failure signals auth-expired", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(401, {}));
     const auth = fakeAuth({

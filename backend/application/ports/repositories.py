@@ -26,10 +26,12 @@ from ...domain.entities import (
     GlucoseObservation,
     IdentityPatientMapping,
     MealObservation,
+    ClinicalObservation,
     MedicationPlan,
     Notification,
     NotificationStatus,
     Patient,
+    PatientClinicianLink,
 )
 from ...domain.entities.ai_artifact import ReviewState
 
@@ -126,6 +128,17 @@ class IdentityPatientMappingRepository(Protocol):
 
 
 @runtime_checkable
+class PatientClinicianLinkRepository(Protocol):
+    def add(self, link: PatientClinicianLink) -> None: ...
+    def get(self, link_id: UUID) -> PatientClinicianLink: ...
+    def save(self, link: PatientClinicianLink) -> None: ...
+    def find_by_active_pair(
+        self, patient_id: UUID, clinician_user_id: UUID
+    ) -> PatientClinicianLink | None: ...
+    def list_for_patient(self, patient_id: UUID) -> list[PatientClinicianLink]: ...
+
+
+@runtime_checkable
 class NotificationRepository(Protocol):
     def add(self, notification: Notification) -> None: ...
     def get(self, notification_id: UUID) -> Notification: ...
@@ -144,3 +157,16 @@ class DocumentReferenceRepository(Protocol):
     def list_for_patient(self, patient_id: UUID, kind: DocumentKind | None = None) -> list[DocumentReference]: ...
     def list_for_tenant(self, limit: int = 50, offset: int = 0) -> list[DocumentReference]: ...
     def delete(self, document_id: UUID) -> None: ...
+
+
+@runtime_checkable
+class ClinicalObservationRepository(Protocol):
+    def add(self, obs: ClinicalObservation) -> None: ...
+    def get(self, obs_id: UUID) -> ClinicalObservation | None: ...
+    def list_for_patient(
+        self,
+        patient_id: UUID,
+        observation_type: str | None = None,
+        code: str | None = None,
+    ) -> list[ClinicalObservation]: ...
+    def list_for_document(self, document_id: UUID) -> list[ClinicalObservation]: ...

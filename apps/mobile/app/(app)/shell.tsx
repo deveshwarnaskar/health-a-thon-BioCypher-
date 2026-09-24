@@ -36,97 +36,88 @@ export default function ShellScreen() {
     return <LoadingState label="Preparing your area…" />;
   }
 
+  let content: React.ReactNode = null;
+
   if (role === "Patient") {
-    return (
+    content = (
       <PatientExperience
         patientId={state.user.patient_id ?? null}
-        patientName={state.user.actor_id}
+        patientName={state.user.name || undefined}
         onSignOut={signOut}
       />
     );
-  }
-
-  if (role === "Caregiver" && (selectedDestination === "patients" || selectedDestination === "home")) {
-    return <CaregiverWorkflow onExit={() => setSelectedDestination(null)} />;
-  }
-
-  if (role === "Caregiver" && selectedDestination === "verify") {
-    return <CaregiverReconciliationScreen onBack={() => setSelectedDestination(null)} />;
-  }
-
-  // Doctor / Clinician Workstation (Gate 10F-M / P.L.A.T.E. Clinical Workspace)
-  if (role === "Doctor") {
-    return (
+  } else if (role === "Caregiver") {
+    if (selectedDestination === "verify") {
+      content = <CaregiverReconciliationScreen onBack={() => setSelectedDestination(null)} />;
+    } else {
+      content = <CaregiverWorkflow onExit={() => setSelectedDestination(null)} onSignOut={signOut} />;
+    }
+  } else if (role === "Doctor") {
+    content = (
       <DoctorWorkstation
         initialFlow={selectedDestination as any}
         onSignOut={signOut}
         onExit={() => setSelectedDestination(null)}
       />
     );
-  }
+  } else if (role === "Dietitian" && selectedDestination === "food") {
+    content = <DietitianWorkflow flow="food" onHome={() => setSelectedDestination(null)} />;
+  } else if (role === "Dietitian" && selectedDestination === "patients") {
+    content = <DietitianWorkflow flow="patients" onHome={() => setSelectedDestination(null)} />;
+  } else if (role === "FieldHealthWorker" && (selectedDestination === "tasks" || selectedDestination === "visits")) {
+    content = <FHWWorkflow onExit={() => setSelectedDestination(null)} />;
+  } else if (role === "CareCoordinator" && (selectedDestination === "queue" || selectedDestination === "tasks")) {
+    content = <CoordinatorWorkflow onExit={() => setSelectedDestination(null)} />;
+  } else {
+    content = (
+      <View style={styles.container}>
+        <TopAppBar title="P.L.A.T.E." leadingLabel="Signed-in view" />
+        <RoleAwareShell role={role} onDestinationPress={setSelectedDestination} />
 
-  // Gate 10H-M: Dietitian meal & nutrition vertical slice
-  if (role === "Dietitian" && selectedDestination === "food") {
-    return <DietitianWorkflow flow="food" onHome={() => setSelectedDestination(null)} />;
-  }
+        {selectedDestination ? (
+          <View style={styles.selectionNote}>
+            <Text style={styles.selectionText} allowFontScaling>
+              “{selectedDestination}” is a placeholder — workflow lands in a later
+              vertical slice.
+            </Text>
+            <Button
+              label="Dismiss"
+              variant="outline"
+              onPress={() => setSelectedDestination(null)}
+            />
+          </View>
+        ) : null}
 
-  if (role === "Dietitian" && selectedDestination === "patients") {
-    return <DietitianWorkflow flow="patients" onHome={() => setSelectedDestination(null)} />;
-  }
-
-  // Gate 10J-M: Field Health Worker task & field data capture workflow
-  if (role === "FieldHealthWorker" && (selectedDestination === "tasks" || selectedDestination === "visits")) {
-    return <FHWWorkflow onExit={() => setSelectedDestination(null)} />;
-  }
-
-  // Gate 10J-M: Care Coordinator facility queue & task assignment workflow
-  if (role === "CareCoordinator" && (selectedDestination === "queue" || selectedDestination === "tasks")) {
-    return <CoordinatorWorkflow onExit={() => setSelectedDestination(null)} />;
-  }
-
-  return (
-    <View style={styles.container}>
-      <TopAppBar title="P.L.A.T.E." leadingLabel="Signed-in view" />
-      <RoleAwareShell role={role} onDestinationPress={setSelectedDestination} />
-
-      {selectedDestination ? (
-        <View style={styles.selectionNote}>
-          <Text style={styles.selectionText} allowFontScaling>
-            “{selectedDestination}” is a placeholder — workflow lands in a later
-            vertical slice.
+        <View style={styles.sectionFooter}>
+          <Text style={styles.roleText} allowFontScaling>
+            Signed in as {roleLabel(role)}
           </Text>
           <Button
-            label="Dismiss"
-            variant="outline"
-            onPress={() => setSelectedDestination(null)}
+            label={signingOut ? "Signing out…" : "Sign out"}
+            variant="ghost"
+            disabled={signingOut}
+            onPress={async () => {
+              setSigningOut(true);
+              try {
+                await signOut();
+              } finally {
+                setSigningOut(false);
+              }
+            }}
+            accessibilityHint="Ends this session and returns to the sign-in screen."
           />
         </View>
-      ) : null}
-
-      <View style={styles.sectionFooter}>
-        <Text style={styles.roleText} allowFontScaling>
-          Signed in as {roleLabel(role)}
-        </Text>
-        <Button
-          label={signingOut ? "Signing out…" : "Sign out"}
-          variant="ghost"
-          disabled={signingOut}
-          onPress={async () => {
-            setSigningOut(true);
-            try {
-              await signOut();
-            } finally {
-              setSigningOut(false);
-            }
-          }}
-          accessibilityHint="Ends this session and returns to the sign-in screen."
-        />
       </View>
-    </View>
-  );
+    );
+  }
+
+  return <View style={styles.rootWrapper}>{content}</View>;
 }
 
 const styles = StyleSheet.create({
+  rootWrapper: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.background,

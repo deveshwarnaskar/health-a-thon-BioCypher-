@@ -76,6 +76,41 @@ export function DoctorPatientsTab({
           />
         }
       >
+        {/* Patient Cohort Overview Banner */}
+        <View style={styles.cohortSummaryCard}>
+          <View style={styles.cohortSummaryTop}>
+            <View style={styles.cohortIconWrap}>
+              <Ionicons name="people" size={20} color={doctorPalette.primary} />
+            </View>
+            <View style={styles.cohortTextCol}>
+              <Text style={styles.cohortTitle} allowFontScaling numberOfLines={1}>
+                {patients.length} {patients.length === 1 ? "Patient" : "Patients"} Enrolled
+              </Text>
+              <Text style={styles.cohortSubtitle} allowFontScaling numberOfLines={1}>
+                Apex Diabetes Care Centre · Outpatient Surveillance
+              </Text>
+            </View>
+          </View>
+          <View style={styles.cohortStatsRow}>
+            <View style={styles.cohortStatCol}>
+              <Text style={styles.cohortStatNum} allowFontScaling>{patients.length}</Text>
+              <Text style={styles.cohortStatLabel} allowFontScaling>Total Linked</Text>
+            </View>
+            <View style={styles.cohortStatDivider} />
+            <View style={styles.cohortStatCol}>
+              <Text style={[styles.cohortStatNum, { color: "#166534" }]} allowFontScaling>{activeCount}</Text>
+              <Text style={styles.cohortStatLabel} allowFontScaling>Active Monitoring</Text>
+            </View>
+            <View style={styles.cohortStatDivider} />
+            <View style={styles.cohortStatCol}>
+              <Text style={[styles.cohortStatNum, { color: inactiveCount > 0 ? "#B45309" : doctorPalette.muted }]} allowFontScaling>
+                {inactiveCount}
+              </Text>
+              <Text style={styles.cohortStatLabel} allowFontScaling>Inactive</Text>
+            </View>
+          </View>
+        </View>
+
         {/* Floating Modern Search Bar */}
         <View style={styles.searchBar}>
           <Ionicons name="search" size={20} color={doctorPalette.muted} style={styles.searchIcon} />
@@ -253,7 +288,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 4,
     gap: 16,
-    paddingBottom: 110,
+    paddingBottom: 130,
   },
   searchBar: {
     flexDirection: "row",
@@ -416,5 +451,71 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     color: doctorPalette.ink,
+  },
+  cohortSummaryCard: {
+    backgroundColor: doctorPalette.surface,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: doctorPalette.borderSubtle,
+    padding: 16,
+    gap: 14,
+    ...doctorSoftShadow,
+  },
+  cohortSummaryTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  cohortIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: doctorPalette.surfaceBlue,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cohortTextCol: {
+    flex: 1,
+    gap: 2,
+  },
+  cohortTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: doctorPalette.ink,
+    letterSpacing: -0.2,
+  },
+  cohortSubtitle: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: doctorPalette.muted,
+  },
+  cohortStatsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: doctorPalette.surfaceSoft,
+    borderRadius: doctorRadii.md,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  cohortStatCol: {
+    flex: 1,
+    alignItems: "center",
+    gap: 2,
+  },
+  cohortStatNum: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: doctorPalette.ink,
+  },
+  cohortStatLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: doctorPalette.muted,
+  },
+  cohortStatDivider: {
+    width: 1,
+    height: 22,
+    backgroundColor: doctorPalette.borderSubtle,
   },
 });

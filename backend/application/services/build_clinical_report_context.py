@@ -174,6 +174,14 @@ class BuildClinicalReportContextHandler:
         else:
             metrics_payload = window_metrics
 
+        # Compute authoritative clinical state using deterministic clinical engine
+        from .get_patient_clinical_state import GetPatientClinicalStateHandler
+        clinical_state = GetPatientClinicalStateHandler(self._uow).handle(
+            patient_id=q.patient_id,
+            window_days=14,
+            facility_id=q.facility_id,
+        )
+
         return {
             "patient": {
                 "id": str(patient.id),
@@ -198,4 +206,6 @@ class BuildClinicalReportContextHandler:
             "medication_plans": plans_list,
             "ai_artifacts": artifacts_list,
             "metrics": metrics_payload,
+            "clinical_state": clinical_state,
         }
+

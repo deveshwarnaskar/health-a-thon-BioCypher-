@@ -1,10 +1,12 @@
 import React, { useState } from "react";
-import { StyleSheet, Text, View, ScrollView, Pressable } from "react-native";
+import { StyleSheet, Text, View, ScrollView, Pressable, TouchableOpacity } from "react-native";
 import { Button } from "../../components/primitives/Button";
 import { Badge } from "../../components/primitives/Badge";
 import { LoadingState } from "../../components/primitives/LoadingState";
 import { AlertBanner } from "../../components/primitives/AlertBanner";
 import { generateClinicalReport, type ClinicalDocumentItem } from "./api";
+import { ReportViewerModal } from "./ReportViewerModal";
+import { Ionicons } from "@expo/vector-icons";
 import { spacing, typography } from "../../theming/tokens";
 import { doctorPalette, doctorRadii, doctorSoftShadow } from "./doctorDesign";
 import type { PatientSummaryResponse } from "../../services/schemas/patients";
@@ -20,6 +22,7 @@ export function ReportsWorkspace({ patients, onSelectPatient }: ReportsWorkspace
   );
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedDoc, setGeneratedDoc] = useState<ClinicalDocumentItem | null>(null);
+  const [showViewerModal, setShowViewerModal] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const selectedPatient = patients.find((p) => p.patient_id === selectedPatientId);
@@ -40,6 +43,7 @@ export function ReportsWorkspace({ patients, onSelectPatient }: ReportsWorkspace
         idempotencyKey
       );
       setGeneratedDoc(doc);
+      setShowViewerModal(true);
     } catch (err: any) {
       setErrorMsg(err?.message || "Failed to generate report on server.");
     } finally {
@@ -128,7 +132,10 @@ export function ReportsWorkspace({ patients, onSelectPatient }: ReportsWorkspace
 
         {generatedDoc ? (
           <View style={styles.resultCard}>
-            <Text style={styles.resultTitle}>Report Successfully Generated</Text>
+            <View style={styles.resultHeaderRow}>
+              <Ionicons name="checkmark-circle" size={20} color="#15803D" />
+              <Text style={styles.resultTitle}>Report Successfully Generated</Text>
+            </View>
             <Text style={styles.resultText}>Filename: {generatedDoc.filename}</Text>
             <Text style={styles.resultText}>
               File Size: {Math.round(generatedDoc.file_size_bytes / 1024)} KB · Format: {generatedDoc.mime_type}
@@ -136,13 +143,29 @@ export function ReportsWorkspace({ patients, onSelectPatient }: ReportsWorkspace
             <Text style={styles.resultText}>
               Generated at: {new Date(generatedDoc.created_at).toLocaleString()}
             </Text>
-            {generatedDoc.download_url ? (
-              <View style={styles.downloadBox}>
-                <Text style={styles.downloadNotice}>
-                  Presigned Download URL available. Authoritative clinical document stored securely.
-                </Text>
-              </View>
-            ) : null}
+
+            <View style={styles.resultActionsRow}>
+              <TouchableOpacity
+                style={styles.actionBtnPrimary}
+                onPress={() => setShowViewerModal(true)}
+                accessibilityRole="button"
+                accessibilityLabel="View report in app"
+                activeOpacity={0.8}
+              >
+                <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
+                <Text style={styles.actionBtnPrimaryText}>View Report In-App</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionBtnOutline}
+                onPress={() => setShowViewerModal(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Download report PDF"
+                activeOpacity={0.8}
+              >
+                <Ionicons name="download-outline" size={16} color={doctorPalette.ink} />
+                <Text style={styles.actionBtnOutlineText}>Download PDF</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : null}
       </View>
@@ -156,6 +179,14 @@ export function ReportsWorkspace({ patients, onSelectPatient }: ReportsWorkspace
           under hospital record-retention policy.
         </Text>
       </View>
+
+      <ReportViewerModal
+        visible={showViewerModal}
+        document={generatedDoc}
+        patientName={selectedPatient?.name}
+        uhid={selectedPatient?.uh_id}
+        onClose={() => setShowViewerModal(false)}
+      />
     </ScrollView>
   );
 }
@@ -168,7 +199,7 @@ const styles = StyleSheet.create({
   content: {
     padding: spacing.lg,
     gap: spacing.lg,
-    paddingBottom: spacing.xxl,
+    paddingBottom: 130,
   },
   header: {
     gap: 4,
@@ -256,10 +287,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   buttonRow: {
-    flexDirection: "row",
-    gap: spacing.md,
-    alignItems: "center",
-    flexWrap: "wrap",
+    gap: spacing.sm,
   },
   resultCard: {
     backgroundColor: doctorPalette.limeSoft,
@@ -267,7 +295,12 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.9)",
     borderRadius: doctorRadii.lg,
     padding: spacing.md,
-    gap: 4,
+    gap: 6,
+  },
+  resultHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
   },
   resultTitle: {
     fontSize: typography.fontSize.bodySmall,
@@ -278,16 +311,41 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.caption,
     color: doctorPalette.muted,
   },
-  downloadBox: {
+  resultActionsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
     marginTop: spacing.xs,
-    padding: spacing.xs,
-    backgroundColor: doctorPalette.surface,
+    flexWrap: "wrap",
+  },
+  actionBtnPrimary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: doctorPalette.primary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
     borderRadius: doctorRadii.md,
   },
-  downloadNotice: {
-    fontSize: 11,
-    color: doctorPalette.primary,
-    fontWeight: "800",
+  actionBtnPrimaryText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  actionBtnOutline: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: doctorPalette.surface,
+    borderWidth: 1,
+    borderColor: doctorPalette.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    borderRadius: doctorRadii.md,
+  },
+  actionBtnOutlineText: {
+    color: doctorPalette.ink,
+    fontSize: 13,
+    fontWeight: "700",
   },
   noticeCard: {
     backgroundColor: doctorPalette.surface,

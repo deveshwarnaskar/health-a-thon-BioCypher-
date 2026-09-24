@@ -8,6 +8,10 @@ export type CaregiverWorkflowProps = {
    * Exit the caregiver workflow entirely (back to the shell main menu).
    */
   onExit?: () => void;
+  /**
+   * Sign out callback for caregiver session termination.
+   */
+  onSignOut?: () => void;
   testID?: string;
 };
 
@@ -18,7 +22,7 @@ export type CaregiverWorkflowProps = {
  * into the workflow resolves patient selection from the authoritative
  * caregiver patient list query (["caregivers", "me", "patients"]).
  */
-export function CaregiverWorkflow({ onExit, testID }: CaregiverWorkflowProps) {
+export function CaregiverWorkflow({ onExit, onSignOut, testID }: CaregiverWorkflowProps) {
   const [selectedPatient, setSelectedPatient] = useState<CaregiverPatientListItem | null>(null);
 
   if (selectedPatient) {
@@ -36,6 +40,7 @@ export function CaregiverWorkflow({ onExit, testID }: CaregiverWorkflowProps) {
     <CaregiverPatientsScreen
       onSelect={(patient) => setSelectedPatient(patient)}
       onBack={onExit}
+      onSignOut={onSignOut}
       testID={testID}
     />
   );

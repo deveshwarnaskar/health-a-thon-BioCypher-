@@ -40,18 +40,21 @@ logger = logging.getLogger(__name__)
 
 
 def _error_response(
-    status: int, code: str, message: str, request: Request
+    status: int, code: str, message: str, request: Request, detail: str | None = None
 ) -> JSONResponse:
     correlation_id = getattr(request.state, "correlation_id", None) or str(uuid.uuid4())
+    content = {
+        "error": {
+            "code": code,
+            "message": message,
+            "correlation_id": correlation_id,
+        }
+    }
+    if detail is not None:
+        content["detail"] = detail
     return JSONResponse(
         status_code=status,
-        content={
-            "error": {
-                "code": code,
-                "message": message,
-                "correlation_id": correlation_id,
-            }
-        },
+        content=content,
     )
 
 
@@ -178,7 +181,8 @@ async def _validation_error_handler(request: Request, exc: Any) -> JSONResponse:
 async def _http_exception_handler(request: Request, exc: Any) -> JSONResponse:
     """Safe mapping for HTTPExceptions raised by routes/dependencies.
 
-    Never echoes ``exc.detail`` verbatim (it could contain internals).
+    Uses route-provided ``exc.detail`` when it is a safe, clean message,
+    otherwise falls back to safe generic descriptions without leaking internals.
     """
     status = getattr(exc, "status_code", 500)
     mapping = {
@@ -192,9 +196,26 @@ async def _http_exception_handler(request: Request, exc: Any) -> JSONResponse:
         422: ("VALIDATION_ERROR", "Request validation failed"),
         423: ("ACCOUNT_LOCKED", "Account is temporarily locked"),
         429: ("TOO_MANY_REQUESTS", "Too many requests"),
+        502: ("BAD_GATEWAY", "Upstream service error"),
+        503: ("SERVICE_UNAVAILABLE", "Service temporarily unavailable"),
+        504: ("GATEWAY_TIMEOUT", "Service timed out"),
     }
     code, message = mapping.get(status, ("HTTP_ERROR", "Request could not be completed"))
-    return _error_response(status, code, message, request)
+
+    detail = getattr(exc, "detail", None)
+    safe_detail = None
+    if isinstance(detail, str) and detail.strip():
+        d = detail.strip()
+        # Verify it doesn't leak internal stack traces, DB queries, or secrets
+        is_unsafe = (
+            "\n" in d
+            or any(needle in d.lower() for needle in ["traceback", "stack trace", "password", "secret", "select *", "line "])
+            or len(d) > 300
+        )
+        if not is_unsafe:
+            safe_detail = d
+
+    return _error_response(status, code, message, request, detail=safe_detail)
 
 
 async def _generic_error_handler(request: Request, exc: Exception) -> JSONResponse:

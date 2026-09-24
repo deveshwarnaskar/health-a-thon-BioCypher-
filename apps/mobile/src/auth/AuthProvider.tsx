@@ -24,6 +24,7 @@ export type AuthController = {
     invite_code?: string;
   }) => Promise<{ user_status?: string; role?: string } | void>;
   signOut: () => Promise<void>;
+  deleteAccount: (phone: string) => Promise<void>;
   recoverPassword?: () => Promise<void>;
   forgotPassword?: (email: string) => Promise<{ status: string; message: string; reset_token?: string | null }>;
   resetPassword?: (token: string, newPassword: string) => Promise<{ status: string; message: string }>;
@@ -66,6 +67,7 @@ export function AuthProvider({ sessionManager, children }: AuthProviderProps) {
       signIn: (email?: string, password?: string) => sessionManager.signIn(email, password),
       signUp: (data) => sessionManager.signUp(data),
       signOut: () => sessionManager.signOut(),
+      deleteAccount: (phone: string) => sessionManager.deleteAccount(phone),
       recoverPassword: sessionManager.canRecoverPassword()
         ? () => sessionManager.recoverPassword()
         : undefined,

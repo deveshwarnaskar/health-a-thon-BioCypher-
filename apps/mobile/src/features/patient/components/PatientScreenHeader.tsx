@@ -72,7 +72,10 @@ export function PatientScreenHeader({
                 </Text>
               </View>
               <Text style={styles.greeting} allowFontScaling numberOfLines={1}>
-                {greeting}, {patientName || "Friend"}
+                {greeting},{" "}
+                {patientName && !/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(patientName)
+                  ? patientName
+                  : "Friend"}
               </Text>
               <Text style={styles.dateText} allowFontScaling>
                 {dateStr}

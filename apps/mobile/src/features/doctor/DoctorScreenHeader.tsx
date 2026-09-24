@@ -35,8 +35,12 @@ export function DoctorScreenHeader({
   onBack,
 }: DoctorScreenHeaderProps) {
   const greeting = getGreeting();
-  const displayName = doctorName || "Clinician";
-  const initial = displayName.replace(/^Dr\.\s*/i, "").charAt(0).toUpperCase() || "D";
+  let cleanName = (doctorName || "Clinician").trim();
+  cleanName = cleanName.replace(/^Dr\.?\s*/i, "");
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(cleanName)) {
+    cleanName = "Clinician";
+  }
+  const initial = cleanName.charAt(0).toUpperCase() || "D";
 
   return (
     <View style={styles.header} accessibilityRole="header">
@@ -61,7 +65,7 @@ export function DoctorScreenHeader({
               </Text>
               <View style={styles.nameRow}>
                 <Text style={styles.greetingName} allowFontScaling numberOfLines={1}>
-                  Dr. {displayName}!
+                  Dr. {cleanName}!
                 </Text>
                 <Ionicons name="checkmark-circle" size={17} color={doctorPalette.primary} />
               </View>

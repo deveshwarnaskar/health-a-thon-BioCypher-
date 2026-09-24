@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -88,3 +88,63 @@ class MealObservationModel(Base):
     __table_args__ = (
         Index("ix_meal_obs_tenant_patient_recorded", "tenant_id", "patient_id", "recorded_at"),
     )
+
+
+class ClinicalObservationModel(Base):
+    """Relational model for structured laboratory, vitals, screening, and document observations."""
+
+    __tablename__ = "clinical_observations"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    patient_id: Mapped[UUID] = mapped_column(
+        ForeignKey("patients.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    facility_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("facilities.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    observation_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    value_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    unit: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    source: Mapped[str] = mapped_column(
+        String(64),
+        default="patient_reported",
+        nullable=False,
+    )
+    document_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("document_references.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("ix_clinical_obs_tenant_patient_code", "tenant_id", "patient_id", "code"),
+        Index("ix_clinical_obs_tenant_patient_observed", "tenant_id", "patient_id", "observed_at"),
+    )
+

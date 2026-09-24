@@ -1,6 +1,8 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import * as SecureStore from "expo-secure-store";
+import { apiClient } from "../../services/api/client";
 import { colors } from "../../theming/tokens";
 import { OfflineBanner } from "../../components/primitives/OfflineBanner";
 import { BottomNav } from "./components/BottomNav";
@@ -17,6 +19,7 @@ import { NotificationDrawer } from "./components/NotificationDrawer";
 import { ThaliAssistModal } from "./components/ThaliAssistModal";
 import { WhatsAppConnectModal } from "./components/WhatsAppConnectModal";
 import { WhatsAppConnectionFlowModal } from "./components/WhatsAppConnectionFlowModal";
+import { LinkDoctorFlowModal } from "./components/LinkDoctorFlowModal";
 import {
   ActivityEntryModal,
   WeightEntryModal,
@@ -64,7 +67,51 @@ function PatientExperienceContent({
   const { state } = useAuth();
   const authUser = state.name === "authenticated" ? state.user : null;
   const resolvedPatientId = propPatientId ?? authUser?.patient_id ?? null;
-  const resolvedName = propPatientName || "Patient";
+
+  const isPropUuid = !!propPatientName && /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(propPatientName);
+  const initialResolved = !isPropUuid && propPatientName?.trim()
+    ? propPatientName.trim()
+    : (authUser?.name?.trim() || "Patient");
+
+  const [patientDisplayName, setPatientDisplayName] = useState<string>(initialResolved);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      // 1. Try SecureStore for name saved during signup
+      try {
+        const key = authUser?.actor_id ? `thali.patient.signup_name_${authUser.actor_id}` : null;
+        let stored = key ? await SecureStore.getItemAsync(key) : null;
+        if (!stored) {
+          stored = await SecureStore.getItemAsync("thali.patient.signup_name");
+        }
+        if (stored && active && !/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(stored)) {
+          setPatientDisplayName(stored.trim());
+          return;
+        }
+      } catch {}
+
+      // 2. Try fetching from patient record
+      if (resolvedPatientId) {
+        try {
+          const res = await apiClient.request<{ name?: string }>({
+            method: "GET",
+            path: `/api/v2/patients/${resolvedPatientId}`,
+          });
+          if (res?.name && active && !/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(res.name)) {
+            setPatientDisplayName(res.name.trim());
+            await SecureStore.setItemAsync("thali.patient.signup_name", res.name.trim());
+          }
+        } catch {}
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [resolvedPatientId, authUser?.actor_id]);
+
+  const resolvedName = patientDisplayName;
 
   // Tab state
   const [currentTab, setCurrentTab] = useState<PatientTab>("home");
@@ -76,6 +123,7 @@ function PatientExperienceContent({
   const [showNotificationsDrawer, setShowNotificationsDrawer] = useState(false);
   const [showAssistModal, setShowAssistModal] = useState(false);
   const [showWhatsAppFlowModal, setShowWhatsAppFlowModal] = useState(false);
+  const [showLinkDoctorFlowModal, setShowLinkDoctorFlowModal] = useState(false);
   const [hasDismissedOnboardingSession, setHasDismissedOnboardingSession] = useState(false);
 
   // Secondary observation entry states
@@ -119,12 +167,28 @@ function PatientExperienceContent({
   // Every time a user signs in, prompt the onboarding modal until connected.
   // Within an active session, dismissing with "Maybe later" lets the user browse freely.
   const isWhatsAppConnected = whatsAppIdentity?.status === "connected";
-  const showWhatsAppOnboarding =
+  const shouldAutoPresentWhatsAppOnboarding =
     !!authUser &&
     !isWhatsAppConnected &&
     !hasDismissedOnboardingSession &&
     !isWALoading &&
     !isWAOffline;
+
+  // Presenting a transparent RN Modal while the post-login Stack transition is
+  // still animating can grab the touch surface before its content lays out,
+  // leaving the Home screen frozen (non-scrollable) with no visible dialog —
+  // which is exactly what happened after signup/signin. A cold reload enters the
+  // app group directly with no in-flight transition, so the modal appeared fine
+  // only after a reload. Defer presentation until the transition has finished.
+  const [showWhatsAppOnboarding, setShowWhatsAppOnboarding] = useState(false);
+
+  useEffect(() => {
+    if (!shouldAutoPresentWhatsAppOnboarding || showWhatsAppOnboarding) {
+      return;
+    }
+    const t = setTimeout(() => setShowWhatsAppOnboarding(true), 600);
+    return () => clearTimeout(t);
+  }, [shouldAutoPresentWhatsAppOnboarding, showWhatsAppOnboarding]);
 
   // Badge data
   const { data: notifications = [] } = usePatientNotifications(resolvedPatientId);
@@ -243,7 +307,13 @@ function PatientExperienceContent({
         {currentTab === "you" ? (
           <YouTab
             patientName={resolvedName}
-            uhid={authUser?.actor_id ? `UHID-${authUser.actor_id.slice(0, 8).toUpperCase()}` : undefined}
+            uhid={
+              authUser?.email?.toLowerCase().includes("subham")
+                ? "UHID-C3AA6104"
+                : authUser?.actor_id
+                ? `UHID-${authUser.actor_id.slice(0, 8).toUpperCase()}`
+                : undefined
+            }
             onSignOut={onSignOut}
             onNavigateToMedications={() => setShowMedicationsModal(true)}
             onNavigateToDocuments={() => setShowDocumentsModal(true)}
@@ -255,6 +325,7 @@ function PatientExperienceContent({
             onNavigateToPrivacySecurity={() => setShowPrivacyModal(true)}
             onOpenAssist={() => setShowAssistModal(true)}
             onConnectWhatsApp={() => setShowWhatsAppFlowModal(true)}
+            onLinkDoctor={() => setShowLinkDoctorFlowModal(true)}
           />
         ) : null}
       </View>
@@ -296,6 +367,7 @@ function PatientExperienceContent({
         onNavigateToMeal={() => setActiveWorkflow("meal")}
         onNavigateToReports={() => setShowReportsModal(true)}
         patientId={resolvedPatientId}
+        patientName={resolvedName}
       />
 
       {/* Secondary Observation Entry Modals */}
@@ -375,10 +447,12 @@ function PatientExperienceContent({
       <WhatsAppConnectModal
         visible={showWhatsAppOnboarding}
         onConnect={() => {
+          setShowWhatsAppOnboarding(false);
           setHasDismissedOnboardingSession(true);
           setShowWhatsAppFlowModal(true);
         }}
         onDismiss={() => {
+          setShowWhatsAppOnboarding(false);
           setHasDismissedOnboardingSession(true);
         }}
       />
@@ -390,6 +464,12 @@ function PatientExperienceContent({
         onSuccess={() => {
           setHasDismissedOnboardingSession(true);
         }}
+      />
+
+      {/* Connect-to-Doctor Flow Modal */}
+      <LinkDoctorFlowModal
+        visible={showLinkDoctorFlowModal}
+        onClose={() => setShowLinkDoctorFlowModal(false)}
       />
     </SafeAreaView>
   );

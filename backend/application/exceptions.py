@@ -43,3 +43,8 @@ class InactivePatientError(ApplicationError):
 
 class InvalidReportFormatError(ApplicationError):
     """Unsupported report format or report type requested."""
+
+
+class ClinicianUnavailable(ApplicationError):
+    """The target clinician user is inactive, suspended, or not authorized
+    to accept patient links at this time."""

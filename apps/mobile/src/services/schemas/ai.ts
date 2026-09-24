@@ -121,3 +121,55 @@ export const analyzeMealAiResponseSchema = z.object({
   source: z.string().optional(),
 });
 export type AnalyzeMealAiResponse = z.infer<typeof analyzeMealAiResponseSchema>;
+
+export const analyzeMealPhotoAiRequestSchema = z.object({
+  image_base64: z.string(),
+  mime_type: z.string().optional(),
+  patient_name: z.string().optional(),
+});
+export type AnalyzeMealPhotoAiRequest = z.infer<typeof analyzeMealPhotoAiRequestSchema>;
+
+export const analyzeMealPhotoAiResponseSchema = z.object({
+  description: z.string(),
+  items: z
+    .array(
+      z.object({
+        name: z.string(),
+        portion_text: z.string().optional(),
+        calories_kcal: z.number(),
+        carbs_g: z.number(),
+        protein_g: z.number(),
+        fat_g: z.number().optional(),
+        fiber_g: z.number().optional(),
+        glycemic_index_category: z.string().optional(),
+      })
+    )
+    .optional(),
+  total_calories_kcal: z.number(),
+  total_carbs_g: z.number(),
+  total_protein_g: z.number(),
+  total_fat_g: z.number().optional(),
+  total_fiber_g: z.number().optional(),
+  glycemic_impact: z.string().optional(),
+  balanced_plate_score: z.string().optional(),
+  patient_guidance_hinglish: z.string().optional(),
+  photo_captured: z.boolean().optional(),
+  provider: z.string().optional(),
+});
+export type AnalyzeMealPhotoAiResponse = z.infer<typeof analyzeMealPhotoAiResponseSchema>;
+
+export const transcribeAiRequestSchema = z.object({
+  audio_base64: z.string(),
+  mime_type: z.string().optional(),
+  language_code: z.string().optional(),
+  filename: z.string().optional(),
+});
+export type TranscribeAiRequest = z.infer<typeof transcribeAiRequestSchema>;
+
+export const transcribeAiResponseSchema = z.object({
+  transcript: z.string(),
+  language_code: z.string().optional(),
+  provider: z.string().optional(),
+  latency_ms: z.number().optional(),
+});
+export type TranscribeAiResponse = z.infer<typeof transcribeAiResponseSchema>;

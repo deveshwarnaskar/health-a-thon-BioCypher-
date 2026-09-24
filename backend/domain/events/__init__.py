@@ -33,6 +33,7 @@ from .identity import (
     CaregiverRelationshipVerified,
     IdentityMappingCreated,
     IdentityMappingDeactivated,
+    PatientClinicianLinked,
 )
 
 __all__ = [
@@ -64,4 +65,5 @@ __all__ = [
     "CareTeamMemberUpdated",
     "CareTeamMemberDeactivated",
     "PatientDeactivated",
+    "PatientClinicianLinked",
 ]

@@ -23,6 +23,7 @@ from .generate_ai_review_artifact import GenerateAIReviewArtifact
 from .generate_report import GenerateReport
 from .ingest_glucose_reading import IngestGlucoseReading
 from .link_patient_phone import LinkPatientPhone
+from .link_patient_to_clinician import LinkPatientToClinician
 from .log_meal_draft import LogMealDraft
 from .record_medication_administration import RecordMedicationAdministration
 from .register_caregiver_relationship import RegisterCaregiverRelationship

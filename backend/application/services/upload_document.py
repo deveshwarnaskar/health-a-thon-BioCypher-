@@ -79,6 +79,24 @@ class UploadDocumentHandler:
         )
 
         self._uow.document_references.add(doc_ref)
+
+        # Gate 05 / Pipeline: Ingest validated structured clinical observations if extractable
+        try:
+            from .document_observation_extractor import ingest_document_observations
+            ingest_document_observations(
+                uow=self._uow,
+                patient_id=cmd.patient_id,
+                facility_id=cmd.facility_id,
+                document_id=doc_id,
+                payload=cmd.payload,
+                mime_type=clean_mime,
+                observed_at=doc_ref.created_at,
+            )
+        except Exception:
+            # Document upload must succeed even if structured extraction finds nothing
+            pass
+
         self._uow.commit()
 
         return doc_ref
+

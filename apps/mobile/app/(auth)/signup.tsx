@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import { StyleSheet, Text, TextInput as RNTextInputRef, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { AlertBanner } from "../../src/components/primitives/AlertBanner";
 import { useAuth } from "../../src/auth/AuthProvider";
 import { colors, radii, spacing, typography } from "../../src/theming/tokens";
@@ -69,21 +70,38 @@ export default function SignupScreen() {
       return;
     }
 
+    const cleanPhone = phone.trim();
+    if (!cleanPhone) {
+      setLocalError("Please enter your phone number.");
+      return;
+    }
+
     if (!signUp) {
       setLocalError("Registration is currently unavailable.");
       return;
     }
 
+    const trimmedName = name.trim();
     setSubmitting(true);
     try {
       const res = await signUp({
         email: cleanEmail,
         password,
-        name: name.trim() || undefined,
-        phone: phone.trim() || undefined,
+        name: trimmedName || undefined,
+        phone: cleanPhone,
         role,
         invite_code: role === "doctor" && inviteCode.trim() ? inviteCode.trim() : undefined,
       });
+
+      if (trimmedName) {
+        try {
+          await SecureStore.setItemAsync("thali.patient.signup_name", trimmedName);
+        } catch {}
+      }
+
+      try {
+        await SecureStore.setItemAsync("thali.patient.signup_phone", cleanPhone);
+      } catch {}
 
       if (role === "doctor" && res && res.user_status === "pending_verification") {
         setPendingDoctorNotice(true);
@@ -231,7 +249,7 @@ export default function SignupScreen() {
             />
 
             <AuthInput
-              label="Phone number (Optional)"
+              label="Phone number"
               value={phone}
               onChangeText={setPhone}
               placeholder="+91 98765 43210"
@@ -288,7 +306,7 @@ export default function SignupScreen() {
             label="Sign up"
             loadingLabel="Creating account..."
             onPress={handleSignup}
-            disabled={busy || !email.trim() || !password || !confirmPassword}
+            disabled={busy || !email.trim() || !phone.trim() || !password || !confirmPassword}
             busy={busy}
             accessibilityLabel={busy ? "Creating account..." : "Register & Sign In"}
             accessibilityHint="Submits your account registration to THALI."

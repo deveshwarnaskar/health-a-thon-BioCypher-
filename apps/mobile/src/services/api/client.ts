@@ -24,6 +24,10 @@ export type ApiRequestOptions<TResponse> = {
   signal?: AbortSignal;
 };
 
+function isAuthTokenEndpoint(path: string): boolean {
+  return path.startsWith("/api/v2/auth");
+}
+
 export type ApiDependencies = {
   config?: AppApiConfig;
   fetchImpl?: typeof fetch;
@@ -100,7 +104,13 @@ export class ApiClient {
 
     // Exactly one refresh + one retry on auth-expired. Any subsequent 401 is
     // surfaced as a session-expired signal, never retried again.
-    if (!result.ok && result.error && isAuthExpiredSignal(result.error) && this.authProvider) {
+    if (
+      !result.ok &&
+      result.error &&
+      isAuthExpiredSignal(result.error) &&
+      this.authProvider &&
+      !isAuthTokenEndpoint(options.path)
+    ) {
       try {
         const refreshed = await this.authProvider.refreshSession();
         if (refreshed) {

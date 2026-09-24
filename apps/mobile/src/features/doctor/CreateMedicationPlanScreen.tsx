@@ -4,14 +4,15 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthProvider";
 import { useCreateMedicationPlan } from "./useCreateMedicationPlan";
 import { doctorKeys } from "./doctorKeys";
-import { PlanForm } from "./PlanForm";
+import { uploadPatientDocument } from "./api";
+import { PlanForm, type PlanAttachment } from "./PlanForm";
 import { TopAppBar } from "../../components/primitives/TopAppBar";
 import { AlertBanner } from "../../components/primitives/AlertBanner";
 import { EmptyState } from "../../components/primitives/EmptyState";
 import { colors, spacing } from "../../theming/tokens";
 import type { PatientSummaryResponse } from "../../services/schemas/patients";
 import type { ApiErrorDetails } from "../../services/api/errors";
-import type { CreateMedicationPlanResponse } from "../../services/schemas/medication";
+import type { CreateMedicationPlanRequest, CreateMedicationPlanResponse } from "../../services/schemas/medication";
 
 export type CreateMedicationPlanScreenProps = {
   patient: PatientSummaryResponse;
@@ -27,6 +28,7 @@ export type CreateMedicationPlanScreenProps = {
  * ONLY patient_id / medication / instruction — the prescriber is always
  * derived by the backend from the authenticated context. A network failure
  * never implies success: no banner is shown without backend confirmation.
+ * Supporting prescription or clinical documents can be attached and archived.
  */
 export function CreateMedicationPlanScreen({
   patient,
@@ -38,6 +40,7 @@ export function CreateMedicationPlanScreen({
   const queryClient = useQueryClient();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
 
   const authUser = state.name === "authenticated" ? state.user : null;
   const isDoctorRole = authUser?.role === "Doctor";
@@ -46,6 +49,12 @@ export function CreateMedicationPlanScreen({
     onSuccess: (data) => {
       setErrorMessage(null);
       setFieldErrors({});
+      void queryClient.invalidateQueries({
+        queryKey: doctorKeys.documents(patient.patient_id),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: doctorKeys.medicationPlans(patient.patient_id),
+      });
       onCreated?.(data);
     },
     onError: (error) => {
@@ -82,6 +91,33 @@ export function CreateMedicationPlanScreen({
       }
     },
   });
+
+  const handleSubmit = async (
+    request: CreateMedicationPlanRequest,
+    attachment?: PlanAttachment | null
+  ) => {
+    setErrorMessage(null);
+    setFieldErrors({});
+
+    try {
+      if (attachment) {
+        setIsUploadingDoc(true);
+        const idempotencyKey = `doc-upload-${patient.patient_id}-${Date.now()}`;
+        await uploadPatientDocument(patient.patient_id, attachment, idempotencyKey);
+        void queryClient.invalidateQueries({
+          queryKey: doctorKeys.documents(patient.patient_id),
+        });
+      }
+      create.mutate(request);
+    } catch (err: any) {
+      setIsUploadingDoc(false);
+      setErrorMessage(
+        err?.message || "Failed to upload the attached prescription document. Please retry."
+      );
+    } finally {
+      setIsUploadingDoc(false);
+    }
+  };
 
   if (!isDoctorRole) {
     return (
@@ -123,19 +159,15 @@ export function CreateMedicationPlanScreen({
       />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <AlertBanner tone="info" title={patient.name} message="Creating a clinician-authored medication plan." />
+        <AlertBanner tone="info" title={patient.name} message="Creating a clinician-authored medication plan with optional prescription document archiving." />
         {errorMessage ? (
           <AlertBanner tone="critical" title="Plan Creation Failed" message={errorMessage} />
         ) : null}
         <PlanForm
           patientId={patient.patient_id}
-          isSubmitting={create.isPending}
+          isSubmitting={create.isPending || isUploadingDoc}
           backendFieldErrors={fieldErrors}
-          onSubmit={(request) => {
-            setErrorMessage(null);
-            setFieldErrors({});
-            create.mutate(request);
-          }}
+          onSubmit={handleSubmit}
           testID="doctor-create-plan-form"
         />
       </ScrollView>

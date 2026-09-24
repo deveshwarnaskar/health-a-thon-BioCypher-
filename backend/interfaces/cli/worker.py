@@ -88,7 +88,8 @@ def _build_multimodal_bundle(settings):
         if settings.ai.image_analysis_provider.lower() == "gemini":
             image_analysis = GeminiImageAnalysisProvider(
                 api_key=settings.ai.api_key,
-                model_name=settings.ai.model or "gemini-flash-lite-latest",
+                model_name=settings.ai.model or "gemini-3-flash-preview",
+                timeout_seconds=30.0,
             )
 
     return MultimodalProviderBundle(
@@ -184,15 +185,15 @@ def build_worker(*, db_url: str | None, whatsapp_access_token: str | None = None
                     return None
 
             def sarvam_completer(user_msg: str, patient_name: str) -> str | None:
+                system_prompt = (
+                    "You are the empathetic, culturally attuned Indic AI health companion for THALI x P.L.A.T.E. "
+                    "Speak in warm, conversational Hinglish (Hindi written in Roman script) with respectful address (Ji). "
+                    "Guidelines:\n"
+                    "- Follow ICMR and RSSDI Indian dietary guidelines (Half plate vegetables/salad, 1/4 protein like dal/paneer/eggs, 1/4 whole grains like roti/brown rice).\n"
+                    "- Do NOT prescribe, change, or recommend medication/insulin dosages.\n"
+                    "- Keep answers concise (2-3 short paragraphs), practical, and encouraging."
+                )
                 try:
-                    system_prompt = (
-                        "You are the empathetic, culturally attuned Indic AI health companion for THALI x P.L.A.T.E. "
-                        "Speak in warm, conversational Hinglish (Hindi written in Roman script) with respectful address (Ji). "
-                        "Guidelines:\n"
-                        "- Follow ICMR and RSSDI Indian dietary guidelines (Half plate vegetables/salad, 1/4 protein like dal/paneer/eggs, 1/4 whole grains like roti/brown rice).\n"
-                        "- Do NOT prescribe, change, or recommend medication/insulin dosages.\n"
-                        "- Keep answers concise (2-3 short paragraphs), practical, and encouraging."
-                    )
                     res = _sarvam.chat_completion(
                         messages=[
                             {"role": "system", "content": system_prompt},
@@ -201,10 +202,29 @@ def build_worker(*, db_url: str | None, whatsapp_access_token: str | None = None
                         temperature=0.2,
                         max_tokens=400,
                     )
-                    return res.get("content", "").strip()
+                    content = res.get("content", "").strip()
+                    if content:
+                        return content
                 except Exception as exc:
-                    logger.warning("sarvam conversational completion failed: %s", exc)
-                    return None
+                    logger.warning("sarvam conversational completion failed, trying gemini fallback: %s", exc)
+
+                # Fallback to Gemini Flash
+                gemini_key = getattr(settings.ai, "api_key", None)
+                if gemini_key:
+                    try:
+                        import json as _json, urllib.request as _urllib_req
+                        g_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={gemini_key}"
+                        payload = {
+                            "contents": [{"parts": [{"text": f"{system_prompt}\n\nPatient: {patient_name}\nQuestion: {user_msg}"}]}],
+                            "generationConfig": {"maxOutputTokens": 400, "temperature": 0.2},
+                        }
+                        req = _urllib_req.Request(g_url, data=_json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+                        with _urllib_req.urlopen(req, timeout=8.0) as g_resp:
+                            g_data = _json.loads(g_resp.read().decode("utf-8"))
+                            return g_data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    except Exception as g_exc:
+                        logger.warning("gemini conversational fallback also failed: %s", g_exc)
+                return None
 
     intake = WhatsAppIntakeHandler(
         tenant_resolver=SqlAlchemyChannelTenantResolver(session_factory),

@@ -106,8 +106,9 @@ export function HomeTab({
   const completenessPct = completionPoints;
 
   // User presentation details
-  const userInitial = (patientName?.trim()?.charAt(0) || "P").toUpperCase();
-  const displayClinic = `Apollo Sugar Clinic · UHID-${patientId ? patientId.slice(0, 5).toUpperCase() : "99214"}`;
+  const isUuid = !!patientName && /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(patientName);
+  const displayName = !isUuid && patientName?.trim() ? patientName.trim() : "Patient";
+  const userInitial = (displayName.charAt(0) || "P").toUpperCase();
 
   // Build Today attention items
   const todayItems: TodayItem[] = [];
@@ -169,51 +170,19 @@ export function HomeTab({
             <Text style={styles.headerAppKicker} allowFontScaling>
               THALI CARE
             </Text>
-            <View style={styles.roleTag}>
-              <Text style={styles.roleTagText} allowFontScaling>
-                Patient
-              </Text>
-            </View>
           </View>
           <Text style={styles.headerMainTitle} allowFontScaling numberOfLines={1}>
-            {patientName || "Care Active"}
+            {displayName}
           </Text>
-          <TouchableOpacity
-            style={styles.facilitySelectorRow}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel="Clinical facility selector"
-          >
-            <Text style={styles.facilitySelectorText} allowFontScaling numberOfLines={1}>
-              {displayClinic}
+          <View style={styles.doctorInfoRow}>
+            <Ionicons name="medkit-outline" size={13} color="#0D9488" style={{ marginRight: 4 }} />
+            <Text style={styles.doctorInfoText} allowFontScaling numberOfLines={1}>
+              Dr. Arvind Sharma, MD
             </Text>
-            <Ionicons name="chevron-down" size={13} color="#0F172A" style={{ marginLeft: 3 }} />
-          </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.headerRightCol}>
-          {onSignOut ? (
-            <TouchableOpacity
-              style={styles.headerSignOutButton}
-              onPress={onSignOut}
-              accessibilityRole="button"
-              accessibilityLabel="Sign out"
-              activeOpacity={0.7}
-            >
-              <Ionicons name="log-out-outline" size={15} color="#DC2626" style={{ marginRight: 4 }} />
-              <Text style={styles.headerSignOutText} allowFontScaling>
-                Sign out
-              </Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.headerStatusPill}>
-              <Ionicons name="shield-checkmark" size={13} color="#0D9488" style={{ marginRight: 3 }} />
-              <Text style={styles.headerStatusText} allowFontScaling>
-                Active Plan
-              </Text>
-            </View>
-          )}
-
           <TouchableOpacity
             style={styles.headerIconButton}
             onPress={onOpenNotifications}
@@ -230,12 +199,6 @@ export function HomeTab({
               </View>
             ) : null}
           </TouchableOpacity>
-
-          <View style={styles.headerAvatarCircle}>
-            <Text style={styles.headerAvatarInitial} allowFontScaling>
-              {userInitial}
-            </Text>
-          </View>
         </View>
       </View>
 
@@ -333,19 +296,6 @@ export function HomeTab({
                 <View style={styles.commandPulseDot} />
               </View>
             </View>
-
-            <TouchableOpacity
-              style={styles.viewTimelineBtn}
-              onPress={onNavigateToTimeline}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel="View full timeline"
-            >
-              <Text style={styles.viewTimelineText} allowFontScaling>
-                View Timeline
-              </Text>
-              <Ionicons name="arrow-forward" size={13} color="#0F172A" style={{ marginLeft: 3 }} />
-            </TouchableOpacity>
           </View>
 
           {/* Bento Grid Layout */}
@@ -751,17 +701,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  // Top Header (Airbnb/Blinkit/GymDeck inspired)
+  // Top Header (Seamless & Blended)
   topHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: spacing.md,
-    paddingTop: 10,
-    paddingBottom: 12,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F1F5F9",
+    paddingTop: 12,
+    paddingBottom: 6,
+    backgroundColor: colors.background,
   },
   headerLeftCol: {
     flex: 1,
@@ -772,32 +720,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     marginBottom: 2,
-  },
-  roleTag: {
-    backgroundColor: "#EFF6FF",
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: "#DBEAFE",
-  },
-  roleTagText: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#2563EB",
-  },
-  headerSignOutButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: radii.pill,
-    backgroundColor: "#FEE2E2",
-  },
-  headerSignOutText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#DC2626",
   },
   headerAppKicker: {
     fontSize: 11,
@@ -812,35 +734,20 @@ const styles = StyleSheet.create({
     letterSpacing: -0.6,
     marginTop: 1,
   },
-  facilitySelectorRow: {
+  doctorInfoRow: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 2,
   },
-  facilitySelectorText: {
+  doctorInfoText: {
     fontSize: 13,
-    fontWeight: "700",
-    color: "#1E293B",
+    fontWeight: "600",
+    color: "#0F766E",
   },
   headerRightCol: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-  },
-  headerStatusPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F0FDFA",
-    borderWidth: 1,
-    borderColor: "#CCFBF1",
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: radii.pill,
-  },
-  headerStatusText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#0D9488",
   },
   headerIconButton: {
     width: 40,
@@ -874,26 +781,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "800",
     color: "#FFFFFF",
-  },
-  headerAvatarCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F8FAFC",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  headerAvatarInitial: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#0F172A",
   },
 
   // Main Scrollable Content

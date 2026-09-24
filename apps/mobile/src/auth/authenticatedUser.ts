@@ -9,7 +9,12 @@ import type { AuthUser } from "./authStateMachine";
  * client-side via the capability catalog; the backend remains authoritative
  * at request time.
  */
-export function buildAuthUser(ctx: AuthenticatedContext): AuthUser {
+export function buildAuthUser(
+  ctx: AuthenticatedContext,
+  name?: string | null,
+  phone?: string | null,
+  email?: string | null
+): AuthUser {
   const role: Role | null = roleFromAuthRoles(ctx.roles);
   return {
     actor_id: ctx.actor_id,
@@ -19,5 +24,8 @@ export function buildAuthUser(ctx: AuthenticatedContext): AuthUser {
     roles: [...ctx.roles],
     role,
     capabilities: role ? [...capabilitiesForRole(role)] : [],
+    name: name ?? null,
+    phone: phone ?? null,
+    email: email ?? null,
   };
 }

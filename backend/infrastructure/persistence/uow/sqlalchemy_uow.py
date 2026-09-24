@@ -15,6 +15,7 @@ from ..repositories import (
     SqlAlchemyCareTaskRepository,
     SqlAlchemyCareTeamMemberRepository,
     SqlAlchemyCaregiverRelationshipRepository,
+    SqlAlchemyClinicalObservationRepository,
     SqlAlchemyDocumentReferenceRepository,
     SqlAlchemyFacilityRepository,
     SqlAlchemyGlucoseObservationRepository,
@@ -22,6 +23,7 @@ from ..repositories import (
     SqlAlchemyMealObservationRepository,
     SqlAlchemyMedicationPlanRepository,
     SqlAlchemyNotificationRepository,
+    SqlAlchemyPatientClinicianLinkRepository,
     SqlAlchemyPatientRepository,
 )
 
@@ -54,6 +56,7 @@ class SqlAlchemyUnitOfWork:
         self.facilities = SqlAlchemyFacilityRepository(self.session, self.tenant_id)
         self.care_team_members = SqlAlchemyCareTeamMemberRepository(self.session, self.tenant_id)
         self.caregiver_relationships = SqlAlchemyCaregiverRelationshipRepository(self.session, self.tenant_id)
+        self.patient_clinician_links = SqlAlchemyPatientClinicianLinkRepository(self.session, self.tenant_id)
         self.identity_mappings = SqlAlchemyIdentityPatientMappingRepository(self.session, self.tenant_id)
         self.glucose_observations = SqlAlchemyGlucoseObservationRepository(self.session, self.tenant_id)
         self.meal_observations = SqlAlchemyMealObservationRepository(self.session, self.tenant_id)
@@ -62,6 +65,7 @@ class SqlAlchemyUnitOfWork:
         self.ai_artifacts = SqlAlchemyAIReviewArtifactRepository(self.session, self.tenant_id)
         self.notifications = SqlAlchemyNotificationRepository(self.session, self.tenant_id)
         self.document_references = SqlAlchemyDocumentReferenceRepository(self.session, self.tenant_id)
+        self.clinical_observations = SqlAlchemyClinicalObservationRepository(self.session, self.tenant_id)
 
 
     def _apply_tenant_context(self) -> None:

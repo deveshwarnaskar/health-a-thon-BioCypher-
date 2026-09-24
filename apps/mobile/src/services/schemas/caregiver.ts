@@ -61,3 +61,29 @@ export function canReadCaregiverGlucose(capabilities: readonly string[]): boolea
 export function canRecordCaregiverGlucose(capabilities: readonly string[]): boolean {
   return capabilities.includes(GLUCOSE_WRITE_CAPABILITY);
 }
+
+export const MEAL_WRITE_CAPABILITY: CaregiverCapability = "create_meal";
+
+export function canRecordCaregiverMeal(capabilities: readonly string[]): boolean {
+  return capabilities.includes(MEAL_WRITE_CAPABILITY);
+}
+
+export const CARE_TASKS_READ_CAPABILITY: CaregiverCapability = "read_care_tasks";
+export const CARE_TASKS_COMPLETE_CAPABILITY: CaregiverCapability = "complete_care_tasks";
+
+export function canReadCaregiverTasks(capabilities: readonly string[]): boolean {
+  return capabilities.includes(CARE_TASKS_READ_CAPABILITY);
+}
+
+export function canCompleteCaregiverTasks(capabilities: readonly string[]): boolean {
+  return capabilities.includes(CARE_TASKS_COMPLETE_CAPABILITY);
+}
+
+export const linkCaregiverPatientRequestSchema = z
+  .object({
+    uhid: z.string().min(2),
+    relationship_label: z.string().min(1),
+  })
+  .strict();
+
+export type LinkCaregiverPatientRequest = z.infer<typeof linkCaregiverPatientRequestSchema>;

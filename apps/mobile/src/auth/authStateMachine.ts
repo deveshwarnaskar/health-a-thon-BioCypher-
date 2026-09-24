@@ -25,6 +25,9 @@ export type AuthUser = {
   role: string | null;
   capabilities: readonly string[];
   roles: string[];
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
 };
 
 export type AuthFlowEvent =
@@ -128,7 +131,7 @@ function assertAllowed(from: AuthFlowState["name"], event: AuthFlowEvent["type"]
 }
 
 function byEmptyUser(): AuthUser {
-  return { actor_id: "", tenant_id: "", facility_id: null, role: null, capabilities: [], roles: [] };
+  return { actor_id: "", tenant_id: "", facility_id: null, role: null, capabilities: [], roles: [], name: null };
 }
 
 export function authStateReducer(

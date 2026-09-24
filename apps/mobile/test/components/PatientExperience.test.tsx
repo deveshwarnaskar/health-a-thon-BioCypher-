@@ -235,7 +235,7 @@ describe("PatientExperience (Master Patient Product Architecture)", () => {
   it("renders Home tab with patient header, greeting, role tag, and today summary", () => {
     renderPatientExperience();
 
-    expect(screen.getByText("Patient")).toBeTruthy();
+    expect(screen.getByText("THALI CARE")).toBeTruthy();
     expect(screen.getByText(/Rajesh Kumar/i)).toBeTruthy();
     expect(screen.getByText("Daily Care")).toBeTruthy();
     expect(screen.getByText("Metformin 500mg")).toBeTruthy();
@@ -305,14 +305,11 @@ describe("PatientExperience (Master Patient Product Architecture)", () => {
     ).toBeTruthy();
   });
 
-  it("triggers sign out from header immediately invoking onSignOut", async () => {
+  it("does not render sign out button in header banner per streamlined design", () => {
     renderPatientExperience();
 
-    const signOutHeaderButton = screen.getByRole("button", { name: /^sign out$/i });
-    fireEvent.press(signOutHeaderButton);
-
-    await act(async () => {});
-    expect(mockSignOut).toHaveBeenCalledTimes(1);
+    const signOutHeaderButton = screen.queryByRole("button", { name: /^sign out$/i });
+    expect(signOutHeaderButton).toBeNull();
   });
 
   it("triggers sign out confirmation modal from You tab", async () => {

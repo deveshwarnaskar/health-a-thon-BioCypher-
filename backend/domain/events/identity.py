@@ -52,3 +52,10 @@ class CaregiverRelationshipExpired(DomainEvent):
     event_type: str = "caregiver_relationship.expired"
     relationship_id: UUID = field(default_factory=uuid4)
     caregiver_user_id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(frozen=True)
+class PatientClinicianLinked(DomainEvent):
+    event_type: str = "patient_clinician_link.created"
+    link_id: UUID = field(default_factory=uuid4)
+    clinician_user_id: UUID = field(default_factory=uuid4)

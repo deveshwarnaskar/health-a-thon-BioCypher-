@@ -119,11 +119,22 @@ export function parseBackendErrorBody(body: unknown): BackendErrorBody["error"] 
   if (typeof body !== "object" || body === null) {
     return undefined;
   }
-  const wrapped = (body as BackendErrorBody).error;
-  if (typeof wrapped !== "object" || wrapped === null) {
-    return undefined;
+  const dict = body as Record<string, unknown>;
+  const wrapped = dict.error;
+  if (typeof wrapped === "object" && wrapped !== null) {
+    return wrapped as BackendErrorBody["error"];
   }
-  return wrapped as BackendErrorBody["error"];
+  // Support FastAPI / standard REST error shapes: { "detail": "..." } or { "message": "..." }
+  const topDetail = typeof dict.detail === "string" ? dict.detail : undefined;
+  const topMessage = typeof dict.message === "string" ? dict.message : undefined;
+  if (topDetail || topMessage) {
+    return {
+      message: topDetail || topMessage,
+      code: typeof dict.code === "string" ? dict.code : undefined,
+      correlation_id: typeof dict.correlation_id === "string" ? dict.correlation_id : undefined,
+    };
+  }
+  return undefined;
 }
 
 const HTTP_DATE = /^[A-Za-z]{3},\s\d{2}\s[A-Za-z]{3}\s\d{4}\s\d{2}:\d{2}:\d{2}/;
@@ -160,14 +171,18 @@ const SAFE_MESSAGE = "The request could not be completed. Please try again.";
 
 /**
  * Backend messages are sanitized server-side, but defense-in-depth: anything
- * shaped like a stack trace / internal error is replaced with the safe copy
+ * shaped like a stack trace / internal exception is replaced with the safe copy
  * so no traceback or exception text is ever echoed to UI (Gate 10A §17).
  */
 function safeMessage(raw: string | undefined): string {
   if (!raw) {
     return SAFE_MESSAGE;
   }
-  if (/(traceback| stack )/i.test(raw) || /\n/.test(raw) || /\b\w+Error\b/.test(raw)) {
+  if (
+    /(traceback \(most recent call last\)|Traceback \(most recent call last\)|File ".*", line \d+|^\s*at\s+.*:\d+:\d+)/i.test(raw) ||
+    /\n/.test(raw) ||
+    /\b(ValueError|TypeError|KeyError|AttributeError|OperationalError|DatabaseError|ProgrammingError|IntegrityError|InternalError|RuntimeError)\b/.test(raw)
+  ) {
     return SAFE_MESSAGE;
   }
   return raw;

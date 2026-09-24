@@ -71,6 +71,27 @@ def test_analyze_meal_endpoint(client, patient_auth):
     assert "patient_guidance_hinglish" in data
 
 
+def test_analyze_meal_photo_endpoint(client, patient_auth):
+    fake_img = base64.b64encode(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00`\x00`\x00\x00\xff\xdb\x00C\x00").decode("utf-8")
+    resp = client.post(
+        "/api/v2/ai/analyze-meal-photo",
+        headers=patient_auth,
+        json={
+            "image_base64": fake_img,
+            "mime_type": "image/jpeg",
+            "patient_name": "Subham",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "description" in data
+    assert len(data["description"]) > 0
+    assert "total_calories_kcal" in data
+    assert "total_carbs_g" in data
+    assert "patient_guidance_hinglish" in data
+    assert data.get("photo_captured") is True
+
+
 def test_conversational_chat_endpoint(client, patient_auth):
     resp = client.post(
         "/api/v2/ai/chat",
@@ -137,3 +158,59 @@ def test_transcribe_base64_endpoint(mock_transcribe, mock_is_configured, client,
     data = resp.json()
     assert data["transcript"] == "Maine 2 roti aur dal khaya"
     assert "provider" in data
+
+
+@patch("backend.infrastructure.ai.sarvam_client.SarvamClient.is_configured", new_callable=PropertyMock, return_value=True)
+@patch("backend.infrastructure.ai.sarvam_client.SarvamClient.transcribe_audio")
+def test_transcribe_base64_m4a_endpoint(mock_transcribe, mock_is_configured, client, patient_auth):
+    mock_transcribe.return_value = {
+        "transcript": "Fasting 115",
+        "language_code": "en-IN",
+        "latency_ms": 150.0,
+    }
+    fake_audio_bytes = b"ftypM4A \x00\x00\x00\x00isomiso2"
+    b64_audio = base64.b64encode(fake_audio_bytes).decode("utf-8")
+
+    resp = client.post(
+        "/api/v2/ai/transcribe-base64",
+        headers=patient_auth,
+        json={
+            "audio_base64": b64_audio,
+            "mime_type": "audio/m4a",
+            "language_code": "en-IN",
+            "filename": "dictation.m4a",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["transcript"] == "Fasting 115"
+    assert data["language_code"] == "en-IN"
+
+
+@patch("backend.infrastructure.ai.sarvam_client.SarvamClient.is_configured", new_callable=PropertyMock, return_value=True)
+@patch("backend.infrastructure.ai.sarvam_client.SarvamClient.transcribe_audio")
+@patch("backend.interfaces.http.v2.ai.router._transcribe_with_gemini_fallback")
+def test_transcribe_base64_gemini_fallback(mock_gemini, mock_transcribe, mock_is_configured, client, patient_auth):
+    from backend.infrastructure.ai.sarvam_client import SarvamClientError
+    mock_transcribe.side_effect = SarvamClientError("Sarvam service temporarily unavailable", error_code="PROVIDER_ERROR")
+    mock_gemini.return_value = {
+        "transcript": "Fasting 120",
+        "language_code": "unknown",
+        "provider": "gemini_flash_lite",
+    }
+    fake_audio_bytes = b"ftypM4A \x00\x00\x00\x00isomiso2"
+    b64_audio = base64.b64encode(fake_audio_bytes).decode("utf-8")
+
+    resp = client.post(
+        "/api/v2/ai/transcribe-base64",
+        headers=patient_auth,
+        json={
+            "audio_base64": b64_audio,
+            "mime_type": "audio/m4a",
+            "filename": "dictation.m4a",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["transcript"] == "Fasting 120"
+    assert data["provider"] == "gemini_flash_lite"

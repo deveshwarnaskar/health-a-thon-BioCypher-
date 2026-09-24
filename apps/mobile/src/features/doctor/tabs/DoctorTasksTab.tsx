@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 4,
     gap: 16,
-    paddingBottom: 110,
+    paddingBottom: 130,
   },
   headerRow: {
     flexDirection: "row",

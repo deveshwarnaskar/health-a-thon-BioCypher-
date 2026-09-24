@@ -5,10 +5,14 @@ Exports DeclarativeBase and all relational infrastructure models.
 
 from .base import Base
 from .tenant_models import FacilityModel, OrganizationModel
-from .identity_models import CaregiverRelationshipModel, IdentityPatientMappingModel
+from .identity_models import (
+    CaregiverRelationshipModel,
+    IdentityPatientMappingModel,
+    PatientClinicianLinkModel,
+)
 from .patient_models import PatientModel
 from .clinician_models import CareTeamMemberModel
-from .observation_models import GlucoseObservationModel, MealObservationModel
+from .observation_models import ClinicalObservationModel, GlucoseObservationModel, MealObservationModel
 from .plan_models import CareTaskModel, MedicationPlanModel
 from .ai_models import AIReviewArtifactModel
 from .outbox_models import DomainEventOutboxModel
@@ -34,6 +38,8 @@ __all__ = [
     "CareTeamMemberModel",
     "CaregiverRelationshipModel",
     "IdentityPatientMappingModel",
+    "PatientClinicianLinkModel",
+    "ClinicalObservationModel",
     "GlucoseObservationModel",
     "MealObservationModel",
     "MedicationPlanModel",

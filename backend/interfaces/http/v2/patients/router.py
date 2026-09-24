@@ -58,6 +58,9 @@ from backend.interfaces.http.v2.schemas import (
     ProvisionPatientRequest,
     ProvisionPatientResponse,
     RegisterCaregiverRequest,
+    LinkPatientToClinicianRequest,
+    PatientClinicianLinkResponse,
+    PatientClinicianLinkListResponse,
 )
 from backend.interfaces.http.v2.security.authorization import (
     AuthenticatedContext,
@@ -79,6 +82,12 @@ patients_router = APIRouter()
 _audit_registered = audit_dependency(
     action=AuditAction.CREATE,
     resource_type="caregiver",
+    resource_id_from=lambda request: request.path_params.get("patient_id"),
+)
+
+_audit_clinician_link_created = audit_dependency(
+    action=AuditAction.CREATE,
+    resource_type="clinician_link",
     resource_id_from=lambda request: request.path_params.get("patient_id"),
 )
 
@@ -488,3 +497,86 @@ async def list_patient_documents_via_patients(
         )
 
     return DocumentReferenceListResponse(total=len(items), items=items)
+
+
+@patients_router.post(
+    "/{patient_id}/clinician-links",
+    response_model=PatientClinicianLinkResponse,
+    status_code=201,
+    dependencies=[Depends(_audit_clinician_link_created)],
+)
+async def link_patient_to_clinician_v2(
+    request: Request,
+    response: Response,
+    patient_id: str,
+    body: LinkPatientToClinicianRequest,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    events: DomainEventPublisher = Depends(get_event_publisher),
+    clock: Clock = Depends(get_clock),
+    id_gen: IdGenerator = Depends(get_id_generator),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> PatientClinicianLinkResponse:
+    """Connect the authenticated patient to a clinician by registering the
+    patient-clinician link (Gate 13)."""
+    apply_rate_limit(request=request, response=response, tier=TIERS["clinical_write"], limiter=limiter, ctx=ctx)
+
+    if patient_id.lower() == "me":
+        mapping = uow.identity_mappings.get_by_user_id(ctx.actor_id)
+        if mapping is None or not mapping.active:
+            raise HTTPException(status_code=403, detail="No active patient mapping found")
+        patient_uuid = mapping.patient_id
+    else:
+        try:
+            patient_uuid = _uuid.UUID(patient_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid patient_id")
+
+    authorize_patient_operation(
+        ctx, policy, Operation.MANAGE_CLINICIAN_LINKS, patient_uuid, uow
+    )
+
+    cmd = LinkPatientToClinician(
+        patient_id=patient_uuid,
+        clinician_user_id=body.clinician_user_id,
+        correlation_id=_correlation_id(request),
+    )
+    result = LinkPatientToClinicianHandler(uow, events, clock, id_gen).handle(cmd)
+    link = uow.patient_clinician_links.get(result.link_id)
+    return _to_clinician_link_response(link)
+
+
+@patients_router.get(
+    "/{patient_id}/clinician-links",
+    response_model=PatientClinicianLinkListResponse,
+)
+async def list_clinician_links_v2(
+    request: Request,
+    response: Response,
+    patient_id: str,
+    ctx: AuthenticatedContext = Depends(get_authenticated_context),
+    policy: AuthorizationPolicy = Depends(get_authorization_policy),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> PatientClinicianLinkListResponse:
+    """List the authenticated patient's clinician links (Gate 13)."""
+    apply_rate_limit(request=request, response=response, tier=TIERS["read"], limiter=limiter, ctx=ctx)
+
+    if patient_id.lower() == "me":
+        mapping = uow.identity_mappings.get_by_user_id(ctx.actor_id)
+        if mapping is None or not mapping.active:
+            raise HTTPException(status_code=403, detail="No active patient mapping found")
+        patient_uuid = mapping.patient_id
+    else:
+        try:
+            patient_uuid = _uuid.UUID(patient_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid patient_id")
+
+    authorize_patient_operation(
+        ctx, policy, Operation.READ_CLINICIAN_LINKS, patient_uuid, uow
+    )
+
+    links = uow.patient_clinician_links.list_for_patient(patient_uuid)
+    return _to_clinician_link_list_response(links)

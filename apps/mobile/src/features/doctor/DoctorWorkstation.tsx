@@ -96,7 +96,7 @@ export function DoctorWorkstation({
   // Full-screen flow: Create Medication Plan
   if (authoringPlanForPatient) {
     return (
-      <View style={styles.fullscreenContainer}>
+      <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <CreateMedicationPlanScreen
           patient={authoringPlanForPatient}
           onCancel={() => setAuthoringPlanForPatient(null)}
@@ -106,22 +106,27 @@ export function DoctorWorkstation({
             setActiveSubWorkspace("plans");
           }}
         />
-      </View>
+      </SafeAreaView>
     );
   }
 
   // Full-screen flow: Patient Clinical Longitudinal Workspace
   if (selectedPatient) {
     return (
-      <View style={styles.fullscreenContainer}>
+      <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <PatientClinicalWorkspace
           key={selectedPatient.patient_id}
           patient={selectedPatient}
           onBack={() => setSelectedPatient(null)}
         />
-      </View>
+      </SafeAreaView>
     );
   }
+
+  const doctorDisplayName =
+    user?.name ||
+    (user?.email ? user.email.split("@")[0] : null) ||
+    (user?.actor_id && !/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(user.actor_id) ? user.actor_id : "Doctor");
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea} testID={testID}>
@@ -129,13 +134,15 @@ export function DoctorWorkstation({
 
       {/* Doctor Screen Header */}
       <DoctorScreenHeader
-        doctorName={user?.actor_id ?? "Doctor"}
+        doctorName={doctorDisplayName}
         facilityId={user?.facility_id ?? "Facility 1"}
         showGreeting={currentTab === "dashboard" && !activeSubWorkspace}
         title={activeSubWorkspace ? getSubWorkspaceTitle(activeSubWorkspace) : getTabTitle(currentTab)}
         subtitle={
           activeSubWorkspace
             ? "Specialized clinical workstation view"
+            : currentTab === "patients"
+            ? `${patients.length} Registered Patient${patients.length === 1 ? "" : "s"} · Clinical Surveillance`
             : undefined
         }
         pendingReviewCount={reviewCount}
@@ -183,7 +190,9 @@ export function DoctorWorkstation({
           />
         ) : currentTab === "dashboard" ? (
           <DoctorHomeTab
-            doctorName={user?.actor_id}
+            doctorName={doctorDisplayName}
+            doctorAccountId={user?.actor_id}
+            doctorDisplayName={doctorDisplayName}
             facilityId={user?.facility_id}
             patients={patients}
             reviewCount={reviewCount}
@@ -217,7 +226,7 @@ export function DoctorWorkstation({
           />
         ) : currentTab === "workspace" ? (
           <DoctorWorkspaceHubTab
-            doctorName={user?.actor_id}
+            doctorName={doctorDisplayName}
             facilityId={user?.facility_id}
             onSelectWorkspace={(sub) => setActiveSubWorkspace(sub)}
             onSignOut={onSignOut || signOut}

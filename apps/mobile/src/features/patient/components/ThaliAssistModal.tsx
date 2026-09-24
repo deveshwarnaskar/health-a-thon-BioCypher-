@@ -1,7 +1,11 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
+  Keyboard,
+  LayoutAnimation,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,7 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, spacing, touchTarget, typography } from "../../../theming/tokens";
 import { useConnectivity } from "../../../connectivity/useConnectivity";
@@ -17,8 +21,10 @@ import { useIngestGlucose } from "../../glucose/useIngestGlucose";
 import { useLogMeal } from "../../meals/useLogMeal";
 import { useSarvamChat, useSarvamMealAnalysis } from "../api";
 import { secureUuid } from "../../../services/api/correlation";
-import type { AnalyzeMealAiResponse } from "../../../services/schemas/ai";
+import type { AnalyzeMealAiResponse, AnalyzeMealPhotoAiResponse } from "../../../services/schemas/ai";
 import type { ReadingTag } from "../../glucose/types";
+import { VoiceRecordModal } from "../../../components/voice/VoiceRecordModal";
+import { MealPhotoModal } from "../../../components/camera/MealPhotoModal";
 
 export type ThaliAssistModalProps = {
   visible: boolean;
@@ -27,6 +33,7 @@ export type ThaliAssistModalProps = {
   onNavigateToMeal?: () => void;
   onNavigateToReports?: () => void;
   patientId?: string | null;
+  patientName?: string;
 };
 
 type AssistTopic = "today" | "meal" | "appointment" | "voice" | "ai_chat" | "summarize_week" | null;
@@ -35,7 +42,8 @@ type AiChatMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
-  mealData?: AnalyzeMealAiResponse;
+  imageUri?: string;
+  mealData?: AnalyzeMealAiResponse | AnalyzeMealPhotoAiResponse;
   isEmergency?: boolean;
 };
 
@@ -63,8 +71,10 @@ export function ThaliAssistModal({
   onNavigateToMeal,
   onNavigateToReports,
   patientId,
+  patientName = "",
 }: ThaliAssistModalProps) {
   const { isOffline } = useConnectivity();
+  const insets = useSafeAreaInsets();
   const [selectedTopic, setSelectedTopic] = useState<AssistTopic>(null);
   const [voiceInput, setVoiceInput] = useState("");
   const [voiceDraft, setVoiceDraft] = useState<VoiceDraft>(null);
@@ -86,6 +96,81 @@ export function ThaliAssistModal({
     },
   ]);
   const [isAiLoading, setIsAiLoading] = useState(false);
+
+  // Modals for AI Voice & Camera
+  const [isAiVoiceModalVisible, setIsAiVoiceModalVisible] = useState(false);
+  const [isAiCameraModalVisible, setIsAiCameraModalVisible] = useState(false);
+  const [isDirectVoiceModalVisible, setIsDirectVoiceModalVisible] = useState(false);
+  const chatScrollRef = useRef<ScrollView>(null);
+
+  // Accurate native keyboard height tracking
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const onShow = (e: any) => {
+      const height = e?.endCoordinates?.height ?? 0;
+      if (Platform.OS === "ios") {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      }
+      setKeyboardHeight(height);
+      setTimeout(() => {
+        chatScrollRef.current?.scrollToEnd({ animated: true });
+      }, 50);
+    };
+
+    const onHide = () => {
+      if (Platform.OS === "ios") {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      }
+      setKeyboardHeight(0);
+    };
+
+    const showSub = Keyboard.addListener(showEvent, onShow);
+    const hideSub = Keyboard.addListener(hideEvent, onHide);
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (selectedTopic === "ai_chat") {
+      const timer = setTimeout(() => {
+        chatScrollRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [aiMessages.length, isAiLoading, selectedTopic]);
+
+  const handleReceivePhotoAnalysis = (
+    result: AnalyzeMealPhotoAiResponse,
+    photoUri: string
+  ) => {
+    const userMsgId = secureUuid();
+    const assistantMsgId = secureUuid();
+
+    setAiMessages((prev) => [
+      ...prev,
+      {
+        id: userMsgId,
+        role: "user",
+        text: result.description ? `Uploaded meal photo: ${result.description}` : "Uploaded meal photo for analysis",
+        imageUri: photoUri,
+      },
+      {
+        id: assistantMsgId,
+        role: "assistant",
+        text:
+          result.patient_guidance_hinglish ||
+          `Meal analyzed with ICMR-NIN nutrition data. Glycemic impact: ${result.glycemic_impact || "MODERATE"}.`,
+        mealData: result,
+      },
+    ]);
+  };
 
   const handleSendAi = async (customText?: string) => {
     const textToSend = (customText ?? aiQuery).trim();
@@ -263,18 +348,29 @@ export function ThaliAssistModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={["top"]}>
         <View style={styles.header}>
           <View style={styles.headerTitleRow}>
-            <View style={styles.headerIconBadge}>
-              <Ionicons name="sparkles" size={18} color="#0D9488" />
-            </View>
+            {selectedTopic === "ai_chat" ? (
+              <TouchableOpacity
+                style={styles.headerBackBtn}
+                onPress={() => setSelectedTopic(null)}
+                accessibilityRole="button"
+                accessibilityLabel="Back to all topics"
+              >
+                <Ionicons name="arrow-back" size={20} color="#0D9488" />
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.headerIconBadge}>
+                <Ionicons name="sparkles" size={18} color="#0D9488" />
+              </View>
+            )}
             <View>
               <Text style={styles.title} allowFontScaling>
-                THALI Assist
+                {selectedTopic === "ai_chat" ? "Ask THALI AI" : "THALI Assist"}
               </Text>
               <Text style={styles.subtitle} allowFontScaling>
-                Care understanding guide
+                {selectedTopic === "ai_chat" ? "Sarvam Indic Health Companion" : "Care understanding guide"}
               </Text>
             </View>
           </View>
@@ -298,15 +394,262 @@ export function ThaliAssistModal({
           </View>
         ) : null}
 
-        <ScrollView contentContainerStyle={styles.content}>
-          <View style={styles.disclaimerBox} accessibilityRole="summary">
-            <Text style={styles.disclaimerTitle} allowFontScaling>
-              Patient-Safe Care Guide
-            </Text>
-            <Text style={styles.disclaimerText} allowFontScaling>
-              THALI Assist helps you review and organize your personal recordings. It does not provide medical diagnoses, prescribe treatments, or alter your clinician-authored plan.
-            </Text>
-          </View>
+        {selectedTopic === "ai_chat" ? (
+          <View
+            style={[
+              styles.aiChatScreen,
+              {
+                paddingBottom: keyboardHeight > 0 ? keyboardHeight + 20 : Math.max(insets.bottom, 12),
+              },
+            ]}
+          >
+            <ScrollView
+              ref={chatScrollRef}
+              style={styles.aiMessagesScrollView}
+              contentContainerStyle={styles.aiMessagesContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+                onContentSizeChange={() => {
+                  chatScrollRef.current?.scrollToEnd({ animated: true });
+                }}
+              >
+                <TouchableOpacity
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 12 }}
+                  onPress={() => setSelectedTopic(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Back to Topics"
+                >
+                  <Ionicons name="arrow-back" size={18} color={colors.primary} />
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: colors.primary }}>All Topics</Text>
+                </TouchableOpacity>
+
+                <View style={[styles.provenanceTag, { backgroundColor: "#CCFBF1" }]}>
+                  <Text style={[styles.provenanceText, { color: "#0F766E" }]} allowFontScaling>
+                    SARVAM AI INDIC HEALTH COMPANION
+                  </Text>
+                </View>
+                <Text style={styles.topicTitle} allowFontScaling>
+                  Ask THALI AI
+                </Text>
+                <Text style={styles.topicBody} allowFontScaling>
+                  Chat in English or Hinglish. Ask about Indian foods, meal carb impact, or symptoms. Dictate with microphone or snap photos of your meals! Powered by Sarvam 105B & ICMR-NIN nutrition data.
+                </Text>
+
+                {voiceSaveSuccess ? (
+                  <View style={styles.voiceSuccessBanner}>
+                    <Ionicons name="checkmark-circle" size={16} color="#065F46" style={{ marginRight: 6 }} />
+                    <Text style={styles.voiceSuccessText} allowFontScaling>
+                      {voiceSaveSuccess}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {voiceError ? (
+                  <View style={styles.voiceErrorBanner}>
+                    <Ionicons name="alert-circle" size={16} color="#991B1B" style={{ marginRight: 6 }} />
+                    <Text style={styles.voiceErrorText} allowFontScaling>
+                      {voiceError}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {/* Chat messages */}
+                <View style={{ marginTop: 12, gap: 10 }}>
+                  {aiMessages.map((msg) => (
+                    <View
+                      key={msg.id}
+                      style={{
+                        alignSelf: msg.role === "user" ? "flex-end" : "flex-start",
+                        maxWidth: "92%",
+                        backgroundColor: msg.role === "user" ? colors.primary : "#F8FAFC",
+                        borderRadius: 14,
+                        padding: 12,
+                        borderWidth: msg.role === "assistant" ? 1 : 0,
+                        borderColor: "#E2E8F0",
+                      }}
+                    >
+                      {msg.imageUri ? (
+                        <View style={styles.chatImageContainer}>
+                          <Image
+                            source={{ uri: msg.imageUri }}
+                            style={styles.chatThumbnail}
+                            resizeMode="cover"
+                            accessibilityRole="image"
+                            accessibilityLabel="Meal photo"
+                          />
+                        </View>
+                      ) : null}
+
+                      {msg.isEmergency ? (
+                        <View style={{ backgroundColor: "#FEE2E2", padding: 10, borderRadius: 8, marginBottom: 8, borderWidth: 1, borderColor: "#FECACA" }}>
+                          <View style={{ flexDirection: "row", gap: 6, alignItems: "center", marginBottom: 2 }}>
+                            <Ionicons name="warning" size={18} color="#DC2626" />
+                            <Text style={{ color: "#991B1B", fontWeight: "700", fontSize: 13 }}>SAFETY ALERT: REPORTED LOW BLOOD GLUCOSE SYMPTOMS</Text>
+                          </View>
+                          <Text style={{ color: "#7F1D1D", fontSize: 12, lineHeight: 16 }}>
+                            You reported symptoms that can occur with low blood glucose. Follow the safety guidance below or contact your doctor immediately.
+                          </Text>
+                        </View>
+                      ) : null}
+
+                      <Text
+                        style={{
+                          color: msg.role === "user" ? "#FFFFFF" : colors.textPrimary,
+                          fontSize: 14,
+                          lineHeight: 20,
+                        }}
+                        allowFontScaling
+                      >
+                        {msg.text}
+                      </Text>
+
+                      {/* Meal nutrition card */}
+                      {msg.mealData ? (
+                        <View style={{ marginTop: 10, backgroundColor: "#FFFFFF", padding: 10, borderRadius: 8, borderWidth: 1, borderColor: "#CBD5E1" }}>
+                          <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
+                            <Text style={{ fontWeight: "700", fontSize: 11, color: "#0F766E" }}>ICMR-NIN NUTRITION BREAKDOWN</Text>
+                            <View style={{ backgroundColor: msg.mealData.glycemic_impact === "LOW" ? "#DCFCE7" : msg.mealData.glycemic_impact === "MODERATE" ? "#FEF3C7" : "#FEE2E2", paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 }}>
+                              <Text style={{ fontSize: 10, fontWeight: "700", color: msg.mealData.glycemic_impact === "LOW" ? "#166534" : msg.mealData.glycemic_impact === "MODERATE" ? "#92400E" : "#991B1B" }}>
+                                {msg.mealData.glycemic_impact} IMPACT
+                              </Text>
+                            </View>
+                          </View>
+                          <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: 4, backgroundColor: "#F8FAFC", borderRadius: 6 }}>
+                            <View style={{ alignItems: "center" }}>
+                              <Text style={{ fontSize: 11, color: "#64748B" }}>Calories</Text>
+                              <Text style={{ fontSize: 13, fontWeight: "700", color: "#1E293B" }}>{Math.round(msg.mealData.total_calories_kcal)} kcal</Text>
+                            </View>
+                            <View style={{ alignItems: "center" }}>
+                              <Text style={{ fontSize: 11, color: "#64748B" }}>Carbs</Text>
+                              <Text style={{ fontSize: 13, fontWeight: "700", color: "#1E293B" }}>{Math.round(msg.mealData.total_carbs_g)}g</Text>
+                            </View>
+                            <View style={{ alignItems: "center" }}>
+                              <Text style={{ fontSize: 11, color: "#64748B" }}>Protein</Text>
+                              <Text style={{ fontSize: 13, fontWeight: "700", color: "#1E293B" }}>{Math.round(msg.mealData.total_protein_g)}g</Text>
+                            </View>
+                            <View style={{ alignItems: "center" }}>
+                              <Text style={{ fontSize: 11, color: "#64748B" }}>Fiber</Text>
+                              <Text style={{ fontSize: 13, fontWeight: "700", color: "#1E293B" }}>{Math.round(msg.mealData.total_fiber_g ?? 0)}g</Text>
+                            </View>
+                          </View>
+                          {((msg.mealData as any)?.raw_description || (msg.mealData as any)?.description) ? (
+                            <TouchableOpacity
+                              style={{ marginTop: 8, backgroundColor: "#0D9488", paddingVertical: 7, borderRadius: 6, alignItems: "center" }}
+                              onPress={async () => {
+                                const descToSave = (msg.mealData as any)?.raw_description || (msg.mealData as any)?.description || "Meal";
+                                try {
+                                  await logMeal.mutateAsync({ description: descToSave });
+                                  setVoiceSaveSuccess(`Saved meal: "${descToSave}"`);
+                                } catch (e: any) {
+                                  setVoiceError("Failed to save meal to log.");
+                                }
+                              }}
+                            >
+                              <Text style={{ color: "#FFFFFF", fontWeight: "600", fontSize: 12 }}>+ Save to My Meal Log</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      ) : null}
+                    </View>
+                  ))}
+
+                  {isAiLoading ? (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12, backgroundColor: "#F8FAFC", borderRadius: 14, alignSelf: "flex-start" }}>
+                      <ActivityIndicator size="small" color="#0D9488" />
+                      <Text style={{ fontSize: 13, color: "#64748B" }}>THALI AI is thinking...</Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                {/* Sample quick prompts */}
+                <View style={{ marginTop: 14 }}>
+                  <Text style={{ fontSize: 12, fontWeight: "600", color: "#64748B", marginBottom: 6 }}>Suggested queries:</Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                    {[
+                      "Can I eat mango?",
+                      "Analyze: 2 bajra roti, dal, dahi",
+                      "What should I eat for dinner?",
+                      "Mujhe chakkar aa raha hai",
+                    ].map((phrase) => (
+                      <TouchableOpacity
+                        key={phrase}
+                        style={{ backgroundColor: "#F1F5F9", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1, borderColor: "#E2E8F0" }}
+                        onPress={() => handleSendAi(phrase)}
+                        disabled={isAiLoading}
+                      >
+                        <Text style={{ fontSize: 12, color: "#334155" }}>{phrase}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              </ScrollView>
+
+              {/* Pinned Bottom Input Row */}
+              <View style={styles.aiChatBottomBar}>
+                <TouchableOpacity
+                  style={styles.chatActionIconBtn}
+                  onPress={() => setIsAiCameraModalVisible(true)}
+                  disabled={isAiLoading}
+                  accessibilityRole="button"
+                  accessibilityLabel="Take or upload meal photo"
+                >
+                  <Ionicons name="camera-outline" size={22} color="#0D9488" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.chatActionIconBtn}
+                  onPress={() => setIsAiVoiceModalVisible(true)}
+                  disabled={isAiLoading}
+                  accessibilityRole="button"
+                  accessibilityLabel="Record voice message to THALI AI"
+                >
+                  <Ionicons name="mic-outline" size={22} color="#0D9488" />
+                </TouchableOpacity>
+
+                <TextInput
+                  style={styles.chatTextInput}
+                  placeholder="Ask AI, tap mic, or take photo..."
+                  placeholderTextColor="#94A3B8"
+                  value={aiQuery}
+                  onChangeText={setAiQuery}
+                  onSubmitEditing={() => handleSendAi()}
+                  editable={!isAiLoading}
+                  returnKeyType="send"
+                />
+
+                <TouchableOpacity
+                  style={[
+                    styles.chatSendBtn,
+                    aiQuery.trim() && !isAiLoading ? styles.chatSendBtnActive : styles.chatSendBtnDisabled,
+                  ]}
+                  onPress={() => handleSendAi()}
+                  disabled={!aiQuery.trim() || isAiLoading}
+                  accessibilityRole="button"
+                  accessibilityLabel="Send message to AI"
+                >
+                  <Ionicons name="arrow-up" size={20} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <ScrollView
+              contentContainerStyle={[
+                styles.content,
+                {
+                  paddingBottom: keyboardHeight > 0 ? keyboardHeight + 30 : Math.max(insets.bottom + 16, spacing.xl),
+                },
+              ]}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
+              <View style={styles.disclaimerBox} accessibilityRole="summary">
+                <Text style={styles.disclaimerTitle} allowFontScaling>
+                  Patient-Safe Care Guide
+                </Text>
+                <Text style={styles.disclaimerText} allowFontScaling>
+                  THALI Assist helps you review and organize your personal recordings. It does not provide medical diagnoses, prescribe treatments, or alter your clinician-authored plan.
+                </Text>
+              </View>
 
           {selectedTopic === null ? (
             <View style={styles.promptSection}>
@@ -447,197 +790,6 @@ export function ThaliAssistModal({
             </View>
           ) : null}
 
-          {selectedTopic === "ai_chat" ? (
-            <View style={styles.topicDetail}>
-              <TouchableOpacity
-                style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 12 }}
-                onPress={() => setSelectedTopic(null)}
-                accessibilityRole="button"
-                accessibilityLabel="Back to Topics"
-              >
-                <Ionicons name="arrow-back" size={18} color={colors.primary} />
-                <Text style={{ fontSize: 14, fontWeight: "600", color: colors.primary }}>All Topics</Text>
-              </TouchableOpacity>
-
-              <View style={[styles.provenanceTag, { backgroundColor: "#CCFBF1" }]}>
-                <Text style={[styles.provenanceText, { color: "#0F766E" }]} allowFontScaling>
-                  SARVAM AI INDIC HEALTH COMPANION
-                </Text>
-              </View>
-              <Text style={styles.topicTitle} allowFontScaling>
-                Ask THALI AI
-              </Text>
-              <Text style={styles.topicBody} allowFontScaling>
-                Chat in English or Hinglish. Ask about Indian foods, meal carb impact, or symptoms. Powered by Sarvam 105B & ICMR-NIN nutrition data.
-              </Text>
-
-              {voiceSaveSuccess ? (
-                <View style={styles.voiceSuccessBanner}>
-                  <Ionicons name="checkmark-circle" size={16} color="#065F46" style={{ marginRight: 6 }} />
-                  <Text style={styles.voiceSuccessText} allowFontScaling>
-                    {voiceSaveSuccess}
-                  </Text>
-                </View>
-              ) : null}
-
-              {/* Chat messages */}
-              <View style={{ marginTop: 12, gap: 10 }}>
-                {aiMessages.map((msg) => (
-                  <View
-                    key={msg.id}
-                    style={{
-                      alignSelf: msg.role === "user" ? "flex-end" : "flex-start",
-                      maxWidth: "92%",
-                      backgroundColor: msg.role === "user" ? colors.primary : "#F8FAFC",
-                      borderRadius: 14,
-                      padding: 12,
-                      borderWidth: msg.role === "assistant" ? 1 : 0,
-                      borderColor: "#E2E8F0",
-                    }}
-                  >
-                    {msg.isEmergency ? (
-                      <View style={{ backgroundColor: "#FEE2E2", padding: 10, borderRadius: 8, marginBottom: 8, borderWidth: 1, borderColor: "#FECACA" }}>
-                        <View style={{ flexDirection: "row", gap: 6, alignItems: "center", marginBottom: 2 }}>
-                          <Ionicons name="warning" size={18} color="#DC2626" />
-                          <Text style={{ color: "#991B1B", fontWeight: "700", fontSize: 13 }}>SAFETY ALERT: REPORTED LOW BLOOD GLUCOSE SYMPTOMS</Text>
-                        </View>
-                        <Text style={{ color: "#7F1D1D", fontSize: 12, lineHeight: 16 }}>
-                          You reported symptoms that can occur with low blood glucose. Follow the safety guidance below or contact your doctor immediately.
-                        </Text>
-                      </View>
-                    ) : null}
-
-                    <Text
-                      style={{
-                        color: msg.role === "user" ? "#FFFFFF" : colors.textPrimary,
-                        fontSize: 14,
-                        lineHeight: 20,
-                      }}
-                      allowFontScaling
-                    >
-                      {msg.text}
-                    </Text>
-
-                    {/* Meal nutrition card */}
-                    {msg.mealData ? (
-                      <View style={{ marginTop: 10, backgroundColor: "#FFFFFF", padding: 10, borderRadius: 8, borderWidth: 1, borderColor: "#CBD5E1" }}>
-                        <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
-                          <Text style={{ fontWeight: "700", fontSize: 11, color: "#0F766E" }}>ICMR-NIN NUTRITION BREAKDOWN</Text>
-                          <View style={{ backgroundColor: msg.mealData.glycemic_impact === "LOW" ? "#DCFCE7" : msg.mealData.glycemic_impact === "MODERATE" ? "#FEF3C7" : "#FEE2E2", paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 }}>
-                            <Text style={{ fontSize: 10, fontWeight: "700", color: msg.mealData.glycemic_impact === "LOW" ? "#166534" : msg.mealData.glycemic_impact === "MODERATE" ? "#92400E" : "#991B1B" }}>
-                              {msg.mealData.glycemic_impact} IMPACT
-                            </Text>
-                          </View>
-                        </View>
-                        <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: 4, backgroundColor: "#F8FAFC", borderRadius: 6 }}>
-                          <View style={{ alignItems: "center" }}>
-                            <Text style={{ fontSize: 11, color: "#64748B" }}>Calories</Text>
-                            <Text style={{ fontSize: 13, fontWeight: "700", color: "#1E293B" }}>{Math.round(msg.mealData.total_calories_kcal)} kcal</Text>
-                          </View>
-                          <View style={{ alignItems: "center" }}>
-                            <Text style={{ fontSize: 11, color: "#64748B" }}>Carbs</Text>
-                            <Text style={{ fontSize: 13, fontWeight: "700", color: "#1E293B" }}>{Math.round(msg.mealData.total_carbs_g)}g</Text>
-                          </View>
-                          <View style={{ alignItems: "center" }}>
-                            <Text style={{ fontSize: 11, color: "#64748B" }}>Protein</Text>
-                            <Text style={{ fontSize: 13, fontWeight: "700", color: "#1E293B" }}>{Math.round(msg.mealData.total_protein_g)}g</Text>
-                          </View>
-                          <View style={{ alignItems: "center" }}>
-                            <Text style={{ fontSize: 11, color: "#64748B" }}>Fiber</Text>
-                            <Text style={{ fontSize: 13, fontWeight: "700", color: "#1E293B" }}>{Math.round(msg.mealData.total_fiber_g ?? 0)}g</Text>
-                          </View>
-                        </View>
-                        {msg.mealData.raw_description ? (
-                          <TouchableOpacity
-                            style={{ marginTop: 8, backgroundColor: "#0D9488", paddingVertical: 7, borderRadius: 6, alignItems: "center" }}
-                            onPress={async () => {
-                              try {
-                                await logMeal.mutateAsync({ description: msg.mealData?.raw_description ?? "Meal" });
-                                setVoiceSaveSuccess(`Saved meal: "${msg.mealData?.raw_description}"`);
-                              } catch (e: any) {
-                                setVoiceError("Failed to save meal to log.");
-                              }
-                            }}
-                          >
-                            <Text style={{ color: "#FFFFFF", fontWeight: "600", fontSize: 12 }}>+ Save to My Meal Log</Text>
-                          </TouchableOpacity>
-                        ) : null}
-                      </View>
-                    ) : null}
-                  </View>
-                ))}
-
-                {isAiLoading ? (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12, backgroundColor: "#F8FAFC", borderRadius: 14, alignSelf: "flex-start" }}>
-                    <ActivityIndicator size="small" color="#0D9488" />
-                    <Text style={{ fontSize: 13, color: "#64748B" }}>Sarvam AI is thinking...</Text>
-                  </View>
-                ) : null}
-              </View>
-
-              {/* Sample quick prompts */}
-              <View style={{ marginTop: 14 }}>
-                <Text style={{ fontSize: 12, fontWeight: "600", color: "#64748B", marginBottom: 6 }}>Suggested queries:</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-                  {[
-                    "Can I eat mango?",
-                    "Analyze: 2 bajra roti, dal, dahi",
-                    "What should I eat for dinner?",
-                    "Mujhe chakkar aa raha hai",
-                  ].map((phrase) => (
-                    <TouchableOpacity
-                      key={phrase}
-                      style={{ backgroundColor: "#F1F5F9", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1, borderColor: "#E2E8F0" }}
-                      onPress={() => handleSendAi(phrase)}
-                      disabled={isAiLoading}
-                    >
-                      <Text style={{ fontSize: 12, color: "#334155" }}>{phrase}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {/* Input row */}
-              <View style={{ flexDirection: "row", gap: 8, marginTop: 14, alignItems: "center" }}>
-                <TextInput
-                  style={{
-                    flex: 1,
-                    backgroundColor: "#F8FAFC",
-                    borderWidth: 1,
-                    borderColor: "#CBD5E1",
-                    borderRadius: 20,
-                    paddingHorizontal: 14,
-                    paddingVertical: 10,
-                    fontSize: 14,
-                    color: colors.textPrimary,
-                  }}
-                  placeholder="Ask Sarvam AI in English or Hinglish..."
-                  placeholderTextColor="#94A3B8"
-                  value={aiQuery}
-                  onChangeText={setAiQuery}
-                  onSubmitEditing={() => handleSendAi()}
-                  editable={!isAiLoading}
-                />
-                <TouchableOpacity
-                  style={{
-                    backgroundColor: aiQuery.trim() && !isAiLoading ? "#0D9488" : "#94A3B8",
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                  onPress={() => handleSendAi()}
-                  disabled={!aiQuery.trim() || isAiLoading}
-                  accessibilityRole="button"
-                  accessibilityLabel="Send message to AI"
-                >
-                  <Ionicons name="arrow-up" size={20} color="#FFFFFF" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : null}
-
           {selectedTopic === "voice" ? (
             <View style={styles.topicDetail}>
               <View style={styles.provenanceTag}>
@@ -686,9 +838,20 @@ export function ThaliAssistModal({
               ) : null}
 
               <View style={styles.voiceInputCard}>
-                <Text style={styles.inputLabel} allowFontScaling>
-                  Dictate or type your entry:
-                </Text>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.xs }}>
+                  <Text style={styles.inputLabel} allowFontScaling>
+                    Dictate or type your entry:
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.voiceMicInlineBtn}
+                    onPress={() => setIsDirectVoiceModalVisible(true)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Record voice"
+                  >
+                    <Ionicons name="mic" size={14} color="#0D9488" style={{ marginRight: 4 }} />
+                    <Text style={styles.voiceMicInlineBtnText}>Record Voice</Text>
+                  </TouchableOpacity>
+                </View>
                 <TextInput
                   style={styles.voiceTextInput}
                   placeholder="e.g. Fasting sugar 114 mg/dL or 2 rotis with dal for lunch"
@@ -1079,7 +1242,63 @@ export function ThaliAssistModal({
               </TouchableOpacity>
             </View>
           ) : null}
-        </ScrollView>
+            </ScrollView>
+          )}
+
+        {/* Voice Record Modal for THALI AI */}
+        <VoiceRecordModal
+          visible={isAiVoiceModalVisible}
+          onClose={() => setIsAiVoiceModalVisible(false)}
+          title="Speak to THALI AI"
+          subtitle="Dictate your food, glucose reading, or symptom question in English or Hinglish."
+          placeholderHint="e.g. 'Maine 2 bajra roti aur dal khayi' or 'What can I eat for evening snack?'"
+          onTranscribeSuccess={(transcript) => {
+            setIsAiVoiceModalVisible(false);
+            if (transcript.trim()) {
+              handleSendAi(transcript.trim());
+            }
+          }}
+          testID="thali-ai-voice-modal"
+        />
+
+        {/* Camera / Meal Photo Modal for THALI AI */}
+        <MealPhotoModal
+          visible={isAiCameraModalVisible}
+          onClose={() => setIsAiCameraModalVisible(false)}
+          patientName={patientName}
+          onPhotoAnalyzed={(result, photoUri) => {
+            setIsAiCameraModalVisible(false);
+            handleReceivePhotoAnalysis(result, photoUri);
+          }}
+          onDirectLog={async (result, photoUri) => {
+            setIsAiCameraModalVisible(false);
+            handleReceivePhotoAnalysis(result, photoUri);
+            try {
+              await logMeal.mutateAsync({ description: result.description || "Meal photo" });
+              setVoiceSaveSuccess(`Saved meal: "${result.description}"`);
+            } catch (e: any) {
+              setVoiceError("Failed to save meal to log.");
+            }
+          }}
+          testID="thali-ai-camera-modal"
+        />
+
+        {/* Direct Voice Record Modal for Voice Topic */}
+        <VoiceRecordModal
+          visible={isDirectVoiceModalVisible}
+          onClose={() => setIsDirectVoiceModalVisible(false)}
+          title="Voice Capture"
+          subtitle="Speak your glucose reading or meal description."
+          placeholderHint="e.g. 'Fasting sugar 114' or '2 rotis with dal for lunch'"
+          onTranscribeSuccess={(transcript) => {
+            setIsDirectVoiceModalVisible(false);
+            if (transcript.trim()) {
+              setVoiceInput(transcript.trim());
+              handleParseVoiceInput(transcript.trim());
+            }
+          }}
+          testID="thali-direct-voice-modal"
+        />
       </SafeAreaView>
     </Modal>
   );
@@ -1492,5 +1711,107 @@ const styles = StyleSheet.create({
   discardBtnText: {
     color: colors.textSecondary,
     fontSize: typography.fontSize.caption,
+  },
+  keyboardAvoidContainer: {
+    flex: 1,
+  },
+  aiChatScreen: {
+    flex: 1,
+    backgroundColor: colors.background,
+    justifyContent: "space-between",
+  },
+  aiMessagesScrollView: {
+    flex: 1,
+  },
+  aiMessagesContent: {
+    padding: spacing.md,
+    paddingBottom: spacing.lg,
+  },
+  aiChatBottomBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  chatActionIconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#F0FDFA",
+    borderWidth: 1,
+    borderColor: "rgba(13, 148, 136, 0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chatTextInput: {
+    flex: 1,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 21,
+    paddingHorizontal: 14,
+    paddingVertical: Platform.OS === "ios" ? 10 : 8,
+    fontSize: 14,
+    color: colors.textPrimary,
+    minHeight: 42,
+    maxHeight: 100,
+  },
+  chatSendBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chatSendBtnActive: {
+    backgroundColor: "#0D9488",
+  },
+  chatSendBtnDisabled: {
+    backgroundColor: "#94A3B8",
+  },
+  chatImageContainer: {
+    marginBottom: 8,
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: "#E2E8F0",
+  },
+  chatThumbnail: {
+    width: 220,
+    height: 160,
+    borderRadius: 10,
+  },
+  headerBackBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#F0FDFA",
+    borderWidth: 1,
+    borderColor: "rgba(13, 148, 136, 0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  voiceMicInlineBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F0FDFA",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: "rgba(13, 148, 136, 0.3)",
+  },
+  voiceMicInlineBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#0D9488",
   },
 });

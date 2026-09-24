@@ -19,6 +19,7 @@ export {
   type PatientClinicalWorkspaceProps,
   type PatientWorkspaceTab,
 } from "./PatientClinicalWorkspace";
+export { ReportViewerModal, type ReportViewerModalProps } from "./ReportViewerModal";
 export { DoctorHeader, type DoctorHeaderProps } from "./DoctorHeader";
 export { DoctorSidebar, type DoctorSidebarProps, type DoctorDestinationKey } from "./DoctorSidebar";
 export { DoctorOverview, type DoctorOverviewProps } from "./DoctorOverview";
@@ -55,6 +56,7 @@ export { useCreateMedicationPlan } from "./useCreateMedicationPlan";
 export { useCareTasks } from "./useCareTasks";
 export { useDoctorDocuments } from "./useDoctorDocuments";
 export { useClinicalInsights } from "./useClinicalInsights";
+export { usePatientClinicalState } from "./usePatientClinicalState";
 export { useDoctorNotifications } from "./useDoctorNotifications";
 export { useGenerateReport } from "./useGenerateReport";
 export {

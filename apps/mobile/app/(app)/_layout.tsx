@@ -3,6 +3,8 @@ import { Redirect, Stack } from "expo-router";
 import { useAuth } from "../../src/auth/AuthProvider";
 import { LoadingState } from "../../src/components/primitives/LoadingState";
 
+import { PermissionProvider } from "../../src/services/permissions";
+
 /**
  * Guard for the protected (app) group. Direct deep links into protected
  * routes are redirected to login until an authenticated session exists.
@@ -13,7 +15,11 @@ export default function ProtectedLayout() {
 
   switch (state.name) {
     case "authenticated":
-      return <Stack screenOptions={{ headerShown: false }} />;
+      return (
+        <PermissionProvider userId={state.user?.actor_id}>
+          <Stack screenOptions={{ headerShown: false }} />
+        </PermissionProvider>
+      );
 
     case "access_denied":
     case "deactivated":

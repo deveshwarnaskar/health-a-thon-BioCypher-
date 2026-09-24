@@ -89,6 +89,24 @@ describe("HTTP error model (Gate 10A §9)", () => {
     // Safe, generic server message wins; raw internals are dropped.
     expect(error.message).not.toMatch(/ValueError|traceback|secret/);
   });
+
+  it("extracts FastAPI top-level detail without masking friendly error messages", () => {
+    const error = mapHttpError({
+      status: 400,
+      body: { detail: "Voice recording was too short or silent. Please speak for at least 1-2 seconds." },
+    });
+    expect(error.kind).toBe("INVALID_REQUEST");
+    expect(error.message).toBe("Voice recording was too short or silent. Please speak for at least 1-2 seconds.");
+  });
+
+  it("preserves friendly upstream service messages", () => {
+    const error = mapHttpError({
+      status: 503,
+      body: { error: { message: "Audio transcription service is momentarily busy. Please try speaking again." } },
+    });
+    expect(error.kind).toBe("SERVER_ERROR");
+    expect(error.message).toBe("Audio transcription service is momentarily busy. Please try speaking again.");
+  });
 });
 
 describe("429 rate-limit handling", () => {

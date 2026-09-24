@@ -45,6 +45,7 @@ class Operation(str, Enum):
     WRITE_PATIENT = "write_patient"
     MANAGE_CAREGIVER_RELATIONSHIPS = "manage_caregiver_relationships"
     MANAGE_IDENTITY_MAPPINGS = "manage_identity_mappings"
+    MANAGE_CLINICIAN_LINKS = "manage_clinician_links"
     LIST_CAREGIVER_PATIENTS = "list_caregiver_patients"
     ADMIN = "admin"
     # Gate 10H-B mutation contracts. READ_WRITE separation is explicit:
@@ -342,6 +343,7 @@ class RelationshipAuthorizationPolicy(DefaultAuthorizationPolicy):
             Operation.WRITE_MEDICATION_ADMINISTRATION,
             Operation.READ_NOTIFICATIONS,
             Operation.READ_DOCUMENTS,
+            Operation.MANAGE_CLINICIAN_LINKS,
         }
         if operation not in self_capable:
             return False

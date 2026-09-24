@@ -20,6 +20,7 @@ from backend.interfaces.http.dependencies import (
     get_authenticated_context,
     get_clock,
     get_unit_of_work,
+    get_unscoped_session,
 )
 from backend.interfaces.http.ops.audit import audit_dependency
 from backend.interfaces.http.ops.rate_limit import TIERS, apply_rate_limit, get_rate_limiter
@@ -51,6 +52,9 @@ class AuthContextResponse(BaseModel):
     roles: list[str]
     facility_id: str | None = None
     patient_id: str | None = None
+    name: str | None = None
+    phone: str | None = None
+    email: str | None = None
     onboarding_state: str = "ACTIVE"
     capabilities: list[str] = []
     available_patient_contexts: list[PatientContextItem] = []
@@ -168,12 +172,46 @@ async def get_auth_context(
             capabilities.extend([op.value for op in ops])
         capabilities = sorted(list(set(capabilities)))
 
+    name: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    db_session = getattr(uow, "session", None)
+    if db_session is not None:
+        from backend.infrastructure.persistence.models.user_models import UserModel
+        from backend.infrastructure.persistence.models.patient_models import PatientModel
+        from backend.infrastructure.persistence.models.clinician_models import CareTeamMemberModel
+        from uuid import UUID
+
+        try:
+            actor_uuid = UUID(str(ctx.actor_id)) if not isinstance(ctx.actor_id, UUID) else ctx.actor_id
+            user = db_session.query(UserModel).filter(UserModel.id == actor_uuid).first()
+            if user:
+                phone = user.phone
+                email = user.email
+            if "doctor" in ctx.roles or "clinician" in ctx.roles:
+                doc = db_session.query(CareTeamMemberModel).filter(CareTeamMemberModel.user_id == actor_uuid).first()
+                if doc and doc.display_name:
+                    name = doc.display_name
+            if not name and patient_id:
+                pat_uuid = UUID(str(patient_id)) if not isinstance(patient_id, UUID) else patient_id
+                pat = db_session.query(PatientModel).filter(PatientModel.id == pat_uuid).first()
+                if pat:
+                    if pat.name:
+                        name = pat.name
+                    if not phone and pat.phone:
+                        phone = pat.phone
+        except Exception:
+            pass
+
     return AuthContextResponse(
         actor_id=str(ctx.actor_id),
         tenant_id=str(ctx.tenant_id),
         roles=list(ctx.roles),
         facility_id=str(ctx.facility_id) if ctx.facility_id else None,
         patient_id=patient_id,
+        name=name,
+        phone=phone,
+        email=email,
         onboarding_state=onboarding_state,
         capabilities=capabilities,
         available_patient_contexts=available_contexts,

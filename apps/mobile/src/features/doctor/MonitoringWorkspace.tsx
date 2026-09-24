@@ -52,44 +52,48 @@ export function MonitoringWorkspace({ patients, onSelectPatient }: MonitoringWor
       {/* Patient Monitoring Table */}
       <View style={styles.tableCard}>
         <Text style={styles.tableTitle}>Patient Longitudinal Surveillance</Text>
-        <View style={styles.tableHeader}>
-          <Text style={[styles.th, { flex: 2 }]}>PATIENT</Text>
-          <Text style={[styles.th, { flex: 1 }]}>UHID</Text>
-          <Text style={[styles.th, { flex: 1.2 }]}>STATUS</Text>
-          <Text style={[styles.th, { flex: 1.5 }]}>TARGET PROFILE</Text>
-          <Text style={[styles.th, { flex: 1.2, textAlign: "right" }]}>INSPECT</Text>
-        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={{ minWidth: 600 }}>
+            <View style={styles.tableHeader}>
+              <Text style={[styles.th, { flex: 2 }]}>PATIENT</Text>
+              <Text style={[styles.th, { flex: 1 }]}>UHID</Text>
+              <Text style={[styles.th, { flex: 1.2 }]}>STATUS</Text>
+              <Text style={[styles.th, { flex: 1.5 }]}>TARGET PROFILE</Text>
+              <Text style={[styles.th, { flex: 1.2, textAlign: "right" }]}>INSPECT</Text>
+            </View>
 
-        {patients.map((p) => (
-          <Pressable
-            key={p.patient_id}
-            style={styles.tableRow}
-            onPress={() => onSelectPatient(p)}
-          >
-            <View style={[styles.cell, { flex: 2 }]}>
-              <Text style={styles.patientName}>{p.name}</Text>
-            </View>
-            <View style={[styles.cell, { flex: 1 }]}>
-              <Text style={styles.patientUhid}>{p.uh_id}</Text>
-            </View>
-            <View style={[styles.cell, { flex: 1.2 }]}>
-              <Badge
-                label={p.active ? "Monitoring Active" : "Suspended"}
-                tone={p.active ? "success" : "neutral"}
-              />
-            </View>
-            <View style={[styles.cell, { flex: 1.5 }]}>
-              <Text style={styles.targetText}>General (70–180 mg/dL)</Text>
-            </View>
-            <View style={[styles.cell, { flex: 1.2, justifyContent: "flex-end" }]}>
-              <Button
-                label="Metrics →"
-                variant="outline"
+            {patients.map((p) => (
+              <Pressable
+                key={p.patient_id}
+                style={styles.tableRow}
                 onPress={() => onSelectPatient(p)}
-              />
-            </View>
-          </Pressable>
-        ))}
+              >
+                <View style={[styles.cell, { flex: 2 }]}>
+                  <Text style={styles.patientName}>{p.name}</Text>
+                </View>
+                <View style={[styles.cell, { flex: 1 }]}>
+                  <Text style={styles.patientUhid}>{p.uh_id}</Text>
+                </View>
+                <View style={[styles.cell, { flex: 1.2 }]}>
+                  <Badge
+                    label={p.active ? "Monitoring Active" : "Suspended"}
+                    tone={p.active ? "success" : "neutral"}
+                  />
+                </View>
+                <View style={[styles.cell, { flex: 1.5 }]}>
+                  <Text style={styles.targetText}>General (70–180 mg/dL)</Text>
+                </View>
+                <View style={[styles.cell, { flex: 1.2, justifyContent: "flex-end" }]}>
+                  <Button
+                    label="Metrics →"
+                    variant="outline"
+                    onPress={() => onSelectPatient(p)}
+                  />
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        </ScrollView>
       </View>
     </ScrollView>
   );
@@ -103,7 +107,7 @@ const styles = StyleSheet.create({
   content: {
     padding: spacing.lg,
     gap: spacing.lg,
-    paddingBottom: spacing.xxl,
+    paddingBottom: 130,
   },
   header: {
     gap: 4,
@@ -199,7 +203,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: doctorPalette.border,
     gap: spacing.xs,
-    flexWrap: "wrap",
   },
   cell: {
     flexDirection: "row",

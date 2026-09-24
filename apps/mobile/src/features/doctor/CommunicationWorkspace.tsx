@@ -225,6 +225,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: spacing.lg,
     gap: spacing.md,
+    paddingBottom: 130,
   },
   card: {
     backgroundColor: doctorPalette.surface,

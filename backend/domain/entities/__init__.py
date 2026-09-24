@@ -9,6 +9,7 @@ from .facility import Facility
 from .identity_patient_mapping import IdentityPatientMapping
 from .glucose_observation import GlucoseObservation
 from .meal_observation import MealObservation
+from .clinical_observation import ClinicalObservation, ObservationType
 from .medication_plan import MedicationPlan
 from .notification import (
     Notification,
@@ -17,6 +18,7 @@ from .notification import (
     NotificationType,
 )
 from .patient import Patient
+from .patient_clinician_link import PatientClinicianLink
 from .projections import (
     PatientFacingGlucoseObservation,
     PatientFacingMealObservation,
@@ -38,12 +40,15 @@ __all__ = [
     "IdentityPatientMapping",
     "GlucoseObservation",
     "MealObservation",
+    "ClinicalObservation",
+    "ObservationType",
     "MedicationPlan",
     "Notification",
     "NotificationChannel",
     "NotificationStatus",
     "NotificationType",
     "Patient",
+    "PatientClinicianLink",
     "PatientFacingGlucoseObservation",
     "PatientFacingMealObservation",
 ]

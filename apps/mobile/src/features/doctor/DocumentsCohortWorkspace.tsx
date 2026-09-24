@@ -1,10 +1,12 @@
 import React, { useState } from "react";
-import { StyleSheet, Text, View, ScrollView, Pressable } from "react-native";
+import { StyleSheet, Text, View, ScrollView, Pressable, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Badge } from "../../components/primitives/Badge";
 import { Button } from "../../components/primitives/Button";
 import { LoadingState } from "../../components/primitives/LoadingState";
 import { EmptyState } from "../../components/primitives/EmptyState";
+import { ReportViewerModal } from "./ReportViewerModal";
+import type { ClinicalDocumentItem } from "./api";
 import { spacing, typography } from "../../theming/tokens";
 import { doctorPalette, doctorRadii, doctorSoftShadow } from "./doctorDesign";
 import type { PatientSummaryResponse } from "../../services/schemas/patients";
@@ -22,6 +24,7 @@ export function DocumentsCohortWorkspace({
   const [selectedPatientId, setSelectedPatientId] = useState<string>(
     patients[0]?.patient_id ?? ""
   );
+  const [selectedDoc, setSelectedDoc] = useState<ClinicalDocumentItem | null>(null);
 
   const selectedPatient = patients.find((p) => p.patient_id === selectedPatientId);
   const { documents, isLoading, refetch } = useDoctorDocuments(selectedPatientId);
@@ -101,17 +104,38 @@ export function DocumentsCohortWorkspace({
                 ) : null}
               </View>
 
-              {onOpenPatientById && selectedPatient ? (
-                <Button
-                  label="View Patient"
-                  variant="outline"
-                  onPress={() => onOpenPatientById(selectedPatient.patient_id)}
-                />
-              ) : null}
+              <View style={styles.docActionsCol}>
+                <TouchableOpacity
+                  style={styles.viewDocBtn}
+                  onPress={() => setSelectedDoc(doc)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View document ${doc.filename}`}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="eye-outline" size={15} color="#FFFFFF" />
+                  <Text style={styles.viewDocBtnText}>View / Download</Text>
+                </TouchableOpacity>
+
+                {onOpenPatientById && selectedPatient ? (
+                  <Button
+                    label="Patient Record"
+                    variant="outline"
+                    onPress={() => onOpenPatientById(selectedPatient.patient_id)}
+                  />
+                ) : null}
+              </View>
             </View>
           ))}
         </ScrollView>
       )}
+
+      <ReportViewerModal
+        visible={!!selectedDoc}
+        document={selectedDoc}
+        patientName={selectedPatient?.name}
+        uhid={selectedPatient?.uh_id}
+        onClose={() => setSelectedDoc(null)}
+      />
     </View>
   );
 }
@@ -186,6 +210,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: spacing.lg,
     gap: spacing.md,
+    paddingBottom: 130,
   },
   docCard: {
     flexDirection: "row",
@@ -235,5 +260,23 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: doctorPalette.primary,
     fontWeight: "800",
+  },
+  docActionsCol: {
+    gap: spacing.xs,
+    alignItems: "flex-end",
+  },
+  viewDocBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: doctorPalette.primary,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
+    borderRadius: doctorRadii.md,
+  },
+  viewDocBtnText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "700",
   },
 });

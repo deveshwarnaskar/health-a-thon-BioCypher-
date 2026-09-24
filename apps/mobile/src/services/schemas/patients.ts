@@ -28,3 +28,44 @@ export const patientListResponseSchema = z
   .strict();
 
 export type PatientListResponse = z.infer<typeof patientListResponseSchema>;
+
+// ─── Patient ↔ clinician links (Gate 13 — clinician-links contract → mobile) ──
+// Mirrors backend DTOs verbatim: LinkPatientToClinicianRequest,
+// PatientClinicianLinkResponse, PatientClinicianLinkListResponse. The mobile
+// `account`/`patient_id` identity-mapping resolves through the same "me"
+// self-capable MANAGE_CLINICIAN_LINKS operation the backend authorizes.
+
+export const linkPatientToClinicianRequestSchema = z
+  .object({
+    clinician_account_id: z.string().min(1),
+  })
+  .strict();
+
+export type LinkPatientToClinicianRequest = z.infer<
+  typeof linkPatientToClinicianRequestSchema
+>;
+
+export const patientClinicianLinkResponseSchema = z
+  .object({
+    link_id: z.string(),
+    patient_id: z.string(),
+    clinician_account_id: z.string(),
+    status: z.enum(["active", "pending", "deactivated"]),
+    linked_at: z.string(),
+    created_at: z.string(),
+  })
+  .strict();
+
+export type PatientClinicianLinkResponse = z.infer<
+  typeof patientClinicianLinkResponseSchema
+>;
+
+export const patientClinicianLinkListResponseSchema = z
+  .object({
+    links: z.array(patientClinicianLinkResponseSchema),
+  })
+  .strict();
+
+export type PatientClinicianLinkListResponse = z.infer<
+  typeof patientClinicianLinkListResponseSchema
+>;

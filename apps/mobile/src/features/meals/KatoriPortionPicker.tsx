@@ -1,11 +1,25 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { colors, radii, spacing, typography } from "../../theming/tokens";
+import { colors, radii, spacing } from "../../theming/tokens";
 import {
   KATORI_PORTION_LABELS,
   KATORI_VOLUMES,
   type KatoriVolumeMl,
 } from "../../services/schemas/meals";
+
+/**
+ * Consistent clinical palettes for the logbook (anchored to design tokens).
+ */
+const palette = {
+  teal600: "#0D9488",
+  tealBg: "#F0FDFA",
+  tealBorder: "#A7F3D2",
+  ink: "#0F172A",
+  body: "#334155",
+  muted: "#64748B",
+  border: "rgba(15, 23, 42, 0.07)",
+  hairline: "#EEF2F7",
+} as const;
 
 export type KatoriPortionPickerProps = {
   selectedVolume: KatoriVolumeMl | null;
@@ -149,19 +163,19 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   sectionTitle: {
-    fontSize: typography.fontSize.headline,
-    fontWeight: "600",
-    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: "800",
+    color: palette.ink,
+    letterSpacing: -0.3,
   },
   caption: {
-    fontSize: typography.fontSize.bodySmall,
-    color: colors.textSecondary,
+    fontSize: 11,
+    color: palette.muted,
   },
   subTitle: {
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: "600",
-    color: colors.textPrimary,
-    marginTop: spacing.xs,
+    fontSize: 12,
+    fontWeight: "700",
+    color: palette.body,
   },
   volumeRow: {
     flexDirection: "row",
@@ -169,29 +183,36 @@ const styles = StyleSheet.create({
   },
   volumeCard: {
     flex: 1,
-    minHeight: 56,
+    minHeight: 54,
     padding: spacing.sm,
-    borderRadius: radii.md,
-    borderWidth: 2,
-    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
     backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 1,
   },
   volumeCardSelected: {
     borderColor: colors.primary,
-    backgroundColor: colors.surface,
-    borderWidth: 2,
+    borderWidth: 1.5,
+    backgroundColor: palette.tealBg,
+    shadowOpacity: 0.08,
+    elevation: 2,
   },
   volumeCardText: {
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: "500",
-    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: "600",
+    color: palette.body,
     textAlign: "center",
   },
   volumeCardTextSelected: {
     color: colors.primary,
-    fontWeight: "700",
+    fontWeight: "800",
   },
   quantityRow: {
     flexDirection: "row",
@@ -205,7 +226,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: palette.border,
     backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
@@ -215,13 +236,13 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   quantityChipText: {
-    fontSize: typography.fontSize.bodySmall,
-    fontWeight: "500",
-    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: "600",
+    color: palette.body,
   },
   quantityChipTextSelected: {
     color: colors.textOnPrimary,
-    fontWeight: "700",
+    fontWeight: "800",
   },
   stepperContainer: {
     flexDirection: "row",
@@ -234,20 +255,20 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: palette.border,
     backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
   stepperBtnText: {
-    fontSize: typography.fontSize.headline,
+    fontSize: 18,
     fontWeight: "600",
-    color: colors.textPrimary,
+    color: palette.ink,
   },
   quantityValueText: {
-    fontSize: typography.fontSize.body,
-    fontWeight: "600",
-    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: "700",
+    color: palette.ink,
     minWidth: 32,
     textAlign: "center",
   },

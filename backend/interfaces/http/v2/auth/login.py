@@ -53,6 +53,8 @@ from backend.interfaces.http.v2.auth.schemas import (
     SignupRequest,
     VerifyEmailRequest,
     VerifyEmailResponse,
+    DeleteAccountRequest,
+    DeleteAccountResponse,
 )
 from backend.interfaces.http.v2.security.authorization import AuthenticatedContext
 from backend.interfaces.http.v2.security.jwt import TokenVerificationError
@@ -156,12 +158,29 @@ async def login(
         session_id=str(user_session.id),
     )
 
+    user_name: str | None = None
+    if user.role in ("doctor", "clinician"):
+        from backend.infrastructure.persistence.models.clinician_models import CareTeamMemberModel
+        clinician = session.query(CareTeamMemberModel).filter(CareTeamMemberModel.user_id == user.id).first()
+        if clinician and clinician.display_name:
+            user_name = clinician.display_name
+    elif user.role == "patient":
+        from backend.infrastructure.persistence.models.identity_models import IdentityPatientMappingModel
+        from backend.infrastructure.persistence.models.patient_models import PatientModel
+        mapping = session.query(IdentityPatientMappingModel).filter(IdentityPatientMappingModel.user_id == user.id).first()
+        if mapping:
+            pat = session.query(PatientModel).filter(PatientModel.id == mapping.patient_id).first()
+            if pat and pat.name:
+                user_name = pat.name
+
     return LoginResponse(
         access_token=access_token,
         refresh_token=raw_refresh,
         expires_in=expire_seconds,
         user_status=getattr(user, "status", "active"),
         role=user.role,
+        name=user_name,
+        email=user.email,
     )
 
 
@@ -343,6 +362,7 @@ async def signup(
         role=requested_role,
         tenant_id=tenant_id,
         facility_id=facility_id,
+        phone=body.phone.strip() if body.phone else None,
         active=True,
         status=user_status,
         failed_login_attempts=0,
@@ -416,12 +436,15 @@ async def signup(
         session_id=str(user_session.id),
     )
 
+    signup_name = display_name if "display_name" in locals() else (body.name or None)
     return LoginResponse(
         access_token=access_token,
         refresh_token=raw_refresh,
         expires_in=expire_seconds,
         user_status=user_status,
         role=new_user.role,
+        name=signup_name,
+        email=new_user.email,
     )
 
 
@@ -642,3 +665,156 @@ async def register(
         "role": new_user.role,
         "tenant_id": str(new_user.tenant_id),
     }
+
+
+def _normalize_phone(p: str | None) -> str:
+    if not p:
+        return ""
+    import re
+    return re.sub(r"\D", "", p)
+
+
+def _phones_match(p1: str | None, p2: str | None) -> bool:
+    n1 = _normalize_phone(p1)
+    n2 = _normalize_phone(p2)
+    if not n1 or not n2:
+        return False
+    if n1 == n2:
+        return True
+    if len(n1) >= 10 and len(n2) >= 10:
+        return n1[-10:] == n2[-10:]
+    return False
+
+
+@auth_custom_router.delete("/account", response_model=DeleteAccountResponse)
+@auth_custom_router.post("/delete-account", response_model=DeleteAccountResponse)
+async def delete_account(
+    request: Request,
+    response: Response,
+    body: DeleteAccountRequest,
+    ctx: Annotated[AuthenticatedContext, Depends(get_authenticated_context)],
+    session: Annotated[Any, Depends(get_unscoped_session)],
+    limiter: Annotated[object, Depends(get_rate_limiter)] = None,
+) -> DeleteAccountResponse:
+    """Permanently delete user account, associated patient observations/plans, and revoke all sessions."""
+    apply_rate_limit(request=request, response=response, tier=TIERS["auth"], limiter=limiter)
+    ip_address = _get_client_ip(request)
+
+    from backend.infrastructure.persistence.models.clinician_models import CareTeamMemberModel
+    from backend.infrastructure.persistence.models.identity_models import (
+        CaregiverRelationshipModel,
+        IdentityPatientMappingModel,
+    )
+    from backend.infrastructure.persistence.models.patient_models import PatientModel
+    from backend.infrastructure.persistence.models.user_models import (
+        EmailVerificationTokenModel,
+        PasswordResetTokenModel,
+        RefreshTokenFamilyModel,
+        SecurityEventModel,
+        UserModel,
+        UserSessionModel,
+    )
+    from backend.infrastructure.persistence.repositories.user_repository import SqlAlchemyUserRepository
+
+    user_repo = SqlAlchemyUserRepository(session)
+    actor_uuid = UUID(str(ctx.actor_id)) if not isinstance(ctx.actor_id, UUID) else ctx.actor_id
+    user = user_repo.get_by_id(actor_uuid)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User account not found")
+
+    # Resolve registered phone
+    registered_phone = user.phone
+    patient_mappings = (
+        session.query(IdentityPatientMappingModel)
+        .filter(IdentityPatientMappingModel.user_id == user.id)
+        .all()
+    )
+    patient_ids = [m.patient_id for m in patient_mappings]
+    patient_records = (
+        session.query(PatientModel).filter(PatientModel.id.in_(patient_ids)).all()
+        if patient_ids
+        else []
+    )
+
+    if not registered_phone and patient_records:
+        for p in patient_records:
+            if p.phone:
+                registered_phone = p.phone
+                break
+
+    # If there is a registered phone on record, enforce exact verification
+    if registered_phone:
+        if not _phones_match(body.phone, registered_phone):
+            SessionService.record_security_event(
+                session=session,
+                event_type="ACCOUNT_DELETION_PHONE_MISMATCH",
+                user_id=user.id,
+                tenant_id=user.tenant_id,
+                ip_address=ip_address,
+                details={"entered_phone": body.phone},
+            )
+            session.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The phone number entered does not match your registered phone number.",
+            )
+    else:
+        # If no phone was stored in backend DB, require a plausible non-empty phone string
+        if not body.phone or len(_normalize_phone(body.phone)) < 7:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A valid phone number is required to confirm account deletion.",
+            )
+
+    # 1. Cascade delete Patient records (cascades observations, care plans, meals, tasks, docs, whatsapp conversation)
+    for p in patient_records:
+        session.delete(p)
+
+    # 2. Delete identity mappings
+    session.query(IdentityPatientMappingModel).filter(
+        IdentityPatientMappingModel.user_id == user.id
+    ).delete(synchronize_session=False)
+
+    # 3. Clean up caregiver relationships
+    session.query(CaregiverRelationshipModel).filter(
+        CaregiverRelationshipModel.caregiver_user_id == user.id
+    ).delete(synchronize_session=False)
+
+    # 4. Clean up clinician membership
+    session.query(CareTeamMemberModel).filter(
+        CareTeamMemberModel.user_id == user.id
+    ).delete(synchronize_session=False)
+
+    # 5. Revoke and purge all user sessions & security tokens
+    session.query(RefreshTokenFamilyModel).filter(
+        RefreshTokenFamilyModel.user_id == user.id
+    ).delete(synchronize_session=False)
+    session.query(UserSessionModel).filter(
+        UserSessionModel.user_id == user.id
+    ).delete(synchronize_session=False)
+    session.query(PasswordResetTokenModel).filter(
+        PasswordResetTokenModel.user_id == user.id
+    ).delete(synchronize_session=False)
+    session.query(EmailVerificationTokenModel).filter(
+        EmailVerificationTokenModel.user_id == user.id
+    ).delete(synchronize_session=False)
+
+    # 6. Audit security event
+    SessionService.record_security_event(
+        session=session,
+        event_type="ACCOUNT_DELETED",
+        user_id=user.id,
+        tenant_id=user.tenant_id,
+        ip_address=ip_address,
+        details={"email": user.email, "role": user.role},
+    )
+
+    # 7. Delete user record
+    session.delete(user)
+    session.commit()
+
+    return DeleteAccountResponse(
+        status="ok",
+        message="Account and all associated health records have been permanently deleted.",
+    )
+

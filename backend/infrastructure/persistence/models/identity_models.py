@@ -133,3 +133,72 @@ class IdentityPatientMappingModel(Base):
             sqlite_where=text("active"),
         ),
     )
+
+
+class PatientClinicianLinkModel(Base):
+    """Relational model for PatientClinicianLink entity (patient-doctor connect).
+
+    A patient-initiated, bidirectional connection between a patient and a
+    clinician user. ``facility_id`` snapshots the clinician's facility — the
+    patient is enrolled there so the clinician's facility-scoped reads and
+    monitoring cohort can resolve the patient. One ACTIVE link per
+    (tenant, patient, clinician) pair.
+    """
+
+    __tablename__ = "patient_clinician_links"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    patient_id: Mapped[UUID] = mapped_column(
+        ForeignKey("patients.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    clinician_user_id: Mapped[UUID] = mapped_column(nullable=False, index=True)
+    facility_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("facilities.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    clinician_name: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="", server_default=""
+    )
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_patient_clinician_links_tenant_pair",
+            "tenant_id",
+            "patient_id",
+            "clinician_user_id",
+            unique=True,
+            postgresql_where=text("active"),
+            sqlite_where=text("active"),
+        ),
+        Index(
+            "ix_patient_clinician_links_tenant_clinician",
+            "tenant_id",
+            "clinician_user_id",
+        ),
+        Index(
+            "ix_patient_clinician_links_tenant_patient",
+            "tenant_id",
+            "patient_id",
+        ),
+    )

@@ -26,6 +26,8 @@ class LoginResponse(BaseModel):
     expires_in: int  # seconds
     user_status: str | None = "active"
     role: str | None = None
+    name: str | None = None
+    email: str | None = None
 
 
 class RefreshRequest(BaseModel):
@@ -95,3 +97,12 @@ class VerifyEmailRequest(BaseModel):
 class VerifyEmailResponse(BaseModel):
     status: str = "ok"
     message: str
+
+
+class DeleteAccountRequest(BaseModel):
+    phone: str
+
+
+class DeleteAccountResponse(BaseModel):
+    status: str = "ok"
+    message: str = "Account has been permanently deleted."

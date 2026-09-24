@@ -26,6 +26,7 @@ import { authLog } from "./authLog";
 import { toAuthenticatedContext } from "./types";
 import { decodeJwtPayload } from "./jwt";
 import { localSessionIsolation } from "../db/isolation";
+import * as SecureStore from "expo-secure-store";
 
 export type SessionManagerDependencies = {
   config: OidcConfig;
@@ -267,6 +268,46 @@ export class OidcSessionManager implements AuthSessionProvider {
     this.dispatch({ type: "LOGOUT" });
   }
 
+  async deleteAccount(phone: string): Promise<void> {
+    authLog({ event: "delete_account" });
+    const cleanPhone = phone.trim();
+
+    try {
+      await this.apiClient.request({
+        method: "DELETE",
+        path: "/api/v2/auth/account",
+        body: { phone: cleanPhone },
+      });
+    } catch (err: any) {
+      // Fallback: try POST /api/v2/auth/delete-account in case HTTP client strips body in DELETE
+      try {
+        await this.apiClient.request({
+          method: "POST",
+          path: "/api/v2/auth/delete-account",
+          body: { phone: cleanPhone },
+        });
+      } catch {
+        throw err;
+      }
+    }
+
+    const user = this.getUserFromState();
+    if (user?.actor_id) {
+      try {
+        await SecureStore.deleteItemAsync(`thali.patient.signup_name_${user.actor_id}`).catch(() => {});
+        await SecureStore.deleteItemAsync(`thali.patient.signup_phone_${user.actor_id}`).catch(() => {});
+      } catch {}
+    }
+    try {
+      await SecureStore.deleteItemAsync("thali.patient.signup_name").catch(() => {});
+      await SecureStore.deleteItemAsync("thali.patient.signup_phone").catch(() => {});
+    } catch {}
+
+    await this.tokenStore.clear();
+    this.onProtectedStateInvalidated?.();
+    this.dispatch({ type: "LOGOUT" });
+  }
+
   canRecoverPassword(): boolean {
     return typeof (this.oidcFlow as any)?.recoverPassword === "function";
   }
@@ -309,8 +350,38 @@ export class OidcSessionManager implements AuthSessionProvider {
         refreshToken: response.refresh_token,
       });
 
+      if (data.name) {
+        try {
+          await SecureStore.setItemAsync("thali.user.signup_name", data.name);
+          await SecureStore.setItemAsync("thali.doctor.signup_name", data.name);
+          await SecureStore.setItemAsync("thali.patient.signup_name", data.name);
+        } catch {}
+      }
+
+      if (data.phone) {
+        try {
+          await SecureStore.setItemAsync("thali.patient.signup_phone", data.phone);
+        } catch {}
+      }
+
       const user = await this.verifyWithBackend();
       if (user === null) return { user_status: response.user_status, role: response.role };
+
+      if (data.name) {
+        user.name = data.name;
+        try {
+          await SecureStore.setItemAsync(`thali.user.signup_name_${user.actor_id}`, data.name);
+          await SecureStore.setItemAsync(`thali.doctor.signup_name_${user.actor_id}`, data.name);
+          await SecureStore.setItemAsync(`thali.patient.signup_name_${user.actor_id}`, data.name);
+        } catch {}
+      }
+
+      if (data.phone) {
+        user.phone = data.phone;
+        try {
+          await SecureStore.setItemAsync(`thali.patient.signup_phone_${user.actor_id}`, data.phone);
+        } catch {}
+      }
 
       if (!user.role) {
         this.dispatch({ type: "ACCESS_DENIED", reason: "unknown_role", user });
@@ -589,7 +660,50 @@ export class OidcSessionManager implements AuthSessionProvider {
         (typeof claims?.patient_id === "string" ? claims.patient_id : null) ??
         (typeof idClaims?.patient_id === "string" ? idClaims.patient_id : null);
 
-      const user = buildAuthUser(toAuthenticatedContext(verifyResponse, patientId));
+      let userName: string | null = (verifyResponse as any).name ?? null;
+      if (!userName) {
+        try {
+          userName = await SecureStore.getItemAsync(`thali.user.signup_name_${verifyResponse.actor_id}`);
+          if (!userName) {
+            userName = await SecureStore.getItemAsync(`thali.doctor.signup_name_${verifyResponse.actor_id}`);
+          }
+          if (!userName) {
+            userName = await SecureStore.getItemAsync(`thali.patient.signup_name_${verifyResponse.actor_id}`);
+          }
+          if (!userName) {
+            userName = await SecureStore.getItemAsync("thali.doctor.signup_name");
+          }
+          if (!userName) {
+            userName = await SecureStore.getItemAsync("thali.patient.signup_name");
+          }
+          if (!userName) {
+            userName = await SecureStore.getItemAsync("thali.user.signup_name");
+          }
+        } catch {}
+      }
+
+      if (userName) {
+        try {
+          await SecureStore.setItemAsync(`thali.user.signup_name_${verifyResponse.actor_id}`, userName);
+        } catch {}
+      }
+
+      let userPhone: string | null = (verifyResponse as any).phone ?? null;
+      if (!userPhone) {
+        try {
+          userPhone = await SecureStore.getItemAsync(`thali.patient.signup_phone_${verifyResponse.actor_id}`);
+          if (!userPhone) {
+            userPhone = await SecureStore.getItemAsync("thali.patient.signup_phone");
+          }
+        } catch {}
+      }
+
+      const user = buildAuthUser(
+        toAuthenticatedContext(verifyResponse, patientId),
+        userName,
+        userPhone,
+        (verifyResponse as any).email ?? null
+      );
 
       // Local session isolation (Gate 10O): initialize active session context
       localSessionIsolation.setContext({

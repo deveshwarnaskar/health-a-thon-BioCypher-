@@ -291,3 +291,62 @@ def test_forgot_and_reset_password_flow(client: TestClient, auth_test_user):
     assert new_login.status_code == 200
     assert "access_token" in new_login.json()
 
+
+def test_signup_stores_phone_and_delete_account_flow(client: TestClient):
+    """Verifies that signup stores phone, delete account verifies phone match, and permanently deletes user."""
+    email = f"delete-me-{uuid4().hex[:6]}@thali.dev"
+    password = "delete-secure-password-123"
+    phone = "+91 98765 43210"
+
+    # 1. Sign up with phone
+    signup_resp = client.post(
+        "/api/v2/auth/signup",
+        json={
+            "email": email,
+            "password": password,
+            "name": "Delete Tester",
+            "phone": phone,
+            "role": "patient",
+        },
+    )
+    assert signup_resp.status_code == 201
+    tokens = signup_resp.json()
+    access_token = tokens["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    # 2. Check context returns phone
+    ctx_resp = client.get("/api/v2/auth/context", headers=headers)
+    assert ctx_resp.status_code == 200
+    ctx_data = ctx_resp.json()
+    assert ctx_data.get("phone") == phone
+
+    # 3. Attempt deletion with mismatching phone fails
+    del_fail_resp = client.request(
+        "DELETE",
+        "/api/v2/auth/account",
+        headers=headers,
+        json={"phone": "9999999999"},
+    )
+    assert del_fail_resp.status_code == 400
+    fail_detail = del_fail_resp.json().get("detail", "")
+    assert "match" in fail_detail.lower()
+
+    # 4. Attempt deletion with matching phone succeeds
+    del_ok_resp = client.request(
+        "DELETE",
+        "/api/v2/auth/account",
+        headers=headers,
+        json={"phone": "9876543210"},
+    )
+    assert del_ok_resp.status_code == 200
+    del_data = del_ok_resp.json()
+    assert del_data["status"] == "ok"
+
+    # 5. Subsequent login fails because user account is permanently deleted
+    login_resp = client.post(
+        "/api/v2/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert login_resp.status_code == 401
+
+

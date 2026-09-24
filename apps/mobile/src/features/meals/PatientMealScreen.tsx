@@ -1,12 +1,13 @@
 import React, { useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../auth/AuthProvider";
 import { TopAppBar } from "../../components/primitives/TopAppBar";
 import { AlertBanner } from "../../components/primitives/AlertBanner";
 import { Divider } from "../../components/primitives/Divider";
 import { Button } from "../../components/primitives/Button";
 import { EmptyState } from "../../components/primitives/EmptyState";
-import { colors, spacing } from "../../theming/tokens";
+import { colors, radii, spacing } from "../../theming/tokens";
 import { FoodItemSelector } from "./FoodItemSelector";
 import { KatoriPortionPicker } from "./KatoriPortionPicker";
 import { MealDraftSummary } from "./MealDraftSummary";
@@ -17,12 +18,25 @@ import { usePatientMeals } from "./usePatientMeals";
 import type { FoodItem } from "./types";
 import type { KatoriVolumeMl, LogMealResponse } from "../../services/schemas/meals";
 import type { ApiErrorDetails } from "../../services/api/errors";
+import type { AnalyzeMealPhotoAiResponse } from "../../services/schemas/ai";
 
 export type PatientMealScreenProps = {
   patientId?: string;
   onBack?: () => void;
   testID?: string;
 };
+
+/**
+ * Consistent clinical palettes for the logbook (anchored to design tokens).
+ */
+const palette = {
+  teal700: "#0F766E",
+  teal600: "#0D9488",
+  amber: "#FBBF24",
+  green: "#6EE7B7",
+  body: "#334155",
+  border: "rgba(15, 23, 42, 0.07)",
+} as const;
 
 export function PatientMealScreen({
   patientId: propPatientId,
@@ -222,12 +236,26 @@ export function PatientMealScreen({
     );
   }
 
+  // Summary metrics derived from the feed
+  const meals = feed.meals ?? [];
+  const totalCount = meals.length;
+  const confirmedCount = meals.filter((m) => m.confirmed === true).length;
+  const pendingCount = totalCount - confirmedCount;
+
   return (
     <View style={styles.container} testID={testID}>
       <TopAppBar
         title="Meal Logbook"
         onBack={onBack}
         leadingLabel={onBack ? "Back" : undefined}
+        actions={
+          <View style={styles.headerProtocolPill}>
+            <View style={styles.headerProtocolDot} />
+            <Text style={styles.headerProtocolText} allowFontScaling>
+              Plate Log
+            </Text>
+          </View>
+        }
       />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -247,6 +275,73 @@ export function PatientMealScreen({
           />
         ) : null}
 
+        {/* Nutrition Summary Hero (When meals exist) */}
+        {totalCount > 0 ? (
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryDeco} pointerEvents="none" />
+            <View style={styles.metricsRow}>
+              <View style={styles.metricItem}>
+                <View style={styles.metricLabelRow}>
+                  <Ionicons name="restaurant" size={11} color="rgba(255,255,255,0.65)" />
+                  <Text style={styles.metricLabel} allowFontScaling>
+                    Total Meals
+                  </Text>
+                </View>
+                <View style={styles.metricValueRow}>
+                  <Text style={styles.metricValue} allowFontScaling>
+                    {totalCount}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.metricDivider} />
+
+              <View style={styles.metricItem}>
+                <View style={styles.metricLabelRow}>
+                  <Ionicons name="checkmark-circle" size={11} color={palette.green} />
+                  <Text style={styles.metricLabel} allowFontScaling>
+                    Confirmed
+                  </Text>
+                </View>
+                <View style={styles.metricValueRow}>
+                  <Text style={[styles.metricValue, { color: palette.green }]} allowFontScaling>
+                    {confirmedCount}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.metricDivider} />
+
+              <View style={styles.metricItem}>
+                <View style={styles.metricLabelRow}>
+                  <Ionicons name="time" size={11} color={palette.amber} />
+                  <Text style={styles.metricLabel} allowFontScaling>
+                    Pending
+                  </Text>
+                </View>
+                <View style={styles.metricValueRow}>
+                  <Text style={[styles.metricValue, { color: palette.amber }]} allowFontScaling>
+                    {pendingCount}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.summaryStatusRow}>
+              <Ionicons
+                name={pendingCount > 0 ? "time" : "shield-checkmark"}
+                size={13}
+                color={pendingCount > 0 ? palette.amber : palette.green}
+              />
+              <Text style={styles.summaryStatusText} allowFontScaling>
+                {pendingCount > 0
+                  ? `${pendingCount} ${pendingCount === 1 ? "meal" : "meals"} awaiting confirmation`
+                  : "All meals confirmed"}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
         {activeDraft ? (
           <MealDraftSummary
             draft={activeDraft}
@@ -260,7 +355,7 @@ export function PatientMealScreen({
             testID="meal-draft-summary"
           />
         ) : (
-          <View style={styles.formContainer} testID="patient-meal-form">
+          <View style={styles.formCard} testID="patient-meal-form">
             <FoodItemSelector
               selectedFoodKey={selectedFoodKey}
               onSelectFood={handleSelectFood}
@@ -270,8 +365,23 @@ export function PatientMealScreen({
                 if (validationError) setValidationError(null);
               }}
               error={validationError}
+              patientName={authUser?.name ?? ""}
+              onDirectLog={async (analysis) => {
+                const mealDesc = (analysis.description || description || "Photo Analyzed Meal").trim();
+                setDescription(mealDesc);
+                await logMeal.mutateAsync({
+                  description: mealDesc,
+                  portion: {
+                    food_key: selectedFoodKey ?? "thali",
+                    katori_volume_ml: selectedVolume ?? 220,
+                    quantity: quantity > 0 ? quantity : 1.0,
+                  },
+                });
+              }}
               testID="food-item-selector"
             />
+
+            <Divider />
 
             <KatoriPortionPicker
               selectedVolume={selectedVolume}
@@ -317,10 +427,122 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: spacing.md,
-    gap: spacing.md,
-    paddingBottom: spacing.xxl,
+    gap: spacing.sm,
+    paddingBottom: spacing.xxl + 20,
   },
-  formContainer: {
+  headerProtocolPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: radii.pill,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  headerProtocolDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: palette.teal600,
+  },
+  headerProtocolText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: palette.teal700,
+    letterSpacing: 0.2,
+  },
+  summaryCard: {
+    backgroundColor: colors.primary,
+    borderRadius: 20,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    gap: 12,
+    overflow: "hidden",
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.22,
+    shadowRadius: 20,
+    elevation: 5,
+  },
+  summaryDeco: {
+    position: "absolute",
+    top: -70,
+    right: -50,
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    backgroundColor: "rgba(255, 255, 255, 0.07)",
+  },
+  metricsRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+  },
+  metricItem: {
+    flex: 1,
+    alignItems: "center",
+    gap: 4,
+  },
+  metricLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  metricLabel: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "rgba(255, 255, 255, 0.66)",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  metricValueRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 3,
+  },
+  metricValue: {
+    fontSize: 21,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: -0.4,
+  },
+  metricDivider: {
+    width: 1,
+    alignSelf: "stretch",
+    backgroundColor: "rgba(255, 255, 255, 0.16)",
+  },
+  summaryStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderRadius: radii.lg,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  summaryStatusText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  formCard: {
+    padding: spacing.md + 2,
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
     gap: spacing.md,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 22,
+    elevation: 3,
   },
 });

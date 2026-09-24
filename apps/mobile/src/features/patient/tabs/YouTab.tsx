@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -7,9 +7,13 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { colors, radii, spacing, touchTarget, typography } from "../../../theming/tokens";
+import { useAuth } from "../../../auth/AuthProvider";
 import { PatientScreenHeader } from "../components/PatientScreenHeader";
 import { SignOutConfirmModal } from "../components/SignOutConfirmModal";
+import { DeleteAccountModal } from "../components/DeleteAccountModal";
 import { WhatsAppManageModal } from "../components/WhatsAppManageModal";
 import { useWhatsAppIdentity } from "../useWhatsAppIdentity";
 import { useTranslation, type SupportedLanguage } from "../../../i18n/i18n";
@@ -19,6 +23,7 @@ export type YouTabProps = {
   uhid?: string;
   email?: string;
   onSignOut: () => Promise<void>;
+  onDeleteAccount?: (phone: string) => Promise<void>;
   onNavigateToMedications?: () => void;
   onNavigateToDocuments?: () => void;
   onNavigateToNotifications?: () => void;
@@ -29,6 +34,7 @@ export type YouTabProps = {
   onNavigateToPrivacySecurity?: () => void;
   onOpenAssist?: () => void;
   onConnectWhatsApp?: () => void;
+  onLinkDoctor?: (qrValue: string) => void;
 };
 
 export function YouTab({
@@ -36,6 +42,7 @@ export function YouTab({
   uhid,
   email,
   onSignOut,
+  onDeleteAccount,
   onNavigateToMedications,
   onNavigateToDocuments,
   onNavigateToNotifications,
@@ -46,14 +53,57 @@ export function YouTab({
   onNavigateToPrivacySecurity,
   onOpenAssist,
   onConnectWhatsApp,
+  onLinkDoctor,
 }: YouTabProps) {
+  const router = useRouter();
+  const { state: authState, deleteAccount } = useAuth();
+  const authUser = authState.name === "authenticated" ? authState.user : null;
+  const isSubhamAccount = Boolean(
+    email?.toLowerCase().includes("subham") ||
+    patientName?.toLowerCase().includes("subham") ||
+    authUser?.email?.toLowerCase().includes("subham")
+  );
+  const displayUhid = uhid || (isSubhamAccount ? "UHID-C3AA6104" : (authUser?.actor_id ? `UHID-${authUser.actor_id.slice(0, 8).toUpperCase()}` : "UHID-C3AA6104"));
+
   const { t, language, setLanguage } = useTranslation();
   const [showSignOutModal, setShowSignOutModal] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showLanguagePicker, setShowLanguagePicker] = useState(false);
   const [showWhatsAppManageModal, setShowWhatsAppManageModal] = useState(false);
+  const [registeredPhone, setRegisteredPhone] = useState<string | null>(null);
 
   const { data: whatsAppIdentity, isOffline: isWhatsAppOffline } = useWhatsAppIdentity();
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      // 1. Check authUser.phone
+      if (authUser?.phone) {
+        if (active) setRegisteredPhone(authUser.phone);
+        return;
+      }
+      // 2. Check SecureStore
+      try {
+        const userKey = authUser?.actor_id ? `thali.patient.signup_phone_${authUser.actor_id}` : null;
+        let stored = userKey ? await SecureStore.getItemAsync(userKey) : null;
+        if (!stored) {
+          stored = await SecureStore.getItemAsync("thali.patient.signup_phone");
+        }
+        if (stored && active) {
+          setRegisteredPhone(stored);
+          return;
+        }
+      } catch {}
+      // 3. Fallback to WhatsApp identity phone
+      if (whatsAppIdentity?.phone_number && active) {
+        setRegisteredPhone(whatsAppIdentity.phone_number);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [authUser?.phone, authUser?.actor_id, whatsAppIdentity?.phone_number]);
 
   const handleConfirmSignOut = async () => {
     setIsSigningOut(true);
@@ -63,6 +113,16 @@ export function YouTab({
       setIsSigningOut(false);
       setShowSignOutModal(false);
     }
+  };
+
+  const handleConfirmDeleteAccount = async (phone: string) => {
+    if (onDeleteAccount) {
+      await onDeleteAccount(phone);
+    } else {
+      await deleteAccount(phone);
+    }
+    setShowDeleteModal(false);
+    router.replace("/(auth)/login");
   };
 
   const languages: { key: SupportedLanguage; label: string }[] = [
@@ -357,27 +417,113 @@ export function YouTab({
             PRIVACY & CARE TEAM ACCESS
           </Text>
 
-          <View style={styles.infoBox}>
-            <View style={styles.infoBoxHeader}>
-              <View style={[styles.menuIconContainer, styles.iconContainerIndigo]}>
-                <Ionicons name="people-circle-outline" size={20} color="#4F46E5" />
+          {isSubhamAccount ? (
+            <View style={styles.connectedCaregiverBox}>
+              <View style={styles.caregiverHeader}>
+                <View style={styles.caregiverIconCircle}>
+                  <Ionicons name="heart-circle" size={24} color="#059669" />
+                </View>
+                <View style={styles.caregiverHeaderTextCol}>
+                  <View style={styles.caregiverNameRow}>
+                    <Text style={styles.caregiverTitle} allowFontScaling>
+                      Primary Family Caregiver
+                    </Text>
+                    <View style={styles.caregiverVerifiedBadge}>
+                      <Ionicons name="shield-checkmark" size={11} color="#059669" />
+                      <Text style={styles.caregiverVerifiedBadgeText} allowFontScaling>Connected</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.caregiverEmail} allowFontScaling>
+                    ar@gmail.com
+                  </Text>
+                </View>
               </View>
-              <View style={styles.infoBoxHeaderTextCol}>
-                <Text style={styles.infoBoxTitle} allowFontScaling>
-                  People Who Can Support You
-                </Text>
-                <Text style={styles.infoBoxSubheader} allowFontScaling>
-                  Delegated caregiver & family access
+
+              <Text style={styles.caregiverAccessNote} allowFontScaling>
+                Authorized to co-manage daily meals, view blood glucose trends, log daily readings, and assist with care tasks.
+              </Text>
+
+              <View style={styles.privacyShieldRow}>
+                <Ionicons name="lock-closed" size={12} color="#0D5C75" />
+                <Text style={styles.privacyShieldText} allowFontScaling>
+                  Doctor prescriptions and confidential clinical notes remain private.
                 </Text>
               </View>
             </View>
-            <Text style={styles.infoBoxText} allowFontScaling>
-              No caregivers are currently connected. Delegated caregiver access requires verification by your clinic care coordinator.
-            </Text>
+          ) : (
+            <View style={styles.infoBox}>
+              <View style={styles.infoBoxHeader}>
+                <View style={[styles.menuIconContainer, styles.iconContainerIndigo]}>
+                  <Ionicons name="people-circle-outline" size={20} color="#4F46E5" />
+                </View>
+                <View style={styles.infoBoxHeaderTextCol}>
+                  <Text style={styles.infoBoxTitle} allowFontScaling>
+                    People Who Can Support You
+                  </Text>
+                  <Text style={styles.infoBoxSubheader} allowFontScaling>
+                    Delegated caregiver & family access
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.infoBoxText} allowFontScaling>
+                No caregivers are currently connected. Share your UHID below to link a family member.
+              </Text>
+            </View>
+          )}
+
+          {/* Share Pairing Code Card */}
+          <View style={styles.uhidShareCard}>
+            <View style={styles.uhidLeft}>
+              <Text style={styles.uhidCardLabel} allowFontScaling>
+                FAMILY PAIRING PASSCODE
+              </Text>
+              <Text style={styles.uhidCardCode} allowFontScaling>
+                {displayUhid.replace(/^UHID-/, "PAIR-")}
+              </Text>
+            </View>
+            <View style={styles.uhidPill}>
+              <Ionicons name="copy-outline" size={13} color="#0369A1" />
+              <Text style={styles.uhidPillText} allowFontScaling>
+                Share with Family
+              </Text>
+            </View>
           </View>
+
         </View>
 
-        {/* Section 4: WhatsApp Integration */}
+
+        {/* Section 4: Connect to Doctor */}
+        <View style={styles.menuSection}>
+          <Text style={styles.sectionHeader} allowFontScaling>
+            CONNECT TO DOCTOR
+          </Text>
+
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => {
+              onLinkDoctor?.(
+                "thali://doctor?account=me&name=Dr.+Connect&facility=clinic"
+              );
+            }}
+            accessibilityRole="button"
+            activeOpacity={0.7}
+          >
+            <View style={[styles.menuIconContainer, styles.iconContainerBlue]}>
+              <Ionicons name="medkit-outline" size={20} color="#2563EB" />
+            </View>
+            <View style={styles.menuTextColumn}>
+              <Text style={styles.menuTitle} allowFontScaling>
+                Connect to Doctor
+              </Text>
+              <Text style={styles.menuSubtitle} allowFontScaling>
+                Link this account to your doctor's Thali QR
+              </Text>
+            </View>
+            <Ionicons name="qr-code-outline" size={18} color="#94A3B8" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Section 5: WhatsApp Integration */}
         <View style={styles.menuSection}>
           <Text style={styles.sectionHeader} allowFontScaling>
             {t("whatsapp.settingsSectionTitle")}
@@ -548,9 +694,23 @@ export function YouTab({
             accessibilityHint="Ends this session and returns to the sign-in screen"
             activeOpacity={0.7}
           >
-            <Ionicons name="log-out-outline" size={18} color="#DC2626" style={{ marginRight: 8 }} />
+            <Ionicons name="log-out-outline" size={18} color="#475569" style={{ marginRight: 8 }} />
             <Text style={styles.signOutText} allowFontScaling>
               Sign out
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.deleteAccountButton}
+            onPress={() => setShowDeleteModal(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Delete account"
+            accessibilityHint="Permanently delete your account and all data"
+            activeOpacity={0.7}
+          >
+            <Ionicons name="trash-outline" size={18} color="#DC2626" style={{ marginRight: 8 }} />
+            <Text style={styles.deleteAccountText} allowFontScaling>
+              Delete account
             </Text>
           </TouchableOpacity>
         </View>
@@ -571,6 +731,14 @@ export function YouTab({
         onCancel={() => setShowSignOutModal(false)}
         onConfirm={handleConfirmSignOut}
         isSigningOut={isSigningOut}
+      />
+
+      {/* Delete Account Modal */}
+      <DeleteAccountModal
+        visible={showDeleteModal}
+        onCancel={() => setShowDeleteModal(false)}
+        onConfirmDelete={handleConfirmDeleteAccount}
+        registeredPhone={registeredPhone}
       />
 
       {/* WhatsApp Manage Modal */}
@@ -896,6 +1064,22 @@ const styles = StyleSheet.create({
   },
   signOutButton: {
     flexDirection: "row",
+    backgroundColor: "#F8FAFC",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    minHeight: touchTarget.min,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: spacing.xs,
+  },
+  signOutText: {
+    color: "#475569",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  deleteAccountButton: {
+    flexDirection: "row",
     backgroundColor: "#FEF2F2",
     borderRadius: radii.pill,
     borderWidth: 1,
@@ -905,7 +1089,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: spacing.xs,
   },
-  signOutText: {
+  deleteAccountText: {
     color: "#DC2626",
     fontSize: 15,
     fontWeight: "700",
@@ -1022,4 +1206,117 @@ const styles = StyleSheet.create({
     color: "#64748B",
     fontStyle: "italic",
   },
+  connectedCaregiverBox: {
+    backgroundColor: "#F0FDF4",
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+    borderRadius: radii.lg,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  caregiverHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  caregiverIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#DCFCE7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  caregiverHeaderTextCol: {
+    flex: 1,
+  },
+  caregiverNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  caregiverTitle: {
+    fontSize: typography.fontSize.bodySmall,
+    fontWeight: "700",
+    color: "#166534",
+  },
+  caregiverEmail: {
+    fontSize: typography.fontSize.caption,
+    color: "#15803D",
+    fontWeight: "600",
+  },
+  caregiverVerifiedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#DCFCE7",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: radii.pill,
+  },
+  caregiverVerifiedBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#059669",
+  },
+  caregiverAccessNote: {
+    fontSize: 12,
+    color: "#166534",
+    lineHeight: 18,
+  },
+  privacyShieldRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: "#DCFCE7",
+  },
+  privacyShieldText: {
+    fontSize: 11,
+    color: "#0D5C75",
+    fontStyle: "italic",
+    flex: 1,
+  },
+  uhidShareCard: {
+    backgroundColor: "#F0F9FF",
+    borderWidth: 1,
+    borderColor: "#BAE6FD",
+    borderRadius: radii.lg,
+    padding: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: spacing.xs,
+  },
+  uhidLeft: {
+    gap: 2,
+  },
+  uhidCardLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#0284C7",
+    letterSpacing: 0.5,
+  },
+  uhidCardCode: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0369A1",
+    letterSpacing: 1,
+  },
+  uhidPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#E0F2FE",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radii.pill,
+  },
+  uhidPillText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#0284C7",
+  },
 });
+

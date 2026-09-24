@@ -272,6 +272,25 @@ class InMemoryDocumentReferenceStore(InMemoryRepository[T]):
         self._committed.pop(key, None)
 
 
+class InMemoryClinicalObservationStore(InMemoryRepository[T]):
+    def list_for_patient(
+        self,
+        patient_id: UUID,
+        observation_type: str | None = None,
+        code: str | None = None,
+    ) -> list[T]:
+        items = [e for e in self.list() if getattr(e, "patient_id", None) == patient_id]
+        if observation_type is not None:
+            items = [e for e in items if getattr(e, "observation_type", None) == observation_type]
+        if code is not None:
+            items = [e for e in items if getattr(e, "code", None) == code]
+        return sorted(items, key=lambda x: getattr(x, "observed_at", datetime.min), reverse=True)
+
+    def list_for_document(self, document_id: UUID) -> list[T]:
+        items = [e for e in self.list() if getattr(e, "document_id", None) == document_id]
+        return sorted(items, key=lambda x: getattr(x, "observed_at", datetime.min), reverse=True)
+
+
 class InMemoryUnitOfWork:
     def __init__(self) -> None:
         self._stage: dict = {}
@@ -290,6 +309,9 @@ class InMemoryUnitOfWork:
         self.ai_artifacts = InMemoryAIReviewArtifactStore(self._stage, self._committed, "ai_artifacts")
         self.notifications = InMemoryNotificationStore(self._stage, self._committed, "notifications")
         self.document_references = InMemoryDocumentReferenceStore(self._stage, self._committed, "document_references")
+        self.patient_clinician_links = InMemoryRepository(self._stage, self._committed, "patient_clinician_links")
+        self.clinical_observations = InMemoryClinicalObservationStore(self._stage, self._committed, "clinical_observations")
+
 
 
     def commit(self) -> None:

@@ -482,3 +482,109 @@ class TestCaregiverObservationRegression:
         token = make_jwt(sub=str(user), tenant_id=str(tid), roles=["caregiver"])
         assert self._get_feed(c, token, pid).status_code == 403
         assert self._post_glucose(c, token, pid).status_code == 403
+
+    def test_cg10b_link_patient_success(self, db_client):
+        c, sf = db_client
+        tid, user, pid = uuid4(), uuid4(), uuid4()
+        _seed_world(
+            sf,
+            tenant_id=tid,
+            patients=[{"id": pid, "name": "Subham Das"}],
+            relationships=[],
+        )
+        token = make_jwt(sub=str(user), tenant_id=str(tid), roles=["caregiver"])
+        resp = c.post(
+            "/api/v2/caregivers/link",
+            json={"uhid": str(pid), "relationship_label": "Primary Family Caregiver"},
+            headers=bearer(token),
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["patient_id"] == str(pid)
+        assert data["name"] == "Subham Das"
+        assert data["status"] == "verified"
+        assert "create_glucose" in data["capabilities"]
+        assert "create_meal" in data["capabilities"]
+
+        # Verification via discovery
+        get_resp = c.get("/api/v2/caregivers/me/patients", headers=bearer(token))
+        assert get_resp.status_code == 200
+        assert get_resp.json()["patient_count"] == 1
+
+    def test_cg10b_link_patient_not_found(self, db_client):
+        c, sf = db_client
+        tid, user = uuid4(), uuid4()
+        _seed_world(
+            sf,
+            tenant_id=tid,
+            patients=[],
+            relationships=[],
+        )
+        token = make_jwt(sub=str(user), tenant_id=str(tid), roles=["caregiver"])
+        resp = c.post(
+            "/api/v2/caregivers/link",
+            json={"uhid": "UHID-NONEXISTENT", "relationship_label": "Spouse"},
+            headers=bearer(token),
+        )
+        assert resp.status_code == 404
+
+    def test_cg10b_link_patient_via_pairing_code_and_email(self, db_client):
+        from backend.infrastructure.persistence.models.identity_models import IdentityPatientMappingModel
+        from backend.infrastructure.persistence.models.user_models import UserModel
+        from backend.infrastructure.persistence.models.patient_models import PatientModel
+
+        c, sf = db_client
+        tid, caregiver_user, patient_user, pid = uuid4(), uuid4(), uuid4(), uuid4()
+
+        with sf() as session:
+            # Seed patient, user, and mapping
+            pm = PatientModel(id=pid, tenant_id=tid, uh_id="UHID-C3AA6104", name="Subham Das", active=True)
+            session.add(pm)
+            um = UserModel(
+                id=patient_user,
+                email="subham@gmail.com",
+                hashed_password="pw",
+                role="patient",
+                tenant_id=tid,
+                active=True,
+            )
+            session.add(um)
+            mapping = IdentityPatientMappingModel(
+                tenant_id=tid,
+                user_id=patient_user,
+                patient_id=pid,
+                active=True,
+            )
+            session.add(mapping)
+            session.commit()
+
+        token = make_jwt(sub=str(caregiver_user), tenant_id=str(tid), roles=["caregiver"])
+
+        # 1. Linking via PAIR- pass code (using user ID prefix like PAIR-3F03EEB2)
+        pair_code = f"PAIR-{str(patient_user)[:8].upper()}"
+        resp1 = c.post(
+            "/api/v2/caregivers/link",
+            json={"uhid": pair_code, "relationship_label": "Primary Family Caregiver"},
+            headers=bearer(token),
+        )
+        assert resp1.status_code == 200
+        assert resp1.json()["patient_id"] == str(pid)
+        assert resp1.json()["name"] == "Subham Das"
+
+        # 2. Linking via patient email
+        resp2 = c.post(
+            "/api/v2/caregivers/link",
+            json={"uhid": "subham@gmail.com", "relationship_label": "Spouse"},
+            headers=bearer(token),
+        )
+        assert resp2.status_code == 200
+        assert resp2.json()["patient_id"] == str(pid)
+
+        # 3. Linking via PAIR- prefix with UHID
+        resp3 = c.post(
+            "/api/v2/caregivers/link",
+            json={"uhid": "PAIR-C3AA6104", "relationship_label": "Guardian"},
+            headers=bearer(token),
+        )
+        assert resp3.status_code == 200
+        assert resp3.json()["patient_id"] == str(pid)

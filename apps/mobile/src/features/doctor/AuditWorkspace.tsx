@@ -49,33 +49,37 @@ export function AuditWorkspace({ patients, onSelectPatient }: AuditWorkspaceProp
       {/* Cohort Audit Compliance List */}
       <View style={styles.tableCard}>
         <Text style={styles.tableTitle}>Patient Record Audit Status</Text>
-        <View style={styles.tableHeader}>
-          <Text style={[styles.th, { flex: 2 }]}>PATIENT NAME</Text>
-          <Text style={[styles.th, { flex: 1.2 }]}>UHID</Text>
-          <Text style={[styles.th, { flex: 1.5 }]}>IMMUTABILITY</Text>
-          <Text style={[styles.th, { flex: 1.2, textAlign: "right" }]}>TIMELINE</Text>
-        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={{ minWidth: 500 }}>
+            <View style={styles.tableHeader}>
+              <Text style={[styles.th, { flex: 2 }]}>PATIENT NAME</Text>
+              <Text style={[styles.th, { flex: 1.2 }]}>UHID</Text>
+              <Text style={[styles.th, { flex: 1.5 }]}>IMMUTABILITY</Text>
+              <Text style={[styles.th, { flex: 1.2, textAlign: "right" }]}>TIMELINE</Text>
+            </View>
 
-        {patients.map((p) => (
-          <Pressable
-            key={p.patient_id}
-            style={styles.tableRow}
-            onPress={() => onSelectPatient(p)}
-          >
-            <View style={[styles.cell, { flex: 2 }]}>
-              <Text style={styles.patientName}>{p.name}</Text>
-            </View>
-            <View style={[styles.cell, { flex: 1.2 }]}>
-              <Text style={styles.patientUhid}>{p.uh_id}</Text>
-            </View>
-            <View style={[styles.cell, { flex: 1.5 }]}>
-              <Badge label="CANONICAL RLS" tone="success" />
-            </View>
-            <View style={[styles.cell, { flex: 1.2, justifyContent: "flex-end" }]}>
-              <Text style={styles.inspectText}>Inspect</Text>
-            </View>
-          </Pressable>
-        ))}
+            {patients.map((p) => (
+              <Pressable
+                key={p.patient_id}
+                style={styles.tableRow}
+                onPress={() => onSelectPatient(p)}
+              >
+                <View style={[styles.cell, { flex: 2 }]}>
+                  <Text style={styles.patientName}>{p.name}</Text>
+                </View>
+                <View style={[styles.cell, { flex: 1.2 }]}>
+                  <Text style={styles.patientUhid}>{p.uh_id}</Text>
+                </View>
+                <View style={[styles.cell, { flex: 1.5 }]}>
+                  <Badge label="CANONICAL RLS" tone="success" />
+                </View>
+                <View style={[styles.cell, { flex: 1.2, justifyContent: "flex-end" }]}>
+                  <Text style={styles.inspectText}>Inspect</Text>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        </ScrollView>
       </View>
     </ScrollView>
   );
@@ -89,7 +93,7 @@ const styles = StyleSheet.create({
   content: {
     padding: spacing.lg,
     gap: spacing.lg,
-    paddingBottom: spacing.xxl,
+    paddingBottom: 130,
   },
   header: {
     gap: 4,
@@ -183,7 +187,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: doctorPalette.border,
     gap: spacing.xs,
-    flexWrap: "wrap",
   },
   cell: {
     flexDirection: "row",
