@@ -1,0 +1,1 @@
+"""Administrative routes (Gate 08)."""

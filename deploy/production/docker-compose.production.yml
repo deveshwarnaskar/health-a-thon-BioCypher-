@@ -1,0 +1,207 @@
+# ==============================================================================
+# THALI + P.L.A.T.E. Production Self-Contained Deployment Blueprint (Gate 10P-G)
+# ==============================================================================
+# Purpose:
+# Production-hardened container stack mirroring cloud-native target topology.
+# Enforces strict non-root execution, production security flags, TLS readiness,
+# secure credential injection via environment files, and isolated networking.
+# ==============================================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: thali-prod-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${PROD_DB_USER:-thali_prod_app}
+      POSTGRES_PASSWORD: ${PROD_DB_PASSWORD:?Mandatory production DB password missing}
+      POSTGRES_DB: ${PROD_DB_NAME:-thali_production}
+    volumes:
+      - prod_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PROD_DB_USER:-thali_prod_app} -d ${PROD_DB_NAME:-thali_production}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - thali_prod_data_net
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4096M
+        reservations:
+          cpus: '0.5'
+          memory: 1024M
+
+  redis:
+    image: redis:7-alpine
+    container_name: thali-prod-redis
+    restart: always
+    command: [
+      "redis-server",
+      "--requirepass", "${PROD_REDIS_PASSWORD:?Mandatory production Redis password missing}",
+      "--maxmemory", "2gb",
+      "--maxmemory-policy", "volatile-lru",
+      "--save", "900", "1",
+      "--appendonly", "yes"
+    ]
+    volumes:
+      - prod_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${PROD_REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    networks:
+      - thali_prod_data_net
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2048M
+
+  storage:
+    image: quay.io/minio/minio:RELEASE.2024-01-18T22-51-28Z
+    container_name: thali-prod-storage
+    restart: always
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${PROD_STORAGE_ACCESS_KEY:?Mandatory production storage access key missing}
+      MINIO_ROOT_PASSWORD: ${PROD_STORAGE_SECRET_KEY:?Mandatory production storage secret key missing}
+    volumes:
+      - prod_storage_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - thali_prod_data_net
+
+  migrate:
+    build:
+      context: ../..
+      target: migrate
+    container_name: thali-prod-migrate
+    environment:
+      THALI_APP__ENV: production
+      THALI_DATABASE__URL: postgresql+psycopg://${PROD_DB_USER:-thali_prod_app}:${PROD_DB_PASSWORD}@postgres:5432/${PROD_DB_NAME:-thali_production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - thali_prod_data_net
+    restart: "no"
+
+  api:
+    build:
+      context: ../..
+      target: api
+    container_name: thali-prod-api
+    restart: always
+    environment:
+      THALI_APP__ENV: production
+      THALI_APP__NAME: THALI-PLATE-PROD
+      THALI_DATABASE__URL: postgresql+psycopg://${PROD_DB_USER:-thali_prod_app}:${PROD_DB_PASSWORD}@postgres:5432/${PROD_DB_NAME:-thali_production}
+      THALI_REDIS__ENABLED: "true"
+      THALI_REDIS__HOST: redis
+      THALI_REDIS__PORT: 6379
+      THALI_REDIS__PASSWORD: ${PROD_REDIS_PASSWORD}
+      THALI_STORAGE__ENDPOINT_URL: http://storage:9000
+      THALI_STORAGE__BUCKET: thali-production-documents
+      THALI_STORAGE__REGION: ap-south-1
+      THALI_STORAGE__ACCESS_KEY_ID: ${PROD_STORAGE_ACCESS_KEY}
+      THALI_STORAGE__SECRET_ACCESS_KEY: ${PROD_STORAGE_SECRET_KEY}
+      THALI_IDENTITY__ISSUER_URL: https://auth.plate.thali.health/realms/thali-production
+      THALI_IDENTITY__CLIENT_ID: thali-backend-api
+      THALI_IDENTITY__CLIENT_SECRET: ${PROD_IDENTITY_CLIENT_SECRET:?Mandatory production identity secret missing}
+      THALI_IDENTITY__ALLOWED_ALGORITHMS: RS256
+      THALI_WHATSAPP__APP_SECRET: ${PROD_WHATSAPP_APP_SECRET:-}
+      THALI_WHATSAPP__VERIFY_TOKEN: ${PROD_WHATSAPP_VERIFY_TOKEN:-}
+      THALI_OBSERVABILITY__LOG_LEVEL: INFO
+      THALI_OBSERVABILITY__STRUCTURED_LOGS: "true"
+      THALI_SECURITY__ALLOWED_ORIGINS: "https://admin.plate.thali.health,https://plate.thali.health"
+      WEB_CONCURRENCY: 4
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - thali_prod_data_net
+      - thali_prod_edge_net
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2048M
+
+  worker:
+    build:
+      context: ../..
+      target: worker
+    container_name: thali-prod-worker
+    restart: always
+    environment:
+      THALI_APP__ENV: production
+      THALI_DATABASE__URL: postgresql+psycopg://${PROD_DB_USER:-thali_prod_app}:${PROD_DB_PASSWORD}@postgres:5432/${PROD_DB_NAME:-thali_production}
+      THALI_REDIS__ENABLED: "true"
+      THALI_REDIS__HOST: redis
+      THALI_REDIS__PORT: 6379
+      THALI_REDIS__PASSWORD: ${PROD_REDIS_PASSWORD}
+      THALI_STORAGE__ENDPOINT_URL: http://storage:9000
+      THALI_STORAGE__BUCKET: thali-production-documents
+      THALI_STORAGE__REGION: ap-south-1
+      THALI_STORAGE__ACCESS_KEY_ID: ${PROD_STORAGE_ACCESS_KEY}
+      THALI_STORAGE__SECRET_ACCESS_KEY: ${PROD_STORAGE_SECRET_KEY}
+      THALI_IDENTITY__CLIENT_SECRET: ${PROD_IDENTITY_CLIENT_SECRET}
+      WORKER_POLL_INTERVAL: 2.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    networks:
+      - thali_prod_data_net
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+
+volumes:
+  prod_postgres_data:
+    name: thali_prod_postgres_data
+  prod_redis_data:
+    name: thali_prod_redis_data
+  prod_storage_data:
+    name: thali_prod_storage_data
+
+networks:
+  thali_prod_data_net:
+    name: thali_prod_internal_data
+    driver: bridge
+    internal: true
+  thali_prod_edge_net:
+    name: thali_prod_edge_network
+    driver: bridge

@@ -1,0 +1,197 @@
+# ==============================================================================
+# THALI + P.L.A.T.E. Prometheus Alertmanager Rules (Gate 10P-D)
+# ==============================================================================
+# Operational failure mode alerts covering API, Database, Worker, Outbox,
+# and Dependencies. All alerts document severity, rationale, runbook response,
+# and component attribution without clinical data or PHI exposure.
+# ==============================================================================
+
+groups:
+  - name: thali_plate_operational_alerts
+    rules:
+      # ------------------------------------------------------------------------
+      # 1. API High 5xx Error Rate (Sustained 5xx Increase)
+      # ------------------------------------------------------------------------
+      - alert: ApiHighHttp5xxRate
+        expr: (sum(rate(http_requests_total{status_class="5xx"}[5m])) / sum(rate(http_requests_total[5m]))) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          name: ApiHighHttp5xxRate
+          summary: Sustained API 5xx error rate exceeds 5%
+          description: More than 5% of API requests resulted in HTTP 5xx errors over the last 5 minutes.
+          rationale: Indicates service degradation, unhandled exceptions, or upstream infrastructure failure affecting clinical and administrative clients.
+          expected_operator_response: Inspect API container logs for unhandled exceptions (filter level=ERROR). Check database connectivity and dependency health. Verify recent deployment changes or traffic surges.
+          relevant_service: thali-api
+
+      # ------------------------------------------------------------------------
+      # 2. API High Latency P95 (Sustained Latency Degradation)
+      # ------------------------------------------------------------------------
+      - alert: ApiHighLatencyP95
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 2.0
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          name: ApiHighLatencyP95
+          summary: API 95th percentile latency exceeds 2.0 seconds
+          description: 95th percentile request processing time has remained above 2.0 seconds for 5 minutes.
+          rationale: Slow API response times lead to client request timeouts and degraded care team experience.
+          expected_operator_response: Review route-level latency histograms to identify slow endpoints. Check database connection pool exhaustion, slow queries, lock contention, or CPU starvation.
+          relevant_service: thali-api
+
+      # ------------------------------------------------------------------------
+      # 3. Database Unavailable
+      # ------------------------------------------------------------------------
+      - alert: PostgresUnavailable
+        expr: db_readiness_status == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          name: PostgresUnavailable
+          summary: Primary PostgreSQL database is unreachable
+          description: Database readiness health probe has failed continuously for 1 minute.
+          rationale: The application cannot perform read or write operations, halting all tenant RLS data access.
+          expected_operator_response: Check PostgreSQL container or RDS instance status. Verify network connectivity, credentials, and disk capacity. Inspect pg_stat_activity for blocked backends.
+          relevant_service: postgres
+
+      # ------------------------------------------------------------------------
+      # 4. Database Pool Exhaustion
+      # ------------------------------------------------------------------------
+      - alert: PostgresPoolExhaustion
+        expr: (db_pool_checked_out / db_pool_size) >= 1.0
+        for: 2m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          name: PostgresPoolExhaustion
+          summary: PostgreSQL connection pool is completely exhausted
+          description: All connections in the QueuePool are checked out and overflow is in use for over 2 minutes.
+          rationale: Subsequent database checkout requests will block up to pool_timeout (5.0s) and fast-fail, causing client 500 errors.
+          expected_operator_response: Inspect active database connections for connection leaks, unclosed sessions, or long-running transactions. If traffic is elevated, adjust pool_size and max_overflow or scale API replicas.
+          relevant_service: thali-api
+
+      # ------------------------------------------------------------------------
+      # 5. Redis Unavailable
+      # ------------------------------------------------------------------------
+      - alert: RedisUnavailable
+        expr: dependency_health_status{dependency="redis"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          name: RedisUnavailable
+          summary: Redis cache and rate-limiting instance is unreachable
+          description: Redis connectivity check failed; rate limiting has degraded to local in-memory fallback.
+          rationale: Distributed rate-limiting coordination across multiple API replicas is lost, risking uneven quota enforcement.
+          expected_operator_response: Verify Redis service status, network reachability, and memory utilization. Restart Redis container if hung.
+          relevant_service: redis
+
+      # ------------------------------------------------------------------------
+      # 6. Worker Stalled
+      # ------------------------------------------------------------------------
+      - alert: OutboxWorkerStalled
+        expr: worker_health_status == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: worker
+        annotations:
+          name: OutboxWorkerStalled
+          summary: Outbox event processing worker is stalled or not reporting
+          description: Outbox worker heartbeat indicates stalled or inactive status for over 5 minutes.
+          rationale: Background domain events, WhatsApp notifications, and AI generation tasks are halted.
+          expected_operator_response: Check worker process status. Inspect worker logs for unhandled loop crashes or hung database connections. Restart thali-worker container.
+          relevant_service: thali-worker
+
+      # ------------------------------------------------------------------------
+      # 7. Outbox Backlog Growth
+      # ------------------------------------------------------------------------
+      - alert: OutboxBacklogGrowth
+        expr: outbox_pending_depth > 100
+        for: 10m
+        labels:
+          severity: warning
+          component: outbox
+        annotations:
+          name: OutboxBacklogGrowth
+          summary: Transactional outbox pending queue depth exceeds 100 events
+          description: Outbox pending queue depth has remained above 100 events for 10 minutes.
+          rationale: Worker event throughput is lagging behind ingestion rate, increasing notification and processing latency.
+          expected_operator_response: Check worker processing duration and error logs. Verify external channel responsiveness. Scale worker concurrency or reduce poll interval if needed.
+          relevant_service: thali-worker
+
+      # ------------------------------------------------------------------------
+      # 8. Repeated Job Failures
+      # ------------------------------------------------------------------------
+      - alert: OutboxRepeatedJobFailures
+        expr: sum(rate(worker_jobs_failed_total[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          component: outbox
+        annotations:
+          name: OutboxRepeatedJobFailures
+          summary: Outbox jobs are experiencing high failure or dead-letter rates
+          description: Outbox job failure rate exceeds 0.5 failures/sec over 5 minutes.
+          rationale: Permanent handler errors or exhausted retry budgets indicate external API authentication issues or data format bugs.
+          expected_operator_response: Query dead_letter rows in domain_event_outbox table. Review last_error fields and worker logs to identify root cause. Verify external API credentials.
+          relevant_service: thali-worker
+
+      # ------------------------------------------------------------------------
+      # 9. WhatsApp Delivery Failures
+      # ------------------------------------------------------------------------
+      - alert: WhatsAppDeliveryFailureRate
+        expr: (sum(rate(whatsapp_deliveries_total{outcome="failure"}[5m])) / sum(rate(whatsapp_deliveries_total[5m]))) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: channel
+        annotations:
+          name: WhatsAppDeliveryFailureRate
+          summary: Outbound WhatsApp message delivery failure rate exceeds 10%
+          description: More than 10% of outbound WhatsApp messages failed delivery over 5 minutes.
+          rationale: Outpatient diabetes patients and caregivers will not receive timely telemetry confirmations or nudges.
+          expected_operator_response: Check Meta WhatsApp Cloud API status. Verify access token validity and expiration. Check sender phone number messaging limits and payment status in Meta Business Manager.
+          relevant_service: thali-channel
+
+      # ------------------------------------------------------------------------
+      # 10. Database Backup Missing or Failed
+      # ------------------------------------------------------------------------
+      - alert: DatabaseBackupMissingOrFailed
+        expr: (time() - db_backup_last_success_timestamp_seconds) > 90000
+        for: 1h
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          name: DatabaseBackupMissingOrFailed
+          summary: No successful database backup recorded within the last 25 hours
+          description: Automated daily backup script has not emitted a success signal for over 25 hours.
+          rationale: Threatens RPO/RTO disaster recovery compliance; data loss risks increase without current verified backups.
+          expected_operator_response: Check backup cron job logs and runner permissions. Execute scripts/backup_database.sh manually to test dump and SHA-256 generation. Verify storage destination accessibility.
+          relevant_service: thali-backup
+
+      # ------------------------------------------------------------------------
+      # 11. Object Storage Pressure or Failure
+      # ------------------------------------------------------------------------
+      - alert: ObjectStoragePressureOrFailure
+        expr: dependency_failures_total{dependency="s3"} > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          name: ObjectStoragePressureOrFailure
+          summary: S3 / MinIO object storage operations are failing
+          description: More than 5 object storage operation failures observed in 5 minutes.
+          rationale: Clinical reports and generated PDF documents cannot be persisted or retrieved by clinicians.
+          expected_operator_response: Verify MinIO or S3 endpoint availability, access keys, bucket permissions, and disk space. Inspect storage service logs.
+          relevant_service: minio

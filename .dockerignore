@@ -1,0 +1,49 @@
+# ==============================================================================
+# Docker Build Context Ignore (.dockerignore)
+# ==============================================================================
+
+# VCS
+.git
+.gitignore
+
+# OS Artifacts
+.DS_Store
+Thumbs.db
+
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Local Virtual Environments & Tests
+.venv/
+env/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Local Databases (SQLite demo/dev files)
+*.db
+*.db-shm
+*.db-wal
+aahaar*.db*
+
+# Client & Mobile Workspaces (Isolated from Backend Container)
+apps/
+node_modules/
+
+# Documentation & Specifications
+docs/
+*.md
+LICENSE
+
+# Local Environment Secrets (never send to daemon context)
+.env
+.env.*
+!.env.example

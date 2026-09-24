@@ -1,0 +1,12 @@
+{
+  "timestamp": "2026-09-18T16:38:14.617178+00:00",
+  "drill_id": "34235222",
+  "status": "PASS",
+  "clean_upgrade_duration_seconds": 0.3341,
+  "downgrade_duration_seconds": 0.086,
+  "reupgrade_duration_seconds": 0.1705,
+  "tables_verified_count": 17,
+  "rls_enforced_verified": true,
+  "lock_behavior": "transactional_ddl_safe",
+  "rollback_procedure": "alembic downgrade -1 or alembic downgrade base"
+}

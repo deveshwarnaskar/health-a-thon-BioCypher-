@@ -1,0 +1,40 @@
+import {
+  clinicianObservationFeedSchema,
+  ingestGlucoseRequestSchema,
+  ingestGlucoseResponseSchema,
+  patientObservationFeedSchema,
+  type ClinicianObservationFeedResponse,
+  type IngestGlucoseRequest,
+  type IngestGlucoseResponse,
+  type PatientObservationFeedResponse,
+} from "../../schemas/clinical";
+import type { EndpointDefinition } from "./types";
+
+export type ObservationFeedQuery = {
+  patient_id: string;
+  limit?: number;
+};
+
+export const clinicalEndpoints = {
+  feed: {
+    method: "GET",
+    path: "/api/v2/clinical/observations",
+    requiresIdempotencyKey: false,
+    responseSchema: patientObservationFeedSchema,
+  } satisfies EndpointDefinition<PatientObservationFeedResponse, undefined>,
+
+  ingestGlucose: {
+    method: "POST",
+    path: "/api/v2/clinical/observations",
+    requiresIdempotencyKey: true,
+    requestSchema: ingestGlucoseRequestSchema,
+    responseSchema: ingestGlucoseResponseSchema,
+  } satisfies EndpointDefinition<IngestGlucoseResponse, IngestGlucoseRequest>,
+
+  clinicianFeed: {
+    method: "GET",
+    path: "/api/v2/clinical/clinical-observations",
+    requiresIdempotencyKey: false,
+    responseSchema: clinicianObservationFeedSchema,
+  } satisfies EndpointDefinition<ClinicianObservationFeedResponse, undefined>,
+} as const;

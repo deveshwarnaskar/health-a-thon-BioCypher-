@@ -1,0 +1,135 @@
+{
+  "realm": "thali-production",
+  "displayName": "THALI + P.L.A.T.E. Production Realm",
+  "enabled": true,
+  "sslRequired": "all",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "minimumQuickLoginWaitSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "maxDeltaTimeSeconds": 43200,
+  "accessTokenLifespan": 300,
+  "accessTokenLifespanForImplicitFlow": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 43200,
+  "offlineSessionIdleTimeout": 2592000,
+  "offlineSessionMaxLifespan": 5184000,
+  "clientSessionIdleTimeout": 1800,
+  "clientSessionMaxLifespan": 43200,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "defaultSignatureAlgorithm": "RS256",
+  "roles": {
+    "realm": [
+      {
+        "name": "Patient",
+        "description": "Patient user with access to personal health record, vitals, and meal logging"
+      },
+      {
+        "name": "Caregiver",
+        "description": "Authorized family member or proxy caregiver with consented read/assisted write capabilities"
+      },
+      {
+        "name": "Doctor",
+        "description": "Licensed physician authorized for full clinical oversight, diagnosis, and medication plan creation"
+      },
+      {
+        "name": "Nurse",
+        "description": "Clinical staff member managing care execution, vitals verification, and care tasks"
+      },
+      {
+        "name": "Care Coordinator",
+        "description": "Operational care manager orchestrating patient onboarding, care team scheduling, and triage"
+      },
+      {
+        "name": "Dietitian/Diabetes Educator",
+        "description": "Allied health professional reviewing nutritional observations and patient education tasks"
+      },
+      {
+        "name": "Field Health Worker",
+        "description": "Frontline community health worker (ASHA/ANM) conducting home visits and vital checks"
+      },
+      {
+        "name": "Admin",
+        "description": "Platform administrator managing facilities, care team provisioning, and identity mappings (strictly zero clinical PHI access)"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "thali-backend-api",
+      "name": "THALI Backend API Service",
+      "description": "Audience identifier and resource server for FastAPI backend",
+      "enabled": true,
+      "bearerOnly": true,
+      "protocol": "openid-connect"
+    },
+    {
+      "clientId": "thali-mobile-app",
+      "name": "THALI Mobile Android Client",
+      "description": "React Native physical Android client for patients and caregivers",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "redirectUris": [
+        "in.thali.plate.mobile://oauth/callback",
+        "thali://oauth/callback"
+      ],
+      "webOrigins": [],
+      "protocol": "openid-connect",
+      "protocolMappers": [
+        {
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "user.attribute": "tenant_id",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "facility_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "user.attribute": "facility_id",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "facility_id",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "audience_mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "thali-backend-api",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+import React from "react";
+import { StyleSheet, Text, View } from "react-native";
+import { colors, spacing, typography } from "../../theming/tokens";
+
+export type EmptyStateProps = {
+  title: string;
+  message?: string;
+  children?: React.ReactNode;
+  testID?: string;
+};
+
+export function EmptyState({ title, message, children, testID }: EmptyStateProps) {
+  return (
+    <View style={styles.container} testID={testID} accessible accessibilityRole="summary" accessibilityLabel={title}>
+      <Text style={styles.title} allowFontScaling>
+        {title}
+      </Text>
+      {message ? (
+        <Text style={styles.message} allowFontScaling>
+          {message}
+        </Text>
+      ) : null}
+      {children}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    padding: spacing.xl,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FFFFFF",
+    shadowColor: colors.primaryInk,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.07,
+    shadowRadius: 18,
+    elevation: 2,
+  },
+  title: {
+    fontSize: typography.fontSize.title,
+    fontWeight: "800",
+    color: colors.textPrimary,
+    textAlign: "center",
+  },
+  message: {
+    fontSize: typography.fontSize.body,
+    color: colors.textSecondary,
+    textAlign: "center",
+  },
+});

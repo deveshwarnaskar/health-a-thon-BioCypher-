@@ -1,0 +1,21 @@
+# ==============================================================================
+# Docker Compose Local Developer Override Example
+# ==============================================================================
+# To use:
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#
+# Modifications here will overlay on top of docker-compose.yml without modifying git.
+# ==============================================================================
+
+services:
+  api:
+    environment:
+      THALI_OBSERVABILITY__LOG_LEVEL: DEBUG
+    # Optional source code bind mount for live iteration in development
+    # volumes:
+    #   - ./backend:/app/backend:ro
+    #   - ./config:/app/config:ro
+
+  worker:
+    environment:
+      WORKER_POLL_INTERVAL: 2.0

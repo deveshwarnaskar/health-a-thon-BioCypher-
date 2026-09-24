@@ -1,7 +1,10 @@
 # Environment / secrets
 .env
 .env.*
+!.env.example
 *.local
+docker-compose.override.yml
+config/dev_keys/
 
 # Python
 __pycache__/
@@ -19,6 +22,9 @@ build/
 *.sqlite
 *.sqlite3
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
 
 # OS / editor
 .DS_Store

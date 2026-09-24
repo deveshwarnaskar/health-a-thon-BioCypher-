@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-09-18T16:37:43.034064+00:00",
+  "drill_id": "140795e1",
+  "status": "PASS",
+  "source_database": "thali_drill_src_140795e1",
+  "target_database": "thali_drill_tgt_140795e1",
+  "backup_duration_seconds": 0.1357,
+  "backup_size_bytes": 5800,
+  "measured_rto_seconds": 0.1222,
+  "measured_rpo_seconds": 0.0,
+  "data_fidelity_percent": 100.0,
+  "checksum_verified": true,
+  "sha256": "11b8d28b7bb942e011c466dc96910a8a30a70117966f128c68ea05d26d8eec87  thali_backup_20260918_163742.sql.gz"
+}

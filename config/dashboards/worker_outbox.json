@@ -1,0 +1,82 @@
+{
+  "title": "THALI P.L.A.T.E. - Outbox Queue & Worker Processing",
+  "uid": "thali-worker-outbox",
+  "tags": ["thali", "worker", "outbox", "gate-10p-d"],
+  "timezone": "utc",
+  "schemaVersion": 38,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Worker Heartbeat & Health Status",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "worker_health_status",
+          "legendFormat": "Worker State (1=Healthy, 0=Stalled)"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Transactional Outbox Queue Depth",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 18, "x": 6, "y": 0 },
+      "targets": [
+        {
+          "expr": "outbox_pending_depth",
+          "legendFormat": "Pending Due Events"
+        },
+        {
+          "expr": "outbox_processing_depth",
+          "legendFormat": "Leased In-Flight Events"
+        },
+        {
+          "expr": "outbox_dead_letter_depth",
+          "legendFormat": "Dead Letter Queue Events"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Job Processing Throughput by Event Type",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "expr": "sum(rate(worker_jobs_processed_total[1m])) by (event_type, outcome)",
+          "legendFormat": "{{event_type}} ({{outcome}})"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Worker Job Processing Latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(worker_job_duration_seconds_bucket[1m])) by (le, event_type))",
+          "legendFormat": "{{event_type}} p95 latency"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Job Failures and Retries",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "expr": "sum(rate(worker_jobs_failed_total[1m])) by (event_type, failure_type)",
+          "legendFormat": "Failures: {{event_type}} ({{failure_type}})"
+        },
+        {
+          "expr": "sum(rate(worker_job_retries_total[1m])) by (event_type)",
+          "legendFormat": "Retries: {{event_type}}"
+        }
+      ]
+    }
+  ]
+}

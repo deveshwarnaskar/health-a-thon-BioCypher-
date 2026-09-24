@@ -1,0 +1,23 @@
+THALI-P.L.A.T.E. caregiver frontend — debugging note
+Observed 23 September 2026
+PR: https://github.com/epicstudiohelpdesk-arch/THALI-P.L.A.T.E/pull/1
+Fix commit: 521421e504195008da9d4060a9428dc0b5a87ba4
+
+WHAT TO SAY ABOUT THE NEW CI FAILURE
+"GitHub Actions did not run our new checks. GitHub reported that the repository account has failed recent payments or has reached its Actions spending limit. The jobs stopped before any build or test step began, so this failure does not show a code or test failure. The repository owner needs to fix the billing/spending limit and rerun CI. The mobile checks passed locally."
+
+Exact GitHub annotation: "The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings".
+Example failed run: https://github.com/epicstudiohelpdesk-arch/THALI-P.L.A.T.E/actions/runs/35895019759
+
+APP ERROR — SIMPLE EXPLANATION
+The app's "access denied" page was behind the same access check that sends users to that page. When a session entered a denied state, the app kept sending the user back to the same page. This endless navigation caused the red "Maximum update depth exceeded" screen. The page was moved outside that protected area, so it can display normally. The initial reason the session became denied was not conclusively identified; signing out and logging in with the seeded caregiver account worked.
+
+APP ERROR — TECHNICAL EXPLANATION
+Expo Router applies apps/mobile/app/(app)/_layout.tsx to every route in the (app) group. In the access_denied and deactivated branches, that layout returned <Redirect href="/(app)/access-denied" />. The destination was apps/mobile/app/(app)/access-denied.tsx, so navigating to it remounted the same parent guard, which issued the same redirect again. Repeated React Navigation store updates surfaced as "Maximum update depth exceeded" in expo-router/useSyncState and ReactFabric. The stack pointed at router internals, but the cause was the app's self-referential route topology.
+
+Fix: move the screen to apps/mobile/app/access-denied.tsx, outside the (app) guard; update redirect targets to /access-denied. When the denied session is cleared, that page now redirects to /(auth)/login. An empty login form previously called signIn() with no credentials, which invoked an unconfigured OIDC redirect URI; it now asks for an email instead.
+
+VERIFICATION AND REPEAT-ISSUE CLUES
+On a Samsung SM-A035F using Expo Go, the seeded caregiver account logged in, displayed linked patient Sita Sharma, and opened Home, Record, and You without the render error. Local checks passed: TypeScript, Android export, 437 unit tests, 184 component tests, and ESLint with zero errors (63 warnings). If this error returns, check whether any access-denied destination is again nested beneath a layout that redirects denied users to that same destination. Also check the first app-owned frame in the Metro log and the auth state; do not assume expo-router itself is the cause from the ReactFabric stack alone.
+
+Screenshots were captured by the contributor for direct sharing; they are not attached to the PR.
