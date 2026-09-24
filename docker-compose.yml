@@ -55,7 +55,7 @@ services:
       - thali_rehearsal_net
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2024-01-18T22-51-28Z
+    image: cgr.dev/chainguard/minio:latest
     container_name: thali-minio
     restart: unless-stopped
     command: ["server", "/data", "--console-address", ":9001"]
@@ -68,11 +68,11 @@ services:
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      test: ["CMD", "mc", "ready", "local"]
       interval: 5s
-      timeout: 3s
+      timeout: 5s
       retries: 5
-      start_period: 5s
+      start_period: 10s
     networks:
       - thali_rehearsal_net
 

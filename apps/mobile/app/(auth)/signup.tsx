@@ -71,10 +71,6 @@ export default function SignupScreen() {
     }
 
     const cleanPhone = phone.trim();
-    if (!cleanPhone) {
-      setLocalError("Please enter your phone number.");
-      return;
-    }
 
     if (!signUp) {
       setLocalError("Registration is currently unavailable.");
@@ -84,14 +80,19 @@ export default function SignupScreen() {
     const trimmedName = name.trim();
     setSubmitting(true);
     try {
-      const res = await signUp({
+      const signupPayload: any = {
         email: cleanEmail,
         password,
         name: trimmedName || undefined,
-        phone: cleanPhone,
         role,
-        invite_code: role === "doctor" && inviteCode.trim() ? inviteCode.trim() : undefined,
-      });
+      };
+      if (cleanPhone) {
+        signupPayload.phone = cleanPhone;
+      }
+      if (role === "doctor" && inviteCode.trim()) {
+        signupPayload.invite_code = inviteCode.trim();
+      }
+      const res = await signUp(signupPayload);
 
       if (trimmedName) {
         try {
@@ -306,7 +307,7 @@ export default function SignupScreen() {
             label="Sign up"
             loadingLabel="Creating account..."
             onPress={handleSignup}
-            disabled={busy || !email.trim() || !phone.trim() || !password || !confirmPassword}
+            disabled={busy || !email.trim() || !password || !confirmPassword}
             busy={busy}
             accessibilityLabel={busy ? "Creating account..." : "Register & Sign In"}
             accessibilityHint="Submits your account registration to THALI."

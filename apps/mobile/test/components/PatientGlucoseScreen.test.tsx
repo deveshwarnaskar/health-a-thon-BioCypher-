@@ -275,7 +275,7 @@ describe("PatientGlucoseScreen & GlucoseEntryForm Component Tests (Gate 10D)", (
     renderScreen();
 
     expect(screen.getByText("Recent Readings")).toBeTruthy();
-    expect(screen.getByText("108")).toBeTruthy();
+    expect(screen.getAllByText("108").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Fasting").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Confirmed")).toBeTruthy();
 

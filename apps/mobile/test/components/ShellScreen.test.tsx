@@ -3,6 +3,7 @@ import { render, screen, fireEvent, act } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import ShellScreen from "../../app/(app)/shell";
 import type { Role } from "../../src/authz/roles";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 let mockAuthState: { name: string; user?: { role: string; actor_id: string; capabilities: string[] } } = {
   name: "authenticated",
@@ -74,10 +75,15 @@ const ALL_ROLES: Role[] = [
 ];
 
 function renderShell() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } }}>
-      <ShellScreen />
-    </SafeAreaProvider>
+    <QueryClientProvider client={queryClient}>
+      <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } }}>
+        <ShellScreen />
+      </SafeAreaProvider>
+    </QueryClientProvider>
   );
 }
 

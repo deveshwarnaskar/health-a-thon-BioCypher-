@@ -12,7 +12,7 @@ The THALI × P.L.A.T.E. stack comprises the following containerized services orc
 | :--- | :--- | :--- | :--- |
 | **`postgres`** | `postgres:16-alpine` | `5432` | Primary relational database with Row-Level Security (`RLS`) |
 | **`redis`** | `redis:7-alpine` | `6379` | Ephemeral caching & rate limiting |
-| **`minio`** | `quay.io/minio/minio:RELEASE.2024-01-18T22-51-28Z` | `9000`, `9001` | S3-compatible document storage (PDF clinical reports & assets) |
+| **`minio`** | `cgr.dev/chainguard/minio:latest` | `9000`, `9001` | S3-compatible document storage (PDF clinical reports & assets) |
 | **`migrate`** | `thali-migrate` (`Dockerfile:migrate`) | None | One-off Alembic database migration runner to `head` |
 | **`api`** | `thali-api` (`Dockerfile:api`) | `8000` | FastAPI asynchronous HTTP application & static clinician UI |
 | **`worker`** | `thali-worker` (`Dockerfile:worker`) | None | Asynchronous outbox processor & background worker daemon |
