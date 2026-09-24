@@ -17,7 +17,11 @@ echo "[entrypoint-migrate] Migrations completed successfully. Current database s
 alembic current
 
 if [ "${THALI_SEED_ENABLED:-true}" = "true" ] || [ "${THALI_SEED_ENABLED:-true}" = "1" ]; then
-    echo "[entrypoint-migrate] Running dev stack seeder..."
-    python -m scripts.seed_dev_stack
+    if [ -f "/app/scripts/seed_dev_stack.py" ] || [ -f "scripts/seed_dev_stack.py" ]; then
+        echo "[entrypoint-migrate] Running dev stack seeder..."
+        python -m scripts.seed_dev_stack
+    else
+        echo "[entrypoint-migrate] Seeder script not present; skipping seeding."
+    fi
 fi
 

@@ -60,6 +60,7 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy application code, configuration, and migrations
 COPY --chown=thali:thali backend/ ./backend/
 COPY --chown=thali:thali config/ ./config/
+COPY --chown=thali:thali scripts/ ./scripts/
 COPY --chown=thali:thali alembic.ini ./
 COPY --chown=thali:thali docker/entrypoint-api.sh ./docker/
 
@@ -87,6 +88,7 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy application code, configuration, and migrations
 COPY --chown=thali:thali backend/ ./backend/
 COPY --chown=thali:thali config/ ./config/
+COPY --chown=thali:thali scripts/ ./scripts/
 COPY --chown=thali:thali alembic.ini ./
 COPY --chown=thali:thali docker/entrypoint-worker.sh ./docker/
 
@@ -109,6 +111,7 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy application code, configuration, and migrations
 COPY --chown=thali:thali backend/ ./backend/
 COPY --chown=thali:thali config/ ./config/
+COPY --chown=thali:thali scripts/ ./scripts/
 COPY --chown=thali:thali alembic.ini ./
 COPY --chown=thali:thali docker/entrypoint-migrate.sh ./docker/
 

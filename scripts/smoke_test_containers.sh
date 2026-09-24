@@ -117,7 +117,18 @@ fi
 echo "✓ Readiness check PASSED."
 
 echo "Verifying worker logs..."
-WORKER_LOGS=$(docker compose logs worker | tail -n 20)
+WORKER_ATTEMPTS=0
+WORKER_MAX_ATTEMPTS=15
+WORKER_LOGS=""
+while [ "${WORKER_ATTEMPTS}" -lt "${WORKER_MAX_ATTEMPTS}" ]; do
+    WORKER_LOGS=$(docker compose logs worker 2>&1 | tail -n 30)
+    if [[ "${WORKER_LOGS}" == *"Starting THALI Transactional Outbox Worker"* ]]; then
+        break
+    fi
+    WORKER_ATTEMPTS=$((WORKER_ATTEMPTS + 1))
+    sleep 1
+done
+
 if [[ "${WORKER_LOGS}" == *"Starting THALI Transactional Outbox Worker"* ]]; then
     echo "✓ Worker process startup confirmed."
 else
