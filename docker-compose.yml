@@ -67,12 +67,6 @@ services:
       - "9001:9001"
     volumes:
       - minio_data:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
     networks:
       - thali_rehearsal_net
 
@@ -124,7 +118,7 @@ services:
       redis:
         condition: service_healthy
       minio:
-        condition: service_healthy
+        condition: service_started
       migrate:
         condition: service_completed_successfully
     healthcheck:
@@ -157,7 +151,7 @@ services:
       redis:
         condition: service_healthy
       minio:
-        condition: service_healthy
+        condition: service_started
       migrate:
         condition: service_completed_successfully
       api:

@@ -73,12 +73,6 @@ services:
       MINIO_ROOT_PASSWORD: ${PROD_STORAGE_SECRET_KEY:?Mandatory production storage secret key missing}
     volumes:
       - prod_storage_data:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
     networks:
       - thali_prod_data_net
 
@@ -132,7 +126,7 @@ services:
       redis:
         condition: service_healthy
       storage:
-        condition: service_healthy
+        condition: service_started
       migrate:
         condition: service_completed_successfully
     healthcheck:
@@ -176,7 +170,7 @@ services:
       redis:
         condition: service_healthy
       storage:
-        condition: service_healthy
+        condition: service_started
       migrate:
         condition: service_completed_successfully
       api:

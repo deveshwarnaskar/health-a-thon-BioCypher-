@@ -28,7 +28,51 @@ echo "✓ All container targets built successfully."
 echo "=== [3/6] Starting Infrastructure Services (PostgreSQL, Redis, MinIO) ==="
 docker compose up -d postgres redis minio
 echo "Waiting for infrastructure dependencies to become healthy..."
-docker compose wait postgres redis minio
+
+echo "Waiting for PostgreSQL to be healthy..."
+PG_ATTEMPTS=0
+PG_MAX_ATTEMPTS=30
+until [ "$(docker compose ps --format '{{.Health}}' postgres 2>/dev/null)" = "healthy" ]; do
+    PG_ATTEMPTS=$((PG_ATTEMPTS + 1))
+    if [ "${PG_ATTEMPTS}" -ge "${PG_MAX_ATTEMPTS}" ]; then
+        echo "✗ PostgreSQL failed to become healthy."
+        docker compose logs postgres
+        docker compose down -v
+        exit 1
+    fi
+    sleep 2
+done
+echo "✓ PostgreSQL is healthy."
+
+echo "Waiting for Redis to be healthy..."
+REDIS_ATTEMPTS=0
+REDIS_MAX_ATTEMPTS=30
+until [ "$(docker compose ps --format '{{.Health}}' redis 2>/dev/null)" = "healthy" ]; do
+    REDIS_ATTEMPTS=$((REDIS_ATTEMPTS + 1))
+    if [ "${REDIS_ATTEMPTS}" -ge "${REDIS_MAX_ATTEMPTS}" ]; then
+        echo "✗ Redis failed to become healthy."
+        docker compose logs redis
+        docker compose down -v
+        exit 1
+    fi
+    sleep 2
+done
+echo "✓ Redis is healthy."
+
+echo "Waiting for MinIO to respond on port 9000..."
+MINIO_ATTEMPTS=0
+MINIO_MAX_ATTEMPTS=30
+until curl -s -f http://localhost:9000/minio/health/live > /dev/null 2>&1; do
+    MINIO_ATTEMPTS=$((MINIO_ATTEMPTS + 1))
+    if [ "${MINIO_ATTEMPTS}" -ge "${MINIO_MAX_ATTEMPTS}" ]; then
+        echo "✗ MinIO failed to respond on /minio/health/live after ${MINIO_MAX_ATTEMPTS} attempts."
+        docker compose logs minio
+        docker compose down -v
+        exit 1
+    fi
+    sleep 2
+done
+echo "✓ MinIO is responsive and healthy."
 echo "✓ PostgreSQL, Redis, and MinIO are healthy."
 
 echo "=== [4/6] Executing Deterministic Database Migrations ==="
