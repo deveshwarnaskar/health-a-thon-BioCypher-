@@ -1,32 +1,81 @@
-Aahaar — Glycemic Context for the Diabetes OPD
+T.H.A.L.I / P.L.A.T.E. — Proprietary Evaluation License
 Health-a-thon 2026 (Diabetes Care track)
 
-Copyright © 2026 BioCypher (Health-a-thon 2026 submission team).
-All rights reserved. NOT FOR PUBLIC DISTRIBUTION.
+Copyright © 2026 T.H.A.L.I / P.L.A.T.E.
+All rights reserved. NOT FOR PUBLIC DISTRIBUTION OR REUSE.
 
-This software, its source code, documentation, and all generated
-artifacts (collectively, the "Work") are the intellectual property of
-the BioCypher team and are protected by applicable copyright laws.
+This software, its source code, documentation, designs, workflows,
+architecture, user interfaces, prompts, models, datasets, generated
+artifacts, demonstrations, and related materials (collectively, the
+"Work") are proprietary to T.H.A.L.I / P.L.A.T.E. and are protected by
+applicable copyright and other intellectual-property laws.
 
-1. Permission is granted to the Health-a-thon 2026 organisers and
-   judging panel to access and evaluate the Work for the purposes of
-   the competition only.
+1. EVALUATION-ONLY ACCESS
+   Permission is granted solely to the Health-a-thon 2026 organisers,
+   authorised judging panel, and other persons expressly authorised in
+   writing by T.H.A.L.I / P.L.A.T.E. to access the Work for competition
+   evaluation purposes only.
 
-2. No copying, reproduction, redistribution, modification, derivative
-   creation, commercial use, or reuse of the Work, in whole or in part,
-   is permitted without the prior written consent of the copyright
-   holder, except as expressly stated in paragraph 1.
+2. NO COPYING OR REPRODUCTION
+   No copying, reproduction, redistribution, publication, mirroring,
+   sublicensing, resale, commercial use, educational reuse, public
+   demonstration, or other dissemination of the Work, in whole or in
+   part, is permitted without prior written permission from
+   T.H.A.L.I / P.L.A.T.E.
 
-3. The Work is provided "as is", without warranty of any kind, express
-   or implied, including but not limited to the warranties of
-   merchantability, fitness for a particular purpose, and
-   non-infringement. In no event shall the authors or copyright holders
-   be liable for any claim, damages, or other liability arising from,
-   out of, or in connection with the Work.
+3. NO DERIVATIVE OR SIMILAR REPRODUCTION
+   No person or organisation may modify, adapt, translate, reverse
+   engineer, decompile, disassemble, clone, imitate, recreate, derive,
+   or use the Work as a basis for a substantially similar product,
+   workflow, architecture, user interface, feature set, presentation,
+   implementation, or competing submission without prior written
+   permission from T.H.A.L.I / P.L.A.T.E.
 
-4. Any data, patient information, and meal imagery described or stored
-   by the Work are fictitious and anonymised for demonstration
-   purposes and must be treated as such.
+4. NO EXTRACTION FOR REPLICATION
+   The Work may not be used to extract or reproduce implementation
+   details, system designs, prompts, model behaviour, data structures,
+   screenshots, diagrams, workflows, documentation, or other protected
+   expression for the purpose of replication, benchmarking-for-copying,
+   competitive reconstruction, or creation of a substitute or look-alike
+   system.
 
-THIS LICENSE DOES NOT GRANT ANY PUBLIC LICENSE OR DISTRIBUTION RIGHTS.
-THE WORK IS PROVIDED UNDER THIS PRIVATE LICENSE ONLY.
+5. NO TRAINING OR DATASET USE
+   The Work may not be used, copied, scraped, harvested, indexed, or
+   incorporated into any dataset, model-training corpus, retrieval
+   system, code-generation system, or other automated system for the
+   purpose of reproducing, learning, or generating substantially similar
+   material, except with prior written permission from
+   T.H.A.L.I / P.L.A.T.E.
+
+6. NO IMPLIED LICENSE
+   Possession of, access to, or viewing of the Work does not grant any
+   license or right to copy, use, reproduce, modify, distribute, or
+   create derivative works. All rights not expressly granted in this
+   license are reserved by T.H.A.L.I / P.L.A.T.E.
+
+7. DEMONSTRATION DATA
+   Any patient information, meal imagery, measurements, or other data
+   described or stored by the Work for demonstration purposes are
+   fictitious, synthetic, or anonymised and must be treated accordingly.
+
+8. DISCLAIMER
+   THE WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND
+   NON-INFRINGEMENT. TO THE MAXIMUM EXTENT PERMITTED BY LAW,
+   T.H.A.L.I / P.L.A.T.E. AND ITS CONTRIBUTORS SHALL NOT BE LIABLE FOR
+   ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM OR IN CONNECTION
+   WITH THE WORK.
+
+9. ENFORCEMENT
+   Any unauthorised use, copying, reproduction, distribution, adaptation,
+   derivative creation, or substantially similar reproduction of the
+   Work is expressly prohibited. T.H.A.L.I / P.L.A.T.E. reserves all
+   rights and remedies available under applicable law.
+
+THIS LICENSE GRANTS NO PUBLIC, OPEN-SOURCE, REPRODUCTION, DISTRIBUTION,
+DERIVATIVE-WORK, OR COMMERCIAL RIGHTS.
+
+Unless T.H.A.L.I / P.L.A.T.E. gives prior written permission, you may
+view the Work only to the extent expressly authorised for evaluation and
+may not otherwise use it.
